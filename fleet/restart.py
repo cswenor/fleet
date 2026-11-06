@@ -49,7 +49,8 @@ def _foreground(c, record, slot, handle):
             after = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
             if after[0] not in ('R', 'S') or before[1:6] != after[1:6] or before[19] != after[19]:
                 continue
-            owners.append({'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2]})
+            owners.append({'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2],
+                           'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip()})
         except (OSError, ValueError, IndexError, UnicodeError):
             continue
     if len(owners) != 1:
@@ -192,6 +193,38 @@ def _idle(c, record, tree, handle, previous=None):
     proof['process'] = _foreground(c, record, tree['path'], handle)
     return proof
 
+def _exited_shell(process, handle):
+    """Positive same-boot exit and sole foreground shell on the recorded pts."""
+    if not process.get('boot_id') or (PROC / 'sys/kernel/random/boot_id').read_text().strip() != process['boot_id']:
+        raise ValueError('boot identity changed or unknown')
+    old = PROC / str(process['pid']) / 'stat'
+    try:
+        if old.read_text().rsplit(')', 1)[1].split()[19] == process['start']:
+            raise ValueError('bound OMP process is still present')
+    except FileNotFoundError:
+        pass
+    occupants = []
+    for proc in PROC.glob('[0-9]*'):
+        try:
+            fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+        except FileNotFoundError:
+            continue
+        if fields[4] == process['tty']:
+            occupants.append((proc, fields))
+    if len(occupants) != 1:
+        raise ValueError('recorded pts has no unique shell occupant')
+    proc, before = occupants[0]
+    if (before[0] not in ('R', 'S') or int(before[4]) == 0 or
+            before[2] != before[5] or before[2] != proc.name or
+            (proc / 'exe').resolve(strict=True).name not in ('bash', 'zsh', 'sh') or
+            ('ORCA_TERMINAL_HANDLE=' + handle).encode() not in (proc / 'environ').read_bytes().split(b'\0')):
+        raise ValueError('recorded pts is not owned by the foreground POSIX shell')
+    after = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+    if before[0:6] != after[0:6] or before[19] != after[19]:
+        raise ValueError('foreground shell changed during verification')
+    return {'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2]}
+
+
 
 def restart(c, ref, slot, finished_ref):
     if not sys.platform.startswith('linux'):
@@ -246,8 +279,44 @@ def restart(c, ref, slot, finished_ref):
                         terminal.get('incarnationId') != record['terminal_incarnation_id'] or terminal.get('worktreeId') != tree['id']):
                     raise ValueError('target identity lost after exit; inspect retirement receipt, no retry')
                 screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
-                if health.shell_ready('\n'.join(screen.get('tail', []))):
+                text = '\n'.join(screen.get('tail', []))
+                if health.shell_ready(text):
                     break
+                residue = health.shell_reply_residue(text)
+                if residue:
+                    receipt['stage'] = 'shell-verified-with-residue'
+                    state.write(c, 'retirements', retirements)
+                    try:
+                        shell = _exited_shell(proof['process'], target['terminal'])
+                        # Re-read identity, process and exact residue immediately before input.
+                        latest = orca(c, 'terminal', 'show', '--terminal', target['terminal'])['terminal']
+                        latest_screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
+                        if (not latest.get('connected') or latest.get('orphaned') or not latest.get('writable') or
+                                latest.get('incarnationId') != record['terminal_incarnation_id'] or
+                                latest.get('worktreeId') != tree['id'] or
+                                '\n'.join(latest_screen.get('tail', [])) != text or
+                                _exited_shell(proof['process'], target['terminal']) != shell):
+                            raise ValueError('residue cleanup evidence changed')
+                        receipt['residue_cleanup'] = {'stage': 'input-attempted', 'shell': shell, 'reply': residue}
+                        state.write(c, 'retirements', retirements)
+                        orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '\x15')
+                        clean = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
+                        current = orca(c, 'terminal', 'show', '--terminal', target['terminal'])['terminal']
+                        clean_text = '\n'.join(clean.get('tail', []))
+                        clean_lines = [line.strip() for line in clean_text.splitlines() if line.strip()]
+                        expected_prompt = text.splitlines()[-1][:-len(residue)].rstrip()
+                        if (not current.get('connected') or current.get('orphaned') or not current.get('writable') or
+                                current.get('incarnationId') != record['terminal_incarnation_id'] or
+                                current.get('worktreeId') != tree['id'] or
+                                not health.shell_ready(clean_text) or not clean_lines or
+                                clean_lines[-1] != expected_prompt or
+                                _exited_shell(proof['process'], target['terminal']) != shell):
+                            raise ValueError('line-kill did not produce a verified clean prompt')
+                        receipt['residue_cleanup']['stage'] = 'clean-prompt-verified'
+                        break
+                    except (OSError, ValueError, IndexError, RuntimeError) as exc:
+                        raise ValueError('residue remains unconfirmed; launch withheld; manually verify and clear '
+                                         'the shell line before fleet launch; never retry cleanup or restart') from exc
                 time.sleep(0.25)
             else:
                 raise ValueError('exit timed out without verified shell; inspect retirement receipt, no retry')
@@ -263,6 +332,9 @@ def restart(c, ref, slot, finished_ref):
                 'after confirming no replacement session started and admission recovers, retry fleet launch '
                 'for next_ref and this slot, not fleet restart'
                 if receipt['stage'] == 'launch-attempted' else
+                'launch withheld; manually verify and clear the shell line before fleet launch; '
+                'never retry cleanup or restart'
+                if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
             state.write(c, 'retirements', retirements)
             if isinstance(exc, ValueError):

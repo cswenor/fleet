@@ -47,6 +47,9 @@ class RetirementTests(unittest.TestCase):
         (self.process / 'cwd').symlink_to(root)
         (self.process / 'exe').symlink_to(root / 'omp')
         self.write_stat()
+        boot = self.proc / 'sys/kernel/random/boot_id'
+        boot.parent.mkdir(parents=True)
+        boot.write_text('test-boot')
         proc_patch = patch.object(restart, 'PROC', self.proc)
         proc_patch.start()
         self.addCleanup(proc_patch.stop)
@@ -55,6 +58,11 @@ class RetirementTests(unittest.TestCase):
         self.comments = []
         self.sent = []
         self.exited = False
+        self.residue = None
+        self.cleanup_works = True
+        self.keep_omp = False
+        self.shell_exe = 'bash'
+        self.shell_foreground = '321'
         self.next_status = 'in-progress'
         self.next_parent_status = 'active'
         self.next_edges = []
@@ -94,16 +102,33 @@ class RetirementTests(unittest.TestCase):
         if args[:2] == ('terminal', 'show'):
             return {'terminal': self.terminal}
         if args[:2] == ('terminal', 'read'):
-            return {'terminal': {'tail': ['dev@host:~/slot$'] if self.exited else self.screen}}
+            prompt = 'dev@host:~/slot$' + (' ' + self.residue if self.residue else '')
+            return {'terminal': {'tail': [prompt] if self.exited else self.screen}}
         if args[:2] == ('worktree', 'ps'):
             return {'worktrees': [{'worktreeId': 'tree', 'agents': [self.agent]}]}
         if args[:2] == ('terminal', 'send'):
             self.sent.append(args)
+            if args[-2:] == ('--text', '\x15'):
+                receipt = state.read(c, 'retirements')[self.slot]
+                self.assertEqual(receipt['residue_cleanup']['stage'], 'input-attempted')
+                if self.cleanup_works:
+                    self.residue = None
+                return {'accepted': True}
             # Intent must already be durable even if the transport fails.
             self.assertEqual(state.read(c, 'retirements')[self.slot]['stage'], 'exit-attempted')
             if self.send_error:
                 raise RuntimeError('lost transport')
             self.exited = True
+            if self.residue:
+                if not self.keep_omp:
+                    (self.process / 'stat').unlink()
+                shell = self.proc / '321'
+                shell.mkdir()
+                fields = ['S', '1', '321', '1', '456', self.shell_foreground] + ['0'] * 13 + ['2000']
+                (shell / 'stat').write_text('321 (bash) ' + ' '.join(fields))
+                (shell / 'exe').symlink_to(shell / self.shell_exe)
+                (shell / self.shell_exe).touch()
+                (shell / 'environ').write_bytes(b'ORCA_TERMINAL_HANDLE=target\0')
             return {'accepted': True}
         self.fail(args)
 
@@ -126,6 +151,136 @@ class RetirementTests(unittest.TestCase):
         self.sent.clear()
         self.launch.reset_mock()
         self.refused('already attempted')
+
+    def test_reply_residue_is_cleared_once_before_launch(self):
+        self.residue = '16;8t'
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(result['retirement']['residue_cleanup']['stage'], 'clean-prompt-verified')
+        self.assertEqual(self.sent[-1][-2:], ('--text', '\x15'))
+        self.assertEqual(len(self.sent), 2)
+        self.launch.assert_called_once()
+
+    def test_failed_line_kill_never_retries_or_launches(self):
+        self.residue, self.cleanup_works = '16;8t', False
+        with self.assertRaisesRegex(ValueError, 'manually verify and clear'):
+            self.run_restart()
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(state.read(self.c, 'retirements')[self.slot]['stage'], 'shell-verified-with-residue')
+        self.launch.assert_not_called()
+        self.sent.clear()
+        self.refused('already attempted')
+
+    def test_ambiguous_cleanup_transport_never_retries_or_launches(self):
+        self.residue = '16;8t'
+        original = self.orca
+        def lost(c, *args):
+            result = original(c, *args)
+            if args[-2:] == ('--text', '\x15'):
+                raise RuntimeError('transport lost after input')
+            return result
+        with patch.object(restart, 'orca', side_effect=lost):
+            with self.assertRaisesRegex(ValueError, 'never retry cleanup'):
+                self.run_restart()
+        self.assertEqual(len(self.sent), 2)
+        self.launch.assert_not_called()
+        self.sent.clear()
+        self.refused('already attempted')
+
+    def test_changed_residue_before_cleanup_preserves_input(self):
+        self.residue = '16;8t'
+        original = self.orca
+        reads = 0
+        def changed(c, *args):
+            nonlocal reads
+            if self.exited and args[:2] == ('terminal', 'read'):
+                reads += 1
+                if reads == 2:
+                    self.residue = '16;8t echo draft'
+            return original(c, *args)
+        with patch.object(restart, 'orca', side_effect=changed):
+            with self.assertRaisesRegex(ValueError, 'launch withheld'):
+                self.run_restart()
+        self.assertEqual(self.residue, '16;8t echo draft')
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+
+    def test_live_omp_refuses_residue_cleanup(self):
+        self.residue, self.keep_omp = '16;8t', True
+        with self.assertRaisesRegex(ValueError, 'launch withheld'):
+            self.run_restart()
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+
+    def test_non_shell_foreground_refuses_cleanup(self):
+        self.residue, self.shell_exe = '16;8t', 'cat'
+        with self.assertRaisesRegex(ValueError, 'launch withheld'):
+            self.run_restart()
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+
+    def test_background_shell_refuses_cleanup(self):
+        self.residue, self.shell_foreground = '16;8t', '999'
+        with self.assertRaisesRegex(ValueError, 'launch withheld'):
+            self.run_restart()
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+    def test_arbitrary_or_oversized_input_never_receives_line_kill(self):
+        for text in ('echo hello', '1;' + '9' * 1000 + 'R'):
+            with self.subTest(text=text):
+                self.residue = text
+                # Exercise one post-exit observation, then expire the bounded wait.
+                with patch.object(restart.time, 'monotonic', side_effect=[0, 1, 16]), \
+                        patch.object(restart.time, 'sleep'):
+                    with self.assertRaisesRegex(ValueError, 'timed out'):
+                        self.run_restart()
+                self.assertEqual(len(self.sent), 1)
+                self.launch.assert_not_called()
+                state.write(self.c, 'retirements', {})
+                self.sent.clear()
+                self.exited = False
+                self.write_stat()
+                for path in (self.proc / '321').iterdir():
+                    path.unlink()
+                (self.proc / '321').rmdir()
+
+    def test_changed_boot_refuses_cleanup(self):
+        self.residue = '16;8t'
+        original = self.orca
+        def change_boot(c, *args):
+            result = original(c, *args)
+            if args[:2] == ('terminal', 'send'):
+                (self.proc / 'sys/kernel/random/boot_id').write_text('new-boot')
+            return result
+        with patch.object(restart, 'orca', side_effect=change_boot):
+            with self.assertRaisesRegex(ValueError, 'launch withheld'):
+                self.run_restart()
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+
+    def test_extra_pts_process_refuses_cleanup(self):
+        self.residue = '16;8t'
+        extra = self.proc / '999'
+        extra.mkdir()
+        (extra / 'stat').write_text('999 (cat) ' + ' '.join(
+            ['S', '321', '999', '1', '456', '321'] + ['0'] * 13 + ['3000']))
+        with self.assertRaisesRegex(ValueError, 'launch withheld'):
+            self.run_restart()
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_not_called()
+
+
+    def test_reply_patterns_never_make_normal_launch_ready(self):
+        from fleet import health
+        for residue in ('16;8t', '12;80R', '4;600;800t', '8;24;80t'):
+            with self.subTest(residue=residue):
+                text = 'dev@host:~/slot$ ' + residue
+                self.assertEqual(health.shell_reply_residue(text), residue)
+                self.assertFalse(health.shell_ready(text))
+        for residue in ('echo hello', '16;8t;pwd', '16;8t ', ' 16;8t', '1234567;8t',
+                        '16;8x', '0;0;0t', '1;2R3;4R', '\x1b[31m16;8t', '1;' + '9' * 1000 + 'R'):
+            with self.subTest(residue=residue):
+                self.assertIsNone(health.shell_reply_residue('dev@host:~/slot$ ' + residue))
 
     def test_ready_bound_shell_does_not_block_exact_builder_retirement(self):
         self.inventory['builders'].append({

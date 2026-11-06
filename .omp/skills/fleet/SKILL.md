@@ -286,6 +286,12 @@ For a published finished builder, Main can use
 NEXT, merged-PR + Pad/handoff proof, exact launch/session/foreground ownership,
 positive idle/empty composer, next-task admission, and one journaled exit followed
 by same-incarnation verified shell. No force, Esc, interrupt or blind retry.
+Only strict bounded terminal-reply residue permits one journaled Ctrl-U (no Enter):
+same-boot exact OMP PID/starttime exit, unchanged terminal incarnation, and sole
+foreground bash/zsh/sh on the recorded pts with matching routing are required.
+Restart revalidates proof before input and requires the exact clean prompt after.
+Failure leaves `shell-verified-with-residue` and withholds launch; manually verify
+and clear the line, never retry cleanup or restart. Normal launch stays prompt-only.
 Inspect retirement receipts after partial failure. **TASK-34 caveat:** until its
 restart branch-preparation/self-claim fix is merged and deployed, do not switch
 a still-running OLD lane to NEXT to satisfy branch preflight. Keep OLD intact;

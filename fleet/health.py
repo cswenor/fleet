@@ -32,6 +32,22 @@ def shell_ready(text):
     return bool(lines and re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', lines[-1]))
 
 
+def shell_reply_residue(text):
+    """Recognise only a bounded reply body after a supported shell prompt.
+
+    This is not a ready-shell receipt: callers must prove process exit and
+    foreground ownership before considering any line-kill input.
+    """
+    lines = [line for line in text.replace('\r', '\n').splitlines() if line.strip()]
+    if not lines or len(lines[-1]) > 4096 or any(ord(char) < 32 or ord(char) == 127 for char in lines[-1]):
+        return None
+    match = re.fullmatch(
+        r'((?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]) '
+        r'([0-9]{1,6};[0-9]{1,6}[tR]|[4689];[0-9]{1,6};[0-9]{1,6}t)',
+        lines[-1])
+    return match[2] if match else None
+
+
 def active(builder):
     # Only a current connected shell receipt proves the old session is gone.
     return not (builder['connected'] and builder.get('shell_ready', False))

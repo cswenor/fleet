@@ -168,6 +168,16 @@ Inspect `retirements.json` and launch receipts on any partial error; never retry
 Pre-binding/legacy sessions without proof remain manual reconciliation, not
 permission for forced retirement. This does not restart Orca or the supervisor.
 
+TASK-42 terminal-reply recovery is the only cleanup-input exception: after a
+strict bounded reply body (`16;8t`, cursor `row;columnR`, or standard size reply)
+follows the prompt, restart requires same-boot exact OMP PID/starttime exit and
+the same-incarnation pts occupied solely by a foreground bash/zsh/sh with matching
+terminal routing. Revalidated identity/screen/process proof and a durable
+`residue_cleanup` intent precede **one Ctrl-U, no Enter**. It must then observe the
+exact clean prompt before guarded launch. Any mismatch/failure withholds launch
+at `shell-verified-with-residue`: inspect the receipt and manually verify/clear
+the line, never retry Ctrl-U, `/exit` or restart. Normal launch remains prompt-only.
+
 ## Waiting and inboxes
 
 Finite long work runs via omp async shell; completion wakes the owning session.

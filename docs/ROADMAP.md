@@ -250,6 +250,36 @@ Main reports deployment to the stable shared checkout at 21:12 UTC and Fleet's
 supervisor reinstall; Project Alpha's supervisor reinstall remains pending its Main.
 Main coordinates the Project Alpha switch and TASK-10 script retirement.
 
+### TASK-42 — Guarded post-exit terminal-reply cleanup
+
+Main ruling `msg_cc2c63592b1d` permits exactly one journaled Ctrl-U, no Enter,
+only after strict bounded reply recognition, same-boot exact OMP PID/starttime
+exit, unchanged terminal incarnation and sole foreground bash/zsh/sh on the
+recorded pts with matching routing. Fresh identity/screen/process revalidation
+precedes input; the exact clean prompt is required before normal guarded launch.
+Any mismatch/failure withholds launch at `shell-verified-with-residue`, with
+manual-clear guidance and no cleanup/restart retry. Health and normal launch
+remain prompt-only; arbitrary/oversized input is never cleared.
+
+Real owned scratch shell reproduction injected literal `16;8t`, making the
+existing prompt-only check return false. The source CLI restart drill then
+retired initial session `01a1b309-8b93-75ab-b624-14656f68e1d9`, injected the same
+residue after actual exit, proved foreground bash PID 1654786, recorded one
+line-kill and clean-prompt verification, and reused the terminal for TASK-46
+launch `1794005223019746420`, session `01a1b30b-4b3f-730a-9b44-0a8cd1021b8d`.
+Both fresh sessions recorded actual Sol medium. Main-approved throwaway inventory
+isolation excluded live lane terminals; all process/session/completion/admission,
+terminal input and replacement-launch checks remained real. Scratch Run
+`run_cf297299ca3b` and private config/state never targeted live Runs or services.
+Both owned scratch terminals closed with `ptyKilled=true`; TASK-46 cancelled and
+the throwaway adapter removed. Replacement thread-open refused isolated-state
+inheritance mismatch: this proves restart/launch, not task-thread delivery.
+All 253 local unit tests passed, including live-PID, non-shell/background shell,
+extra-pts-process, changed-boot, failed/ambiguous-cleanup, changed-screen and
+arbitrary/oversized negatives.
+Publication requires final-head independent Sol-medium review, green CI and
+Main's explicit exact-head merge GO; merge is not deployment.
+
 ### TASK-44 — Scope initial watcher events to the selected PR
 
 Initial `watch-pr` events now use the same exact-PR filter as subsequent

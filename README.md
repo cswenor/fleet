@@ -598,6 +598,20 @@ Restart excludes only the proven retiring terminal from the pre-exit cap check.
 Post-exit failures retain durable recovery guidance: confirm no replacement
 started, then retry `launch NEXT --slot PATH`, never repeat `restart`/`/exit`.
 
+If exit leaves exactly a terminal-reply body after the prompt, restart may send
+**one Ctrl-U (0x15), without Enter**, never arbitrary cleanup input. Recognition
+is limited to one two-number `t`/`R` body or a three-number `t` size reply whose
+first field is 4, 6, 8 or 9; fields contain 1–6 ASCII digits and separators are
+semicolons, with no extra whitespace or text. Before input it proves the
+recorded OMP PID/starttime is gone on the same boot, the same-incarnation pts has
+exactly one process, and that process is a foreground bash/zsh/sh with matching
+terminal routing. It rechecks identity/screen/process evidence and journals
+`residue_cleanup.stage=input-attempted` before sending. A fresh exact clean prompt
+and unchanged shell proof are mandatory before normal launch. Any mismatch or
+failed cleanup leaves `shell-verified-with-residue`, withholds launch and requires
+manual verification/line clearing; never repeat Ctrl-U or restart. Ordinary
+health/admission/launch still accept only clean prompts, not residue.
+
 Optional hooks `before_launch`, `after_launch`, and `event` are argv lists, run
 without a shell in the project checkout (launch hooks use the slot when known).
 Their output is discarded and only redacted command failures are reported.
