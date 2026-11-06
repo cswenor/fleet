@@ -13,9 +13,39 @@ def main():
     for cmd in ('status', 'may-start'):
         p = sub.add_parser(cmd)
         p.add_argument('--json', action='store_true')
+    p = sub.add_parser('serve')
+    p.add_argument('--once', action='store_true')
+    p.add_argument('--no-deliver', action='store_true')
+    p = sub.add_parser('launch')
+    p.add_argument('ref')
+    p.add_argument('--slot')
+    p = sub.add_parser('watch-pr')
+    p.add_argument('number', type=int)
+    p.add_argument('--timeout', type=int, default=14400)
+    p.add_argument('--interval', type=int, default=60)
+    p = sub.add_parser('install-service')
+    p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     args = parser.parse_args()
     try:
         c = load(args.config)
+        if args.command == 'serve':
+            from .supervisor import serve
+            serve(c, not args.no_deliver, args.once)
+            return 0
+        if args.command == 'launch':
+            from .launcher import launch
+            print(json.dumps(launch(c, args.ref, args.slot), indent=2))
+            return 0
+        if args.command == 'watch-pr':
+            if args.timeout < 1 or args.interval < 1 or args.number < 1:
+                raise ValueError('watch-pr arguments must be positive')
+            from .watcher import watch
+            print(json.dumps(watch(c, args.number, args.timeout, args.interval)))
+            return 0
+        if args.command == 'install-service':
+            from .service import install
+            print(json.dumps(install(c, args.deliver)))
+            return 0
         s = snapshot.collect(c)
         if args.command == 'may-start':
             result = snapshot.may_start(c, s)

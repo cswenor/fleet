@@ -1,0 +1,82 @@
+"""Explicit, guarded launch; never stops or types into an existing terminal."""
+from pathlib import Path
+import re
+import shlex
+import time
+import yaml
+from . import health, snapshot, state
+from .commands import orca, run
+
+
+def launch(c, ref, slot=None):
+    if not re.fullmatch(r'[A-Z]+-\d+', ref):
+        raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
+    with state.lock(c, 'launcher'):
+        s = snapshot.collect(c)
+        admission = snapshot.may_start(c, s)
+        if not admission['may_start']:
+            raise ValueError('launch withheld: ' + '; '.join(admission['reasons']))
+        orca(c, 'terminal', 'show', '--terminal', c['coordinator']['terminal'])
+        orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
+        run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', ref, '--format', 'json'], c['root'])
+        inventory = s['inventory']
+        occupied = {b['path'] for b in inventory['builders'] if b['connected']}
+        slots = c['builder']['slots']
+        chosen = str(Path(slot).expanduser().resolve()) if slot else next((p for p in slots if p not in occupied and Path(p).is_dir()), None)
+        if chosen and chosen not in slots:
+            raise ValueError('requested slot is not in builder.slots')
+        if chosen in occupied:
+            raise ValueError('slot has a connected omp terminal; finish and close it explicitly first')
+        existing = chosen is not None and Path(chosen).is_dir()
+        if existing:
+            matches = [w for w in inventory['worktrees'] if w['path'] == chosen]
+            if len(matches) != 1:
+                raise ValueError('slot must map to exactly one Orca worktree')
+            w = matches[0]
+        else:
+            # Creation only when an explicitly configured slot path is absent. Name must match.
+            missing = chosen or next((p for p in slots if not Path(p).exists()), None)
+            if not missing:
+                raise ValueError('no free configured slot')
+            if c['hooks'].get('before_launch'):
+                run(c['hooks']['before_launch'], c['root'])
+            created = orca(c, 'worktree', 'create', '--repo', 'id:' + c['orca_repo_id'], '--name', Path(missing).name,
+                           '--no-parent', '--setup', 'run')['worktree']
+            w = {'id': created['id'], 'path': created['path']}
+            if w['path'] != missing:
+                raise ValueError('Orca created a different slot path; inspect it before retrying')
+        if existing and c['hooks'].get('before_launch'):
+            run(c['hooks']['before_launch'], w['path'])
+        b = c['builder']
+        rules = Path(w['path']) / b['rules_file']
+        if not rules.is_file():
+            raise ValueError('configured project rules_file is absent in slot')
+        prompt = f'''Pad-Ref: {ref}
+Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
+Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
+Never create extra git worktrees. Self-publish according to project rules.
+Use the following durable command to report, not terminal input:
+{shlex.quote(c['orca'])} orchestration send --to run:{c['coordinator']['run']} --type status --subject "{ref}: report" --body "<evidence and outcome>"
+An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet watch-pr PR as an async background command; never poll with model turns.
+{b['footer']}
+'''
+        path = state.directory(c)
+        nonce = str(time.time_ns())
+        prompt_path = path / ('prompt-' + nonce + '.txt')
+        prompt_path.write_text(prompt)
+        prompt_path.chmod(0o600)
+        overlay = path / ('omp-' + nonce + '.yml')
+        overlay.write_text(yaml.safe_dump({'autoResume': False, 'extendedContext': False,
+            'retry': {'modelFallback': False, 'usageAwareFallback': False,
+                      'usageReservePct': c['quota']['reserve_percent'], 'usageReservePolicy': 'fail-closed',
+                      'fallbackChains': {b['resolved_model']: []}},
+            'compaction': {'modelThresholds': {b['resolved_model']: 'f200000'}}}))
+        overlay.chmod(0o600)
+        command = shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '@' + str(prompt_path)])
+        result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
+        # Persist receipt before any subsequent operation: failure is never permission to relaunch.
+        state.write(c, 'last-launch', {'ref': ref, 'worktree': w, 'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)})
+        orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
+        if c['hooks'].get('after_launch'):
+            run(c['hooks']['after_launch'], w['path'])
+        return state.read(c, 'last-launch')

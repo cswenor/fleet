@@ -11,28 +11,25 @@ def pages(c, endpoint):
     return [row for page in data for row in page]
 
 
-def iso_now():
-    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-
-
-def collect(c):
+def collect(c, pr_number=None):
     repo = c['repo']
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace('+00:00', 'Z')
-    # Updated ordering includes every open PR; closed PRs older than the window stop pagination relevance.
-    prs = []
-    page = 1
-    while True:
-        rows = gh(c, 'api', f'repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page={page}')
-        for p in rows:
-            if p['state'] == 'open' or p['updated_at'] >= since:
-                prs.append(p)
-        if len(rows) < 100 or all(p['updated_at'] < since for p in rows):
-            break
-        page += 1
-    # Old open PRs can be below the updated cutoff.
-    open_prs = pages(c, f'repos/{repo}/pulls?state=open&per_page=100')
-    by_number = {p['number']: p for p in prs}
-    by_number.update({p['number']: p for p in open_prs})
+    if pr_number is not None:
+        p = gh(c, 'api', f'repos/{repo}/pulls/{pr_number}')
+        by_number = {pr_number: p}
+    else:
+        prs = []
+        page = 1
+        while True:
+            rows = gh(c, 'api', f'repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page={page}')
+            prs.extend(p for p in rows if p['state'] == 'open' or p['updated_at'] >= since)
+            if len(rows) < 100 or all(p['updated_at'] < since for p in rows):
+                break
+            page += 1
+        # Old open PRs can be below the updated cutoff.
+        open_prs = pages(c, f'repos/{repo}/pulls?state=open&per_page=100')
+        by_number = {p['number']: p for p in prs}
+        by_number.update({p['number']: p for p in open_prs})
     result = []
     for p in by_number.values():
         number = p['number']
@@ -61,24 +58,22 @@ def collect(c):
                        'reviews': [{'id': x['id'], 'state': x['state'], 'submitted_at': x.get('submitted_at')} for x in reviews]})
     run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{since}&per_page=100')
     runs = [{'id': r['id'], 'branch': r['head_branch'], 'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']} for page in run_pages for r in page['workflow_runs']]
+    if pr_number is not None:
+        return {'prs': result, 'merge_group_runs': runs}
     owner, name = repo.split('/')
-    query = 'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name} mergeQueue(branch:"main"){entries(first:100){nodes{state pullRequest{number}} pageInfo{hasNextPage}}}}}'
-    queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name)
+    default_branch = gh(c, 'api', f'repos/{repo}')['default_branch']
+    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{state pullRequest{number}} pageInfo{hasNextPage}}}}}'
+    queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
     if queue.get('errors'):
         raise ValueError('GitHub queue query failed')
     repository = queue['data']['repository']
     mq = repository.get('mergeQueue')
     if mq and mq['entries']['pageInfo']['hasNextPage']:
         raise ValueError('merge queue exceeds 100 entries')
-    default_branch = repository['defaultBranchRef']['name']
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={since}&per_page=100')
     return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': mq['entries']['nodes'] if mq else [],
             'merge_group_runs': runs, 'default_branch': default_branch,
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
-
-
-def pr_signature(pr):
-    return {k: pr[k] for k in ('state', 'head', 'checks', 'comments', 'reviews')}
 
 
 def events(previous, current):
@@ -90,7 +85,8 @@ def events(previous, current):
             if previous:
                 events.append({'key': f'pr:{p["number"]}:opened:{p["head"]}', 'subject': f'PR #{p["number"]} {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url']})
             continue
-        for field in ('state', 'head', 'checks', 'comments', 'reviews'):
+        fields = ('state', 'head', 'checks', 'comments', 'reviews') if p['state'] == 'open' else ('state',)
+        for field in fields:
             if before[field] != p[field]:
                 value = json.dumps(p[field], sort_keys=True)
                 events.append({'key': f'pr:{p["number"]}:{field}:{value}', 'subject': f'PR #{p["number"]} {field} changed: {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})

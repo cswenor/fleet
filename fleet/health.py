@@ -65,10 +65,12 @@ def collect(c, now=None):
         if t.get('agentIdentity') != 'omp':
             continue
         w = by_id[t['worktreeId']]
+        if w['path'] not in c['builder']['slots']:
+            continue
         text = t.get('preview', '')
         try:
             detail = orca(c, 'terminal', 'read', '--terminal', t['handle'])['terminal']
-            text = '\n'.join(detail.get('tail', [])) or text
+            text = text + '\n' + '\n'.join(detail.get('tail', []))
         except RuntimeError:
             errors.append('terminal read unavailable: ' + t['handle'])
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
