@@ -185,6 +185,32 @@ Main owns final queued TASK-13 launch into reused lane2 after this builder's
 publication/handoff, including resolved Sol medium and Pad/Orca identity receipts.
 Until that receipt is recorded, end-to-end queued-launch acceptance remains open.
 
+### TASK-22 — Quota freshness and transient unknown alerts
+
+Implemented completion-time quota evaluation and one provider-scoped cache
+invalidation/re-read for unknown results. Known reserve never retries; still
+unknown/erroring usage withholds starts and never parks. Supervisor unknown
+alerts require `quota.unknown_alert_cycles` consecutive cycles (default 3),
+persisted across restarts; known reserve and unrelated errors remain immediate.
+Initial launch admission precedes hooks/create; post-preparation failure retains
+a `launch-preparations` safe-state/retry receipt. Post-retirement failure retains
+launch-only recovery guidance; no repeated exit.
+
+Root-cause proof (2026-11-06): real cached reports had independent anonymous
+ages 43/52/197s. Documented `omp usage invalidate --provider …` followed by usage
+refreshed all reports to 1–3s in 2.81s. The same real response was unknown when
+evaluated at the command's start and available at completion: Fleet's snapshot
+start timestamp rejected reports fetched later in that collection as future-dated.
+Independent cache ages are observed; the installed binary's per-account refresh
+scheduling/TTL is not established.
+
+Real isolated CLI: with a 10s freshness threshold, report ages 132–134s refreshed
+to 1–3s and `may-start` exited 0. Explicit unknown/reserve drill files both
+withheld (exit 1); unknown `launch` exited 2 without running its hook. Three
+scratch `serve --once --no-deliver` cycles emitted no quota event at streaks
+1/2 and exactly one at 3. No messages, additional worktrees, Project Alpha changes or
+production service rollout were used. Publication receipts retained on TASK-22.
+
 ### TASK-13 — Orca restart semantics (Phase 0 d)
 
 Use documented isolated runtime or owner-approved maintenance window, never a

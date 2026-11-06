@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from unittest.mock import patch
-from fleet import state, supervisor
+from pathlib import Path
+import yaml
+from fleet import config, state, supervisor
 from fleet.commands import CommandError
 
 
@@ -15,7 +17,7 @@ def sample(p):
             'github': {'prs': [p], 'merge_group_runs': []},
             'inventory': {'errors': [], 'stray_worktrees': [], 'worktrees': [{'id': 'w', 'branch': 'feature'}],
                           'builders': [{'terminal': 'builder', 'worktree': 'w', 'connected': True, 'flags': []}]},
-            'quota': {'may_start': True}, 'disk': {'low': False}}
+            'quota': {'known': True, 'may_start': True}, 'disk': {'low': False}}
 
 
 class DeliveryTests(unittest.TestCase):
@@ -43,16 +45,18 @@ class DeliveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             c = {'_state': directory, 'coordinator': {'run': 'r'}, 'hooks': {}, 'status': {'url': '', 'token_env': ''}}
             s = sample(pr())
+            s['inventory']['builders'] = []
             calls = []
             with patch.object(supervisor.snapshot, 'collect', return_value=s), patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(e['subject'])):
-                s['quota'] = {'may_start': False, 'reason': 'reserve'}
+                s['quota'] = {'known': True, 'may_start': False, 'reason': 'reserve'}
                 supervisor.cycle(c)
                 supervisor.cycle(c)
-                s['quota'] = {'may_start': True}
+                s['quota'] = {'known': True, 'may_start': True}
                 supervisor.cycle(c)
-                s['quota'] = {'may_start': False, 'reason': 'reserve'}
+                s['quota'] = {'known': True, 'may_start': False, 'reason': 'reserve'}
                 supervisor.cycle(c)
-            self.assertEqual(calls, ['Fleet quota reserve: new builders withheld'] * 2)
+            self.assertEqual([subject for subject in calls if subject == 'Fleet quota reserve: new builders withheld'],
+                             ['Fleet quota reserve: new builders withheld'] * 2)
 
     def test_initial_unhealthy_or_terminal_pr_is_delivered_once_to_both_inboxes(self):
         scenarios = [pr('merged'), pr('closed'), {**pr(), 'merge_state': 'DIRTY'},
@@ -167,6 +171,123 @@ class DeliveryTests(unittest.TestCase):
                         patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(r)):
                     supervisor.cycle(c)
             self.assertEqual(calls, ['run:r', 'builder', 'run:r', 'builder'])
+
+
+class QuotaAlertTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.c = {'_state': directory.name, 'coordinator': {'run': 'r'}, 'hooks': {},
+                  'status': {'url': '', 'token_env': ''}, 'builder': {'max': 3}}
+        self.s = sample(pr())
+        self.s['quota'] = {'known': False, 'may_start': False, 'reason': 'usage unavailable or stale'}
+        self.calls = []
+        self.collect = patch.object(supervisor.snapshot, 'collect', return_value=self.s)
+        self.collect.start()
+        self.addCleanup(self.collect.stop)
+        enqueue = patch.object(supervisor, 'enqueue',
+                               side_effect=lambda c, event, recipient: self.calls.append(event))
+        enqueue.start()
+        self.addCleanup(enqueue.stop)
+
+    def test_transient_unknown_withholds_starts_without_alerting(self):
+        supervisor.cycle(self.c)
+        self.assertFalse(supervisor.snapshot.may_start(self.c, self.s)['may_start'])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(state.read(self.c, 'supervisor')['quota_unknown_cycles'], 1)
+        self.s['quota'] = {'known': True, 'may_start': True}
+        supervisor.cycle(self.c)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(state.read(self.c, 'supervisor')['quota_unknown_cycles'], 0)
+
+    def test_default_threshold_persists_and_deduplicates(self):
+        for _ in range(2):
+            supervisor.cycle(self.c)
+            self.assertEqual(self.calls, [])
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.calls[0]['key'].startswith('quota:'))
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_recovery_resets_configurable_threshold_and_recurrence(self):
+        self.c['quota'] = {'unknown_alert_cycles': 2}
+        supervisor.cycle(self.c)
+        self.s['quota'] = {'known': True, 'may_start': True}
+        supervisor.cycle(self.c)
+        self.s['quota'] = {'known': False, 'may_start': False, 'reason': 'unknown'}
+        supervisor.cycle(self.c)
+        self.assertEqual(self.calls, [])
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+        self.s['quota'] = {'known': True, 'may_start': True}
+        supervisor.cycle(self.c)
+        self.s['quota'] = {'known': False, 'may_start': False, 'reason': 'unknown'}
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_known_reserve_alerts_immediately_and_resets_unknown_streak(self):
+        self.s['inventory']['builders'] = []
+        supervisor.cycle(self.c)
+        self.s['quota'] = {'known': True, 'may_start': False, 'reason': 'reserve'}
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.calls[0]['key'].startswith('quota:reserve:'))
+        self.assertEqual(state.read(self.c, 'supervisor')['quota_unknown_cycles'], 0)
+
+    def test_quota_collection_exception_uses_same_debounce(self):
+        self.collect.stop()
+        self.c.update(root=self.c['_state'], repo='owner/project',
+                      quota={}, disk={'path': self.c['_state'], 'min_free_gb': 0})
+        with patch.object(supervisor.snapshot.quota, 'collect', side_effect=CommandError('unavailable')), \
+                patch.object(supervisor.snapshot.health, 'collect', return_value=self.s['inventory']), \
+                patch.object(supervisor.snapshot.github, 'collect', return_value=self.s['github']):
+            for _ in range(2):
+                s, _ = supervisor.cycle(self.c)
+                self.assertIn('quota collection unavailable', s['errors'])
+                self.assertFalse(supervisor.snapshot.may_start(self.c, s)['may_start'])
+                self.assertEqual(self.calls, [])
+            supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual({e['subject'] for e in self.calls},
+                         {'Fleet collection error', 'Fleet quota reserve: new builders withheld'})
+
+    def test_unrelated_errors_do_not_wait_for_quota_threshold(self):
+        self.s['errors'] = ['github collection unavailable']
+        self.s['inventory']['errors'] = ['terminal collection unavailable']
+        supervisor.cycle(self.c)
+        self.assertEqual([e['body'] for e in self.calls],
+                         ['github collection unavailable', 'terminal collection unavailable'])
+
+    def test_threshold_one_alerts_on_first_unknown(self):
+        self.c['quota'] = {'unknown_alert_cycles': 1}
+        supervisor.cycle(self.c)
+        self.assertEqual(len(self.calls), 1)
+
+
+class QuotaConfigTests(unittest.TestCase):
+    def test_unknown_alert_cycles_default_and_positive_integer_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fleet.yml'
+            c = {'version': 1, 'repo': 'owner/project', 'root': directory,
+                 'orca_repo_id': 'repo', 'pad_workspace': 'workspace', 'orca': '/orca',
+                 'builder': {'model': 'model', 'resolved_model': 'provider/model',
+                             'rules_file': 'rules', 'slots': [directory]},
+                 'coordinator': {'run': 'r', 'terminal': 'main'}}
+            path.write_text(yaml.safe_dump(c))
+            self.assertEqual(config.load(path)['quota']['unknown_alert_cycles'], 3)
+            for value in (1, 5):
+                c['quota'] = {'unknown_alert_cycles': value}
+                path.write_text(yaml.safe_dump(c))
+                self.assertEqual(config.load(path)['quota']['unknown_alert_cycles'], value)
+            for value in (0, -1, True, False, 1.5, '3', None):
+                with self.subTest(value=value):
+                    c['quota'] = {'unknown_alert_cycles': value}
+                    path.write_text(yaml.safe_dump(c))
+                    with self.assertRaisesRegex(ValueError, 'unknown_alert_cycles'):
+                        config.load(path)
 
 
 if __name__ == '__main__':

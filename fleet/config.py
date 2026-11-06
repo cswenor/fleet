@@ -41,6 +41,9 @@ def load(path):
     q.setdefault('reserve_percent', 10)
     q.setdefault('max_age_seconds', 900)
     q.setdefault('park_timeout_seconds', 1800)
+    q.setdefault('unknown_alert_cycles', 3)
+    if type(q['unknown_alert_cycles']) is not int or q['unknown_alert_cycles'] < 1:
+        raise ValueError('quota.unknown_alert_cycles must be a positive integer')
     if not isinstance(q['park_timeout_seconds'], (int, float)) or not 0 < q['park_timeout_seconds'] <= 86400:
         raise ValueError('quota.park_timeout_seconds must be positive and at most 86400')
     if not 0 <= q['reserve_percent'] <= 100 or q['max_age_seconds'] <= 0:

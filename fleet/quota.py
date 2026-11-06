@@ -1,5 +1,20 @@
 """Account-pool capacity by quota window; strip identities before persistence."""
 import math
+import time
+from .commands import json_run, run
+
+
+def collect(c):
+    """Refresh unknown cached usage once; never reuse an older passing result."""
+    command = ['omp', 'usage', '--json', '--provider', c['quota']['provider']]
+    data = json_run(command, c['root'])
+    result = evaluate(data, c['quota'], time.time())
+    if not result['known']:
+        # This invalidates reports, not saved resets or credentials.
+        run(['omp', 'usage', 'invalidate', '--provider', c['quota']['provider']], c['root'])
+        data = json_run(command, c['root'])
+        result = evaluate(data, c['quota'], time.time())
+    return result
 
 
 def evaluate(data, config, now):

@@ -7,7 +7,7 @@ import re
 import sys
 import time
 from . import health, launcher, snapshot, state
-from .commands import gh, json_run, orca
+from .commands import CommandError, gh, json_run, orca
 
 # OMP appends these after an otherwise completed conversation turn.
 POST_TURN_METADATA = frozenset({'credential_pin', 'title_change'})
@@ -208,26 +208,42 @@ def restart(c, ref, slot, finished_ref):
         retirements[slot] = receipt
         state.write(c, 'retirements', retirements)
         # Journal BEFORE input: transport failure or crash can never authorize a second /exit.
-        receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '/exit', '--enter')
-        receipt['stage'] = 'exit-sent'
-        state.write(c, 'retirements', retirements)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            terminal = orca(c, 'terminal', 'show', '--terminal', target['terminal'])['terminal']
-            if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
-                    terminal.get('incarnationId') != record['terminal_incarnation_id'] or terminal.get('worktreeId') != tree['id']):
-                raise ValueError('target identity lost after exit; inspect retirement receipt, no retry')
-            screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
-            if health.shell_ready('\n'.join(screen.get('tail', []))):
-                break
-            time.sleep(0.25)
-        else:
-            raise ValueError('exit timed out without verified shell; inspect retirement receipt, no retry')
-        receipt['stage'] = 'shell-verified'
-        state.write(c, 'retirements', retirements)
-        receipt['stage'] = 'launch-attempted'
-        state.write(c, 'retirements', retirements)
-        launched = launcher.launch(c, ref, slot, _locked=True)
+        try:
+            receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '/exit', '--enter')
+            receipt['stage'] = 'exit-sent'
+            state.write(c, 'retirements', retirements)
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                terminal = orca(c, 'terminal', 'show', '--terminal', target['terminal'])['terminal']
+                if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
+                        terminal.get('incarnationId') != record['terminal_incarnation_id'] or terminal.get('worktreeId') != tree['id']):
+                    raise ValueError('target identity lost after exit; inspect retirement receipt, no retry')
+                screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
+                if health.shell_ready('\n'.join(screen.get('tail', []))):
+                    break
+                time.sleep(0.25)
+            else:
+                raise ValueError('exit timed out without verified shell; inspect retirement receipt, no retry')
+            receipt['stage'] = 'shell-verified'
+            state.write(c, 'retirements', retirements)
+            receipt['stage'] = 'launch-attempted'
+            state.write(c, 'retirements', retirements)
+            launched = launcher.launch(c, ref, slot, _locked=True)
+        except Exception as exc:
+            receipt['failure'] = type(exc).__name__
+            receipt['retry_guidance'] = (
+                'old session retired; inspect retirement, launch-preparations and launch receipts; '
+                'after confirming no replacement session started and admission recovers, retry fleet launch '
+                'for next_ref and this slot, not fleet restart'
+                if receipt['stage'] == 'launch-attempted' else
+                'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
+            state.write(c, 'retirements', retirements)
+            if isinstance(exc, ValueError):
+                raise ValueError(f"{exc}; {receipt['retry_guidance']}") from exc
+            if isinstance(exc, CommandError):
+                raise CommandError(f"{exc}; {receipt['retry_guidance']}", code=exc.code) from exc
+            exc.add_note(receipt['retry_guidance'])
+            raise
         receipt['stage'] = 'launched'
         receipt['next_launch_id'] = launched['id']
         state.write(c, 'retirements', retirements)

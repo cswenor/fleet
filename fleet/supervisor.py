@@ -135,6 +135,13 @@ def cycle(c, deliver=True):
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
     active = alerts(s)
+    known_quota = s.get('quota', {}).get('known', False)
+    ledger['quota_unknown_cycles'] = 0 if known_quota else ledger.get('quota_unknown_cycles', 0) + 1
+    if not known_quota and ledger['quota_unknown_cycles'] < c.get('quota', {}).get('unknown_alert_cycles', 3):
+        # Keep collection diagnostics in the snapshot/admission gate, but do not
+        # let the quota exception path bypass the unknown-quota alert debounce.
+        active = [a for a in active if not a['key'].startswith('quota:')
+                  and a['key'] != 'error:quota collection unavailable']
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.
     prior = prior if isinstance(prior, dict) else {}

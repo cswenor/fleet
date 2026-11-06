@@ -207,6 +207,9 @@ class RetirementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'lost transport'):
             self.run_restart()
         self.assertEqual(len(self.sent), 1)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertEqual(receipt['failure'], 'RuntimeError')
+        self.assertIn('never resend /exit', receipt['retry_guidance'])
         self.sent.clear()
         self.refused('already attempted')
 
@@ -224,9 +227,12 @@ class RetirementTests(unittest.TestCase):
 
     def test_launch_failure_cannot_repeat_retirement(self):
         self.launch.side_effect = ValueError('quota changed')
-        with self.assertRaisesRegex(ValueError, 'quota changed'):
+        with self.assertRaisesRegex(ValueError, 'quota changed.*retry fleet launch.*not fleet restart'):
             self.run_restart()
-        self.assertEqual(state.read(self.c, 'retirements')[self.slot]['stage'], 'launch-attempted')
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertEqual(receipt['stage'], 'launch-attempted')
+        self.assertEqual(receipt['failure'], 'ValueError')
+        self.assertIn('confirming no replacement session started', receipt['retry_guidance'])
         self.sent.clear()
         self.launch.reset_mock()
         self.refused('already attempted')
@@ -234,6 +240,25 @@ class RetirementTests(unittest.TestCase):
     def test_reserve_failure_does_not_retire_finished_session(self):
         with patch.object(restart.snapshot, 'may_start', return_value={'may_start': False, 'reasons': ['quota reserve']}):
             self.refused('quota reserve')
+
+    def test_resumed_work_during_admission_never_receives_exit(self):
+        def collect(c):
+            self.events.append({'type': 'message', 'message': {'role': 'user'}})
+            self.write_log()
+            return {'errors': [], 'inventory': copy.deepcopy(self.inventory),
+                    'quota': {'may_start': True}, 'disk': {'low': False}}
+        with patch.object(restart.snapshot, 'collect', side_effect=collect):
+            self.refused('final assistant|later work')
+        self.assertFalse(self.exited)
+        self.assertIsNone(state.read(self.c, 'retirements'))
+
+    def test_replacement_cap_excludes_only_its_own_active_terminal(self):
+        # Own active target fits max=1, as the successful restart test proves.
+        self.inventory['builders'].append({'terminal': 'other', 'path': '/other',
+                                           'connected': True, 'shell_ready': False})
+        self.refused('builder cap reached')
+        self.assertFalse(self.exited)
+        self.assertIsNone(state.read(self.c, 'retirements'))
 
     def test_changed_log_before_input_refuses(self):
         original = restart._idle

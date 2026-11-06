@@ -30,6 +30,7 @@ quota:
   provider: openai-codex
   reserve_percent: 10
   max_age_seconds: 900
+  unknown_alert_cycles: 3 # Consecutive unknown cycles before alerting; starts remain withheld.
   park_timeout_seconds: 1800
 disk:
   path: /

@@ -1,18 +1,45 @@
 """Explicit guarded fresh launches; reuse only a terminal at a verified shell prompt."""
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import re
 import shlex
 import time
 import yaml
 from . import dispatcher, health, snapshot, state
-from .commands import orca, run
+from .commands import CommandError, orca, run
+
+
+@contextmanager
+def _preparation_receipt(c, ref):
+    """Keep preparation failures distinct from receipts that may own a session."""
+    preparation = {}
+    try:
+        yield preparation
+    except Exception as exc:
+        if not preparation:
+            raise
+        attempted = preparation.get('stage') in ('launch-attempted', 'launched')
+        guidance = ('inspect launch and terminal receipts; do not retry blindly' if attempted else
+                    'no builder input sent; inspect prepared slot and hooks, then retry fleet launch '
+                    'for this ref and slot after admission recovers')
+        preparation['safe_state'] = 'inspect-session' if attempted else 'no-builder-input-sent'
+        preparation.update(at=time.time(), ref=ref, failure=type(exc).__name__,
+                           retry_guidance=guidance)
+        preparations = state.read(c, 'launch-preparations', {})
+        preparations[preparation['slot']] = preparation
+        state.write(c, 'launch-preparations', preparations)
+        if isinstance(exc, ValueError):
+            raise ValueError(f'{exc}; {guidance} (launch-preparations receipt)') from exc
+        if isinstance(exc, CommandError):
+            raise CommandError(f'{exc}; {guidance} (launch-preparations receipt)', code=exc.code) from exc
+        exc.add_note(guidance + ' (launch-preparations receipt)')
+        raise
 
 
 def launch(c, ref, slot=None, *, _locked=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
-    with nullcontext() if _locked else state.lock(c, 'launcher'):
+    with nullcontext() if _locked else state.lock(c, 'launcher'), _preparation_receipt(c, ref) as preparation:
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
         occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
@@ -61,17 +88,22 @@ def launch(c, ref, slot=None, *, _locked=False):
             missing = chosen or next((p for p in slots if not Path(p).exists()), None)
             if not missing:
                 raise ValueError('no free configured slot')
+            preparation.update(slot=missing, stage='preparation-attempted', action='worktree-create')
             if c['hooks'].get('before_launch'):
                 run(c['hooks']['before_launch'], c['root'])
             created = orca(c, 'worktree', 'create', '--repo', 'id:' + c['orca_repo_id'], '--name', Path(missing).name,
                            '--no-parent', '--setup', 'run')['worktree']
             w = {'id': created['id'], 'path': created['path']}
+            preparation['worktree'] = w
             if w['path'] != missing:
                 raise ValueError('Orca created a different slot path; inspect it before retrying')
         if existing and c['hooks'].get('before_launch'):
+            preparation.update(slot=w['path'], worktree=w, stage='preparation-attempted', action='before-launch-hook')
             run(c['hooks']['before_launch'], w['path'])
+        preparation.update(slot=w['path'], worktree=w, stage='prepared')
         fresh = snapshot.collect(c)
         admission = snapshot.may_start(c, fresh)
+        preparation['admission'] = admission
         if not admission['may_start']:
             raise ValueError('launch withheld after preparation: ' + '; '.join(admission['reasons']))
         if any(b['path'] == w['path'] and health.active(b) for b in fresh['inventory']['builders']):
@@ -138,10 +170,12 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                 skipped.append({'terminal': candidate, 'binding': binding})
         if handle is not None:
             reason = 'ready_unbound_shell'
+            preparation['stage'] = 'launch-attempted'
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')
         else:
             if skipped:
                 reason = 'run_bound' if any(t['binding']['state'] == 'bound' for t in skipped) else 'binding_unknown'
+            preparation['stage'] = 'launch-attempted'
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
         receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'worktree': w,
@@ -155,6 +189,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
         launches = state.read(c, 'launches', {})
         launches[w['path']] = receipt
         state.write(c, 'launches', launches)
+        preparation['stage'] = 'launched'
         orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
         if c['hooks'].get('after_launch'):
             run(c['hooks']['after_launch'], w['path'])

@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import time
 from . import github, health, quota
-from .commands import json_run, CommandError
+from .commands import CommandError
 from .display import duration
 
 
@@ -12,7 +12,7 @@ def collect(c):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
     for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: github.collect(c)),
-                    ('quota', lambda: quota.evaluate(json_run(['omp', 'usage', '--json'], c['root']), c['quota'], now))):
+                    ('quota', lambda: quota.collect(c))):
         try:
             result[key] = fn()
         except (CommandError, ValueError, KeyError, TypeError):
@@ -20,7 +20,7 @@ def collect(c):
     if c.get('_drill_usage_file'):
         result['drill'] = True
         result['real_quota'] = result.get('quota', {})
-        result['quota'] = quota.evaluate(json.loads(Path(c['_drill_usage_file']).read_text()), c['quota'], now)
+        result['quota'] = quota.evaluate(json.loads(Path(c['_drill_usage_file']).read_text()), c['quota'], time.time())
     try:
         free = shutil.disk_usage(c['disk']['path']).free / 1_000_000_000
         result['disk'] = {'path': c['disk']['path'], 'free_gb': round(free, 2), 'min_free_gb': c['disk']['min_free_gb'], 'low': free < c['disk']['min_free_gb']}

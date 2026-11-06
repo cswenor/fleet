@@ -3,7 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from fleet import dispatcher, health, launcher, snapshot
+from fleet import dispatcher, health, launcher, snapshot, state
+from fleet.commands import CommandError
 
 
 class RestartTests(unittest.TestCase):
@@ -160,15 +161,63 @@ class RestartTests(unittest.TestCase):
             self.launch()
         self.assertEqual((self.sent, self.created), ([], 0))
     def test_preparation_rechecks_quota_and_terminal_identity(self):
+        self.c['hooks']['before_launch'] = 'prepare-slot'
         fresh = deepcopy(self.s)
         fresh['quota'] = {'may_start': False, 'reason': 'reserve reached'}
         with self.assertRaisesRegex(ValueError, 'reserve reached'):
             self.launch([self.s, fresh])
+        receipt = state.read(self.c, 'launch-preparations')[self.slot]
+        self.assertEqual(receipt['safe_state'], 'no-builder-input-sent')
+        self.assertEqual(receipt['admission']['reasons'], ['reserve reached'])
+        self.assertIn('retry fleet launch', receipt['retry_guidance'])
+        self.assertIsNone(state.read(self.c, 'launches'))
         fresh = deepcopy(self.s)
         fresh['inventory']['builders'][0]['terminal'] = 'replacement'
         with self.assertRaisesRegex(ValueError, 'identity changed'):
             self.launch([self.s, fresh])
         self.assertEqual((self.sent, self.created), ([], 0))
+
+    def test_unknown_initial_admission_does_not_run_preparation_hook(self):
+        self.c['hooks']['before_launch'] = 'prepare-slot'
+        self.s['quota'] = {'may_start': False, 'reason': 'quota unknown'}
+        with patch.object(launcher.snapshot, 'collect', return_value=self.s), patch.object(launcher, 'run') as hook, patch.object(launcher, 'orca') as orca, patch.object(dispatcher, 'run', return_value='task-123'):
+            with self.assertRaisesRegex(ValueError, 'quota unknown'):
+                launcher.launch(self.c, 'TASK-123', self.slot)
+        hook.assert_not_called()
+        orca.assert_not_called()
+        self.assertIsNone(state.read(self.c, 'launch-preparations'))
+
+    def test_hook_failure_records_prepared_slot_without_authorizing_launch(self):
+        self.c['hooks']['before_launch'] = 'prepare-slot'
+        with patch.object(launcher.snapshot, 'collect', return_value=self.s), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(dispatcher, 'check_launch'), patch.object(dispatcher, 'run', return_value='task-123'), patch.object(launcher, 'run', side_effect=CommandError('hook failed')):
+            with self.assertRaisesRegex(CommandError, 'hook failed; no builder input sent.*retry fleet launch'):
+                launcher.launch(self.c, 'TASK-123', self.slot)
+        receipt = state.read(self.c, 'launch-preparations')[self.slot]
+        self.assertEqual(receipt['stage'], 'preparation-attempted')
+        self.assertEqual(receipt['action'], 'before-launch-hook')
+        self.assertEqual(receipt['failure'], 'CommandError')
+        self.assertIn('inspect prepared slot and hooks', receipt['retry_guidance'])
+        self.assertEqual((self.sent, self.created), ([], 0))
+        self.assertIsNone(state.read(self.c, 'launches'))
+
+    def test_created_worktree_is_retained_on_post_preparation_refusal(self):
+        missing = str(Path(self.directory.name) / 'new-slot')
+        self.c['builder']['slots'] = [missing]
+        initial = deepcopy(self.s)
+        initial['inventory']['builders'] = []
+        initial['inventory']['worktrees'] = []
+        fresh = deepcopy(initial)
+        fresh['quota'] = {'may_start': False, 'reason': 'quota unknown'}
+        with patch.object(launcher.snapshot, 'collect', side_effect=[initial, fresh]), patch.object(launcher, 'orca', return_value={'worktree': {'id': 'new-tree', 'path': missing}}) as orca, patch.object(dispatcher, 'check_launch'), patch.object(launcher, 'run'):
+            with self.assertRaisesRegex(ValueError, 'no builder input sent.*retry fleet launch'):
+                launcher.launch(self.c, 'TASK-123', missing)
+        receipt = state.read(self.c, 'launch-preparations')[missing]
+        self.assertEqual(receipt['worktree'], {'id': 'new-tree', 'path': missing})
+        self.assertEqual(receipt['safe_state'], 'no-builder-input-sent')
+        self.assertEqual(receipt['admission']['reasons'], ['quota unknown'])
+        self.assertEqual([call.args[1:3] for call in orca.call_args_list],
+                         [('terminal', 'show'), ('orchestration', 'run-show'), ('worktree', 'create')])
+        self.assertIsNone(state.read(self.c, 'launches'))
 
     def test_missing_or_replaced_final_incarnation_never_receives_input(self):
         self.s['inventory']['builders'][0]['incarnation_id'] = None

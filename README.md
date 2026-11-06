@@ -65,6 +65,12 @@ tier-specific limits. Each window must remain above the reserve percentage.
 Missing/stale usage fails closed. Account identities, provider metadata and
 credentials are never persisted in the snapshot. `may-start` exits 1 when quota,
 disk, builder cap, or incomplete collection prevents a launch.
+Usage is evaluated against the clock **after** `omp usage` completes, not the
+snapshot's start time: a report fetched during collection is not future-dated.
+An unknown cached result triggers one provider-scoped `omp usage invalidate`
+and one re-read, each bounded by the command timeout (60 seconds). If still
+unknown/erroring, admission stays closed; known reserve results never retry.
+Invalidation refreshes reports only; it does not spend saved resets.
 
 With **known** usage at/below reserve, `serve` requests cooperative PARK of one
 lowest-priority lane (Pad critical > high > medium > low > unresolvable).
@@ -72,7 +78,11 @@ Ties park the most recently launched lane; missing matching timestamps withhold
 only unresolved ties and alert Main. `launches.json`, keyed by absolute slot,
 records launch ID/time/ref/worktree/handle/incarnation and a unique private
 `session_dir`; this is launch evidence, not proof of model resolution or exit.
-Unknown/stale usage withholds starts and alerts Main but **never parks**.
+Unknown/stale usage withholds starts immediately but **never parks**. Main is
+alerted after `quota.unknown_alert_cycles` consecutive unknown supervisor cycles
+(positive integer, default 3); known usage resets the persisted streak. Quota
+collection errors use the same debounce; other collection/health errors and
+known reserve alerts remain immediate.
 The owner-builder inbox, coordinator Run and Pad task receive the request.
 The builder finishes its step, commits/pushes WIP, records a Pad handoff,
 reports PARKED, and exits itself. Fleet never injects exit/interrupt/kill input.
@@ -287,6 +297,12 @@ positively reconciled; stale receipts or missing terminals never prove exit.
 Branches/card comments in the selected slot may name the task being confirmed;
 the same claim in another slot blocks it. `next` never reserves or mutates Pad,
 Git, or Orca state; its proposal can become stale before confirmation.
+Initial admission precedes hooks or slot creation. If later admission/identity
+rechecks fail, Fleet preserves the prepared slot and records a slot-keyed
+`launch-preparations.json` failure receipt with stage, safe state and retry
+guidance. Before builder input, recovery is inspect hooks/slot and retry
+`launch`; after a launch attempt, inspect terminal/launch receipts first.
+These preparation receipts are diagnostics, not proof of session ownership.
 
 An unresolved launch receipt withholds its **whole slot**, even for a different
 next task. Exit proof is an exact terminal/incarnation at a verified shell, a
@@ -380,6 +396,9 @@ Any attempted retirement blocks another restart of that launch ID; inspect
 `retirements.json`, `launches.json` and `last-launch.json` and reconcile the
 actual terminal before any manual recovery. A failed fresh launch leaves the
 verified shell and receipts intact; it is not permission to repeat retirement.
+Restart excludes only the proven retiring terminal from the pre-exit cap check.
+Post-exit failures retain durable recovery guidance: confirm no replacement
+started, then retry `launch NEXT --slot PATH`, never repeat `restart`/`/exit`.
 
 Optional hooks `before_launch`, `after_launch`, and `event` are argv lists, run
 without a shell in the project checkout (launch hooks use the slot when known).
