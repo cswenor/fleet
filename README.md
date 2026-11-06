@@ -189,6 +189,12 @@ each matching runtime variable to `compose.yml` and the PaaS. Registration is
 allowlisted: the first authenticated snapshot populates the configured project's
 card; a token cannot invent another project. Enable the PaaS environment-value
 redaction and keep these variables runtime-only. Disable preview deployments.
+Some the PaaS releases persist encoded SSH-key setup commands in hidden deployment
+records. Hidden is not redacted. On affected releases, keep automatic deployments
+off; after each manual rollout, sanitize only that application's sensitive stored
+command fields and rotate any key whose material was stored, or upgrade to a
+release that redacts those commands. Do this before sharing deployment logs.
+Runtime project tokens must stay out of both image layers and deployment logs.
 
 The image runs as UID/GID `10001:10001` with a read-only root, writable `/tmp`,
 and persistent SQLite under `/data`. New named volumes inherit its ownership;
