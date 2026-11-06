@@ -99,6 +99,10 @@ Main-confirmed and fresh. Terminal-only inboxes have Orca's lifetime limitation;
 the Run/Pad copies preserve the request after terminal closure. Send is enqueue,
 not proof the builder woke or read it. Saved resets require an explicit owner
 Pad DECISION **before** spending; Fleet invokes no reset/spend command.
+Builder launch overlays and the stock `.omp/unadvised-review.yml` review overlay
+pin `codexResets.autoRedeem: 'no'` and `claudeResets.autoRedeem: 'no'`, preventing
+native automatic spending even when inherited user settings allow it.
+An explicitly approved manual spend remains a separate owner-authorized action.
 
 Test/drill only: `status`, `may-start`, `serve`, and `launch` accept
 `--drill-usage-file PATH` containing the `omp usage --json` shape. The flag is

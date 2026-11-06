@@ -142,6 +142,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
         prompt_path.chmod(0o600)
         overlay = path / ('omp-' + nonce + '.yml')
         overlay.write_text(yaml.safe_dump({'autoResume': False, 'extendedContext': False,
+            'codexResets': {'autoRedeem': 'no'}, 'claudeResets': {'autoRedeem': 'no'},
             'retry': {'modelFallback': False, 'usageAwareFallback': False,
                       'usageReservePct': c['quota']['reserve_percent'], 'usageReservePolicy': 'fail-closed',
                       'fallbackChains': {b['resolved_model']: []}},

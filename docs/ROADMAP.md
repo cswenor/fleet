@@ -82,6 +82,12 @@ PLAN-2685. No product code or shared-runtime restart was performed.
   binding, positive idle evidence and publication/handoff proof. Never interrupt
   a working/unknown session; journal before one exit, verify same-incarnation
   shell, then normal guarded launch. No forced mode or shared-runtime restart.
+- **TASK-32 stock-first audit:** [audit table](stock-omp-gh-audit.md), merged
+  [PR26](https://github.com/cswenor/fleet/pull/26), retains whole-PR watcher and
+  project policy composition: stock CI watches do not replace PR event semantics.
+  Main approved stock unadvised-review overlay instead of improvised setup, plus
+  native no-auto-reset pins in reviewer/builder overlays (owner never-auto-spend
+  decision). TASK-33 owns installing the same overlay with the project skill.
 
 ## Phase status and evidence
 

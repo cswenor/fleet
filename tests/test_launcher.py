@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+import yaml
 from fleet import dispatcher, health, launcher, snapshot, state
 from fleet.commands import CommandError
 
@@ -57,6 +58,13 @@ class RestartTests(unittest.TestCase):
     def launch(self, snapshots=None, automatic=False):
         with patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
             return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot)
+
+    def test_builder_cannot_automatically_spend_saved_resets(self):
+        self.launch()
+        overlay, = Path(self.c['_state']).glob('omp-*.yml')
+        settings = yaml.safe_load(overlay.read_text())
+        for key in ('codexResets', 'claudeResets'):
+            self.assertEqual(settings[key]['autoRedeem'], 'no')
 
     def test_eight_connected_terminals_with_one_exited_session_reuse_its_shell(self):
         self.assertTrue(snapshot.may_start(self.c, self.s)['may_start'])

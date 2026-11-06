@@ -69,6 +69,10 @@ Small PRs to `cswenor/fleet`, with Pad ref and real runtime evidence. Every PR h
 2. Green GitHub **CI** on the final head. Fleet has **no review bot**; CI is the
    second gate, not a claimed second human/model review.
 
+Use the committed stock `.omp/unadvised-review.yml` overlay and fresh reviewer
+invocation in `docs/MAIN.md` (Independent review). Retain actual model/thinking
+events and the reviewed final head; argv or `@review` alone is not evidence.
+
 Builders self-merge only after both gates; never hand-merge a failing head. CI
 failures caused by the task are the builder's responsibility. Project-specific
 policy lives in `fleet.yml`, AGENTS or templates, never hardcoded project rules

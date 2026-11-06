@@ -52,6 +52,14 @@ Self-merge small task-linked PRs only after BOTH gates on the final head:
    resolve findings and retain reviewer/session and exact-head evidence.
 2. Green required CI on that same head; fix task-caused failures before merge.
 
+For the filled fleet Sol-medium binding, copy `.omp/unadvised-review.yml` with
+the workflow skill and use the fresh stock omp invocation in
+`docs/MAIN.md` (Independent review). Bind `@review` explicitly in the overlay;
+do not invent a reviewer runner or inherit fallback/advisor/auto-spend policy.
+Retain actual `model_change` / `thinking_level_change` evidence and exact head.
+Other reviewer bindings require Main-approved project policy, not a silent
+model substitution.
+
 Do not assume a review bot exists or count CI as a second model review. A project
 may require its own bot in addition to these gates. Verify the changed real
 surface and retain evidence in the PR and durable task outcome.
