@@ -6,6 +6,11 @@ requires owner-approved access to an actual Mac. No Mac access, installation,
 shared runtime restart or production deployment is authorized by this audit.
 Line numbers below refer to the pre-implementation TASK-36 source.
 
+This historical audit is complete; subsequent owner-authorized phase B runtime
+acceptance and cleanup receipts are in the
+[roadmap](ROADMAP.md#task-36--macos-host-support). Its original boundaries below
+do not grant rollout authority.
+
 | Source | Current assumption | Stock macOS equivalent / limitation | Plan |
 |---|---|---|---|
 | `fleet/service.py:12-16,40-91` | systemd user units, daemon-reload/enable/restart/is-active | User LaunchAgent under `~/Library/LaunchAgents`; `launchctl bootstrap gui/UID`, `bootout`, `print` | Dispatch only service installation by platform; retain Linux unit behavior; require observed running state/PID, not plist existence. |

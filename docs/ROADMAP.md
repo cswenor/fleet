@@ -144,52 +144,59 @@ macOS CI exposed `/var` versus `/private/var` aliases in hand-built test configs
 fixtures now use canonical paths, matching `config.load`, without relaxing
 production slot checks. The complete 166-test suite also passes with symlinked
 TMPDIR on Linux; capture's fake-secret marker no longer collides with `/private`.
-Phase B remains **open**: no owner Mac access is authorized. Actual Mac
-LaunchAgent active/reinstall, Orca status/admission/fresh Sol-medium launch,
-safe restart refusal/manual reconciliation, partial capture and real wake
-delivery still require owner-approved host access. macOS runner CI is not this
-runtime evidence. Shared-checkout rollout requires Main's announced window;
-merge alone is not deployment or permission to restart services.
+Phase B **complete** (2026-11-06): owner-authorized isolated Mac project/Run/lane,
+not a macOS CI substitute. Initial frozen source was
+`a607ed207e304b65758a566b24579ba1409d0f14`; runtime defects produced
+[PR39](https://github.com/cswenor/fleet/pull/39) and separate transport
+[PR40](https://github.com/cswenor/fleet/pull/40). Final frozen user-local install:
+`618735df11deb49ce97d8044cfeb74347f8e5c9c`, with all 247 tests passing on the
+actual Mac and Linux. Versions: macOS 26.2 arm64, Python 3.12.15, PyYAML 6.0.3,
+omp 18.12.5, gh 2.87.3, pad 0.7.0, Orca 1.4.251. Both effective automatic reset
+settings were `no`; no omp upgrade or saved reset was used.
 
-Phase B real Mac runtime (2026-11-06): owner-authorized isolated scratch
-project/Run/lane, Python 3.12.15 venv + PyYAML 6.0.3 installed from frozen
-`a607ed207e304b65758a566b24579ba1409d0f14`. Tools: omp 18.12.5,
-gh 2.87.3, pad 0.7.0, Orca 1.4.251; both effective automatic reset settings `no`.
-Initial LaunchAgent ran with PID 86327 and a mode-0600 literal dummy env file;
-plist had only PATH environment and no dummy value. Immediate reinstall exposed
-asynchronous bootout (old label still SIGTERMed, bootstrap exit 5). Installer now
-waits for exact-label disappearance or refuses after ten seconds; real reinstall
-changed PID 86491 to 86762, running. CLI macOS restart now refuses explicitly at
-entry, before target discovery or native input. All 183 tests passed on the Mac.
-Capture saved private mode-0600 partial metadata, null boot ID, exit 1, with
-`boot_identity_unavailable`, `local_linux_proc_unavailable` and
-`terminal_inventory_incomplete`; no procfs crash or completeness claim.
-Fresh launch/reconcile and wake acceptance are not yet complete: Mac GitHub
-GraphQL access withholds admission, and newer Orca requires full orchestration
-records plus explicit native auto-ack semantics. Main approved a separate
-transport-compatibility PR and retained its publication hold. No credentials,
-existing Mac product sessions, shared checkout or Linux services changed.
+| Acceptance surface | Observed real runtime evidence |
+|---|---|
+| LaunchAgent/private env | Initial PID 86327; owned literal dummy env and plist mode 0600, PATH-only plist environment, dummy value absent. Immediate reinstall exposed asynchronous bootout/bootstrap exit 5. Bounded exact-label unload wait fixed it: PID 86491 → 86762, running. |
+| Status/admission | Owner signed into GitHub himself after initial unavailable/403 boundaries. Read-only collection from the owned GUI-session coordinator succeeded against cswenor/fleet; status and may-start exited 0, `may_start: true`, no reasons. Builder changed no credential. |
+| Fresh launch | One purpose-specific TASK-45 launch `1794005236091197000`; session `01a1b30b-7da6-72ec-8956-c7a946049efd` recorded actual Sol, no fallback, medium (events `3998daf8` / `6fc4879b`), not merely requested argv. omp 18.12.5 accepted the overlay. |
+| Refusal/manual retirement | CLI restart refused unsupported exact Linux proof at entry, before discovery/input. Positively observed final stop + empty idle composer + exact unbound incarnation; one manual `/exit`; same-incarnation supported shell. Scratch coordinator reconciled that exact launch, exit 0. |
+| Capture | Exit 1, private mode-0600 partial snapshot, null boot ID, zero process proofs, errors `boot_identity_unavailable`, `local_linux_proc_unavailable`, `terminal_inventory_incomplete`; no procfs crash or completeness/exit inference. |
+| Native wake | Real scratch `fleet wait` received `msg_640a76005df7` as `delivery_2aea63f04ea6`, exit 0, `nativeAutoAck: true`, native request `d6c300de-3366-423e-ba48-cb391beaa7a2`, explicitly already acknowledged natively. |
+| Cleanup | Only owned label booted out and verified absent; plist removed. Both scratch terminals directly closed with `ptyKilled: true`; lane and project setup removed; runtime/config/state/venv/dummy files removed. Scratch root contains only private evidence. TASK-45 cancelled. Native historical Run records retained with Main approval `msg_7f09e5cd01b3`; no global reset. |
 
-Separate transport compatibility (Main ruling `msg_6f78f58ccaad`, corrected
-capability premise `msg_0bcec581eee4`): stock per-verb help discovery chooses
-`--full` only where advertised, cached per process. Linux Orca 1.4.242 rejects
-that flag; real isolated Run wait retained the legacy batch schema and replayed
-`delivery_12bc80650748` before explicit ack, then timed out after ack.
-Mac Orca 1.4.251 full records restore binding/history/delivery evidence, but
-consuming checks auto-handle mail. Real scratch `fleet wait` returned
-`delivery_2aea63f04ea6` / `msg_640a76005df7`, `nativeAutoAck: true`,
-native request ID and explicit already-acknowledged status. Native
-`request-show` reported completed and exact `--retry-request` replayed earlier
-`delivery_959f2d92ff92` after native acknowledgment. Fleet keeps no local replay
-store: losing that request ID after native auto-ack can lose recovery access.
-Legacy `acknowledged` remains only a native echo; no version-based assumptions.
-Separate transport PR requires Main's exact-head merge GO and coordinated rollout;
-no live Linux Run or other project's Mac session was used for these drills.
-Independent review caught a P1 in the initial help-error fallback: a concise
-auto-handled check could consume mail before schema rejection. Main corrected
-that condition (`msg_08dfdcc24b24`): failed, timed-out or ambiguous help now
-refuses before any consuming check/mutation; only successful complete help
-establishes unsupported `--full`. Regression retains pending mail on uncertainty.
+PR39 gate receipts: reviewed head `8ba57c4d6a5a90f4ea45e8f3e452d6ffa5a830e7`,
+fresh stock unadvised Sol-medium PASS session
+`01a1b306-3db7-767a-9706-65c3772f260c`, green Ubuntu/macOS
+[CI42306583947](https://github.com/cswenor/fleet/actions/runs/42306583947).
+
+PR40 stock per-verb help discovery chooses `--full` only where advertised,
+cached in memory. Linux Orca 1.4.242 rejects that flag: real isolated Run wait
+retained the legacy batch schema, replayed `delivery_12bc80650748` before explicit
+ack, then timed out after ack; its scratch terminal was closed. Mac 1.4.251
+full records restore binding/history/delivery evidence but consuming checks
+auto-handle mail. Native `request-show` reported completed and exact
+`--retry-request` replayed `delivery_959f2d92ff92` after native acknowledgment.
+No local replay store: losing the native request ID can lose recovery access.
+Legacy `acknowledged` is only a native echo, not proof Fleet performed an ack.
+
+Independent review caught P1 in the initially requested help-error fallback:
+concise auto-handled check could consume mail before schema rejection. Main
+corrected the rule (`msg_08dfdcc24b24`): failed/timed-out/ambiguous help refuses
+before consuming checks or mutations. Real Mac failure smoke exited 2
+`orca_capabilities_unavailable`, preserving all three pending messages including
+`msg_7c00c3e6fa46`, with no consuming check issued. Normal wait then delivered
+that same mail as `delivery_77b64399589b`, already acknowledged natively. This
+smoke used production code identical to final 618735d (the final change added
+send/reply safety regressions only).
+
+PR40 final head `618735df11deb49ce97d8044cfeb74347f8e5c9c` received fresh stock
+unadvised Sol-medium PASS session `01a1b312-185d-70d7-b14f-60d3806c6c60`, actual
+no-fallback model/thinking events and read/grep/glob only; green Ubuntu/macOS
+[CI42308131878](https://github.com/cswenor/fleet/actions/runs/42308131878).
+Merged after Main exact-head GO `msg_7f09e5cd01b3`. No existing Mac product
+session or production Linux Run was used; no shared checkout or Linux service
+was changed by this builder. Shared rollout remains Main-coordinated; merge is
+not deployment.
 
 ### TASK-33 — Project workflow skill and onboarding
 

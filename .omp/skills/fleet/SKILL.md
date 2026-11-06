@@ -89,9 +89,9 @@ skill and retain its skill read plus answer. File existence alone is not proof.
 
 ### macOS onboarding boundary
 
-TASK-36 phase A adds a LaunchAgent backend and macOS CI, not actual Mac runtime
-acceptance. Obtain owner-approved host access for phase B; never borrow a Mac
-merely because SSH discovery lists it. Linux still uses systemd unchanged.
+The LaunchAgent backend and macOS CI do not replace actual-host acceptance.
+Obtain owner-approved host access; never borrow a Mac merely because SSH
+discovery lists it. Linux still uses systemd unchanged.
 On macOS, install Python >=3.11/PyYAML, omp, gh, pad and Orca's CLI, authenticate
 the tools, and use actual Mac project/lane paths. Explicit `orca:` or
 `ORCA_CLI_COMMAND` wins; default discovery uses macOS `orca`, Linux `orca-ide`
@@ -122,7 +122,7 @@ verify manual retirement positively and reconcile the exact receipt.
 `python3 -m fleet.orca_capture` retains private Orca + allowlisted launchd metadata
 but returns explicit partial process/boot evidence, null boot ID, exit 1;
 missing procfs is not a crash, an empty inventory is never exit proof.
-Phase B: real Mac service active/reinstall, status/may-start, fresh Sol-medium
+Actual-host acceptance: real Mac service active/reinstall, status/may-start, fresh Sol-medium
 launch events, restart refusal/reconciliation, partial capture and actual wake
 delivery. Runner CI alone does not satisfy these runtime checks.
 

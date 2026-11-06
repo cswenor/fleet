@@ -179,9 +179,10 @@ The service survives terminal exit; host reboot requires a user manager at boot
 
 ### macOS host (TASK-36)
 
-Phase A implements macOS installation and CI; actual Mac/Orca runtime acceptance
-is pending owner-approved phase B. Do not treat runner tests as rollout approval.
-See the [platform audit](docs/macos-audit.md). Linux keeps its systemd backend.
+macOS installation and actual Mac/Orca runtime acceptance are complete; see
+[TASK-36 runtime receipts](docs/ROADMAP.md#task-36--macos-host-support) and the
+[platform audit](docs/macos-audit.md). Runner tests or these scratch receipts
+are not rollout approval. Linux keeps its systemd backend.
 
 Use Python >=3.11, PyYAML, `omp`, authenticated `gh`/`pad`, and the installed
 Orca CLI. Set an absolute `orca:` config path or `ORCA_CLI_COMMAND` when it is
@@ -232,9 +233,9 @@ with native Orca metadata and allowlisted LaunchAgent state, null boot ID and
 explicit process/boot evidence errors (exit 1). It neither crashes on missing
 procfs nor claims absent processes exited. It is not a Mac restart GO.
 
-Phase B requires owner-approved actual Mac proof: service active/reinstall,
-status/may-start, fresh launch with actual Sol-medium events, safe restart
-refusal/manual reconciliation, partial capture and real wait delivery.
+Each host adoption still requires owner-approved actual Mac proof: service
+active/reinstall, status/may-start, fresh launch with actual Sol-medium events,
+safe restart refusal/manual reconciliation, partial capture and real wait delivery.
 
 
 One service per project, private state under
