@@ -176,6 +176,8 @@ the stable source checkout). It reloads/restarts only central; the original
 keep using the stable checkout selected by `~/.local/bin/fleet`. For foreground
 operation, load the private environment without tracing and run `fleet --config
 /absolute/central.yml central-serve`.
+The central installer waits up to 10 seconds for the local HTTP page to respond
+successfully; an active-but-not-ready service is an installation failure.
 
 Expose the loopback backend on the **tailnet only**, with Tailscale HTTPS Serve:
 

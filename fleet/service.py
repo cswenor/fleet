@@ -1,11 +1,12 @@
 """Install one non-privileged foreground supervisor per configured project."""
 from pathlib import Path
+import http.client
 import os
 import re
 import shutil
 import sys
+import time
 from .commands import run
-from . import state
 
 
 def install(c, deliver=False):
@@ -19,8 +20,21 @@ def install_central(c, environment_file):
     environment_file = Path(environment_file).expanduser().resolve()
     if not environment_file.is_file() or environment_file.stat().st_mode & 0o077:
         raise ValueError('central EnvironmentFile must exist and be private (chmod 600)')
-    return _install('fleet-central.service', ['--config', c['_path'], 'central-serve'],
-                    str(Path(c['_path']).parent), 'Agent fleet central status', str(environment_file))
+    result = _install('fleet-central.service', ['--config', c['_path'], 'central-serve'],
+                      str(Path(c['_path']).parent), 'Agent fleet central status', str(environment_file))
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        connection = http.client.HTTPConnection(c['host'], c['port'], timeout=1)
+        try:
+            connection.request('GET', '/')
+            if connection.getresponse().status == 200:
+                return result
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
+        time.sleep(0.1)
+    raise ValueError('central service did not become ready; inspect fleet-central.service')
 
 
 def _install(unit_name, arguments, directory, description, environment_file=None):
@@ -46,6 +60,12 @@ def _install(unit_name, arguments, directory, description, environment_file=None
     working_directory = directory.replace('%', '%%')
     if any(ch in working_directory for ch in ('\n', '\r', '\0')):
         raise ValueError('invalid service working directory')
+    environment_directive = ''
+    if environment_file:
+        if any(ch in environment_file for ch in ('\n', '\r', '\0')):
+            raise ValueError('invalid service EnvironmentFile path')
+        # EnvironmentFile is one literal path, not an ExecStart argv or Environment assignment.
+        environment_directive = 'EnvironmentFile=' + environment_file.replace('%', '%%')
     unit = f'''[Unit]
 Description={description}
 After=default.target
@@ -55,7 +75,7 @@ Type=simple
 WorkingDirectory={working_directory}
 ExecStart={' '.join(quote(a, expand_dollars=True) for a in args)}
 Environment={quote('PATH=' + paths)}
-{('EnvironmentFile=' + quote(environment_file)) if environment_file else ''}
+{environment_directive}
 Restart=on-failure
 RestartSec=15
 UMask=0077
