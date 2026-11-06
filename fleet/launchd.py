@@ -65,6 +65,17 @@ def install(unit, arguments, directory, environment_file=None):
         pass
     else:
         run(['launchctl', 'bootout', domain + '/' + label])
+        # bootout can return while launchd is still retiring the old job.
+        # Do not race bootstrap against that registered (SIGTERMed) label.
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                status(unit)
+            except CommandError:
+                break
+            if time.monotonic() >= deadline:
+                raise ValueError('LaunchAgent did not finish unloading; inspect launchctl state privately')
+            time.sleep(0.1)
     run(['launchctl', 'bootstrap', domain, str(path)])
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:

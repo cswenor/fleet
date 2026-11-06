@@ -190,7 +190,9 @@ not on PATH. Automatic discovery uses `orca` on macOS, `orca-ide` on Linux
 installing shell's PATH; launchd inherits only that PATH, not caller tokens.
 Use actual Mac checkout/lane paths, not the committed Linux host binding.
 Set reusable zsh lanes to a supported explicit prompt, e.g.
-`PROMPT='%n@%m:%~%% '`; unknown/custom prompts remain occupied, never guessed idle.
+`PROMPT='%n@%m:%~%% '`. Themes with prompt hooks may overwrite this assignment;
+an owned scratch lane can use `exec zsh -f` before setting it, without changing
+user dotfiles. Unknown/custom prompts remain occupied, never guessed idle.
 
 ```sh
 fleet --config /absolute/project/fleet.yml install-service \
@@ -203,8 +205,9 @@ launchctl bootout gui/$(id -u)/fleet-owner-project
 
 Installation writes `~/Library/LaunchAgents/fleet-owner-project.plist`, uses
 stock `launchctl bootstrap`, and requires `state = running` plus a positive PID.
-Reinstall bootouts/replaces only that label; no system daemon, sudo, or login
-domain fallback. A logged-in GUI user domain is required. The LaunchAgent starts
+Reinstall bootouts only that label, waits up to ten seconds for its registration
+to disappear, then bootstraps its replacement; timeout refuses replacement.
+No system daemon, sudo, or login domain fallback. A logged-in GUI user domain is required. The LaunchAgent starts
 at user login, not before login. `launchctl print` may disclose environment
 values: inspect privately, never paste its raw output. `central-install-service`
 uses `fleet-central` and additionally retains HTTP readiness.

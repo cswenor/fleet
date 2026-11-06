@@ -194,6 +194,8 @@ def _idle(c, record, tree, handle, previous=None):
 
 
 def restart(c, ref, slot, finished_ref):
+    if not sys.platform.startswith('linux'):
+        raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
     if not all(re.fullmatch(r'[A-Z]+-\d+', x) for x in (ref, finished_ref)) or ref == finished_ref:
         raise ValueError('restart requires different uppercase next and finished Pad refs')
     slot = str(Path(slot).expanduser().resolve())

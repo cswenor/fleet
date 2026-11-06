@@ -71,9 +71,17 @@ class LaunchAgentTests(unittest.TestCase):
             env.write_text('TOKEN=fake-secret\n')
             env.chmod(0o600)
             calls = []
+            unloading = False
             def command(argv):
                 calls.append(argv)
+                nonlocal unloading
+                if argv[1] == 'bootout':
+                    unloading = True
+                if argv[1] == 'bootstrap':
+                    unloading = False
                 if argv[1] == 'print':
+                    if unloading:
+                        raise CommandError('missing')
                     return '\tstate = running\n\tpid = 42\n\tenvironment = {\n\t\tTOKEN = fake-secret\n\t}\n'
                 return ''
             with patch.object(launchd.Path, 'home', return_value=root), \
@@ -86,7 +94,6 @@ class LaunchAgentTests(unittest.TestCase):
             self.assertIn(str(env), agent['ProgramArguments'])
             self.assertNotIn('fake-secret', Path(result['plist']).read_text() + json.dumps(result))
             self.assertEqual(stat.S_IMODE(Path(result['plist']).stat().st_mode), 0o600)
-            self.assertEqual([a[1] for a in calls], ['print', 'bootout', 'bootstrap', 'print'])
             self.assertEqual(calls[1][2], f'gui/{os.getuid()}/fleet-owner-project')
 
     def test_missing_job_bootstraps_but_unknown_readiness_never_passes(self):
@@ -108,8 +115,10 @@ class LaunchAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(launchd.Path, 'home', return_value=Path(tmp)), \
                     patch.object(launchd.shutil, 'which', return_value='/fleet'), \
-                    patch.object(launchd, 'run', return_value='\tstate = running\n'), \
-                    patch.object(launchd.time, 'monotonic', side_effect=[0, 11]):
+                    patch.object(launchd, 'status', side_effect=[CommandError('missing'), {'state': 'running', 'pid': None}]), \
+                    patch.object(launchd, 'run'), \
+                    patch.object(launchd.time, 'monotonic', side_effect=[0, 1, 11]), \
+                    patch.object(launchd.time, 'sleep'):
                 with self.assertRaisesRegex(ValueError, 'did not become running with a PID'):
                     launchd.install('fleet-test.service', ['serve'], tmp)
 
@@ -118,12 +127,53 @@ class LaunchAgentTests(unittest.TestCase):
             self.assertEqual(launchd.status('fleet-test.service'),
                              {'unit': 'fleet-test.service', 'label': 'fleet-test', 'state': 'running', 'pid': 99})
 
+    def test_reinstall_waits_for_old_job_and_refuses_unload_timeout(self):
+        for disappears in (True, False):
+            with self.subTest(disappears=disappears), tempfile.TemporaryDirectory() as tmp:
+                registered = True
+                unloading = False
+                observations = 0
+                started = False
+                def command(argv):
+                    nonlocal registered, unloading, observations, started
+                    if argv[1] == 'print':
+                        if unloading:
+                            observations += 1
+                            if disappears and observations == 3:
+                                registered = False
+                        if not registered:
+                            raise CommandError('missing')
+                        return '\tstate = running\n\tpid = 42\n'
+                    if argv[1] == 'bootout':
+                        unloading = True
+                    if argv[1] == 'bootstrap':
+                        self.assertFalse(registered, 'must not bootstrap an unloading job')
+                        started = registered = True
+                        unloading = False
+                    return ''
+                with patch.object(launchd.Path, 'home', return_value=Path(tmp)), \
+                        patch.object(launchd.shutil, 'which', return_value='/fleet'), \
+                        patch.object(launchd, 'run', side_effect=command), \
+                        patch.object(launchd.time, 'sleep'), \
+                        patch.object(launchd.time, 'monotonic', side_effect=range(30)):
+                    if disappears:
+                        launchd.install('fleet-test.service', ['serve'], tmp)
+                        self.assertTrue(started)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'did not finish unloading'):
+                            launchd.install('fleet-test.service', ['serve'], tmp)
+                        self.assertFalse(started)
+
 
 class PortabilityTests(unittest.TestCase):
     def test_macos_restart_never_sends_input(self):
         with patch.object(restart.sys, 'platform', 'darwin'), patch.object(restart, 'orca') as native:
             with self.assertRaisesRegex(ValueError, 'automatic restart unsupported on this platform'):
                 restart._foreground({}, {}, '/slot', 'terminal')
+        native.assert_not_called()
+        with patch.object(restart.sys, 'platform', 'darwin'), patch.object(restart, 'orca') as native:
+            with self.assertRaisesRegex(ValueError, 'automatic restart unsupported on this platform'):
+                restart.restart({}, 'TASK-45', '/slot', 'TASK-36')
         native.assert_not_called()
 
     def test_macos_capture_is_partial_without_procfs(self):

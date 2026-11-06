@@ -151,6 +151,25 @@ delivery still require owner-approved host access. macOS runner CI is not this
 runtime evidence. Shared-checkout rollout requires Main's announced window;
 merge alone is not deployment or permission to restart services.
 
+Phase B real Mac runtime (2026-11-06): owner-authorized isolated scratch
+project/Run/lane, Python 3.12.15 venv + PyYAML 6.0.3 installed from frozen
+`a607ed207e304b65758a566b24579ba1409d0f14`. Tools: omp 18.12.5,
+gh 2.87.3, pad 0.7.0, Orca 1.4.251; both effective automatic reset settings `no`.
+Initial LaunchAgent ran with PID 86327 and a mode-0600 literal dummy env file;
+plist had only PATH environment and no dummy value. Immediate reinstall exposed
+asynchronous bootout (old label still SIGTERMed, bootstrap exit 5). Installer now
+waits for exact-label disappearance or refuses after ten seconds; real reinstall
+changed PID 86491 to 86762, running. CLI macOS restart now refuses explicitly at
+entry, before target discovery or native input. All 183 tests passed on the Mac.
+Capture saved private mode-0600 partial metadata, null boot ID, exit 1, with
+`boot_identity_unavailable`, `local_linux_proc_unavailable` and
+`terminal_inventory_incomplete`; no procfs crash or completeness claim.
+Fresh launch/reconcile and wake acceptance are not yet complete: Mac GitHub
+GraphQL access withholds admission, and newer Orca requires full orchestration
+records plus explicit native auto-ack semantics. Main approved a separate
+transport-compatibility PR and retained its publication hold. No credentials,
+existing Mac product sessions, shared checkout or Linux services changed.
+
 ### TASK-33 — Project workflow skill and onboarding
 
 Implemented the generic [Fleet skill](../.omp/skills/fleet/SKILL.md), adopted by

@@ -478,11 +478,12 @@ class RetirementTests(unittest.TestCase):
         (self.process / 'environ').unlink()
         self.refused('no unique matching foreground')
 
-    def test_non_linux_or_missing_proc_never_retires(self):
-        with patch.object(restart.sys, 'platform', 'darwin'):
-            self.refused('requires local Linux /proc')
+    def test_missing_proc_never_retires(self):
         with patch.object(restart, 'PROC', Path(self.slot) / 'missing'):
-            self.refused('requires local Linux /proc')
+            with self.assertRaises(ValueError):
+                self.run_restart()
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
 
     def test_unrelated_environment_secret_never_reaches_output_or_receipts(self):
         secret = 'fake-secret-do-not-emit'
