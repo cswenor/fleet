@@ -1,0 +1,35 @@
+version: 1
+repo: owner/project
+root: /path/to/project
+orca_repo_id: replace-with-orca-repo-id
+pad_workspace: project
+orca: /absolute/path/to/orca-ide
+builder:
+  model: openai-codex/gpt-6.1-sol
+  resolved_model: openai-codex/gpt-6.1-sol
+  thinking: medium
+  max: 2
+  slots:
+    - /path/to/slot-a
+    - /path/to/slot-b
+  rules_file: AGENTS.md
+  idle_seconds: 2700
+  footer: |
+    Self-publish small PRs and resolve task-caused CI failures.
+    Never poll with model turns; use fleet watch-pr as an async background command.
+quota:
+  provider: openai-codex
+  reserve_percent: 10
+  max_age_seconds: 900
+disk:
+  path: /
+  min_free_gb: 20
+coordinator:
+  terminal: term_replace
+  run: run_replace
+interval_seconds: 60
+status:
+  url: ''
+  token_env: FLEET_STATUS_TOKEN
+  push_seconds: 300
+hooks: {}
