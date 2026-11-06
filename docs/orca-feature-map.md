@@ -2,7 +2,7 @@
 
 Cleaned project-owned edition of the 2026-11-06 TASK-2464 research. Historical
 research was documentation-only; live findings below supersede its proposed
-architecture. No credentials, reusable terminal handles or session IDs included.
+architecture. Audit receipts below contain only non-secret evidence identifiers.
 Policy/status/remaining acceptance live in [ROADMAP.md](ROADMAP.md), not here.
 
 ## Evidence hierarchy
@@ -35,6 +35,109 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 | Per-project setup | .omp/config.yml, .pad.toml; Orca repo setup/optional orca.yaml recipes | fleet.yml + one supervisor/project; systemd user install, private state/env. No global watcher. |
 | Cross-project central | No native multi-project status feed documented | Per-project outbound HTTPS snapshot -> the central host/the PaaS read-only SQLite app, tokens per project, tailnet view. Local supervision survives outage. |
 | Disk | OS free-space accounting; omp gc only handles omp storage | Fleet reports reserve and blocks starts; no destructive cache cleanup. |
+
+## TASK-31 stock-first lifecycle audit (2026-11-06)
+
+**Verdict: retain the policy composition; no equivalent replacement proved.**
+Orca **1.4.242**, omp **18.17.0**, source baseline `01153fba` plus the merged
+TASK-32 review/reset overlay changes present in this checkout. This audit covers
+standalone terminal builders, not supervised Dispatches. A successful stock
+primitive is not proof it implements Fleet's surrounding admission/ownership policy.
+
+### Function-level decisions
+
+| Fleet function / contract | Stock candidate | Live evidence below | Verdict and risk |
+|---|---|---|---|
+| `launcher.launch`, `_preparation_receipt`: guarded fresh task, overlay, dedicated session directory, journaled ambiguity | `agent launch --agent omp --model … --effort medium`; `worktree create --agent` | L1 rejects effort; L2 launches actual **high**, not medium; L3 lacks overlay/session pins | **Keep**. Stock launch does deliver Pad-Ref without a supervised preamble, but does not satisfy thinking/overlay contract. Admission, slot identity, hooks and failure receipts remain project composition. |
+| `restart.restart`, `_target`, `_idle`, `_session`, `_foreground`, `_completion`: published finished task, exact foreground session, empty composer, one exit, verified shell | `terminal wait --for tui-idle/exit`, `worktree ps`, supervised `worker-release` | R1 reports idle while PTY runs; R2 exit wait times out; H1 sees exact-pane done | **Keep**. Idle is not publication, empty draft, foreground ownership or fresh-task admission. Release belongs to settled supervised workers, not these builders. TASK-34 separately owns restart race/self-claim corrections; keeping composition is not a safety certification of current code. |
+| `mailbox.wait`, `request`, `delivery`, `classify`: bound caller, validated whole Delivery, diagnostic legacy history, decision-first presentation | `orchestration check --wait/--ack`, `run-current`, `inbox` | M1 replay/ack and M2 real blocking wake succeed | **Keep thin wrapper**, already using stock delivery. Native replay/wait must not be reimplemented. Wrapper adds configured-Run ownership/error contract and legacy diagnostics; classification never grants authority or filters ack. |
+| `threads.identity/open_thread/current/question/wait/result`, Pad recording: task/attempt identity and durable decisions | `orchestration ask`, `send --thread-id`, `reply --id`, `inbox` | T1 ask rejects standalone terminal; T2 send/reply preserves subthread and unread history | **Keep**. Native send/reply already carries messages; no Dispatch means native blocking ask is unavailable. Stock inbox has no Pad copy or authoritative Fleet attempt mapping. History polling stays in one background process; eviction/terminal-close durability remains limited. |
+| `dispatcher.unresolved/receipt_reasons/reconcile`, `slot_reasons`: unresolved launch fences and explicit Main reconciliation | `agent launch --retry-launch`, `worker-list` liveness, `terminal show`, `run-current` | L2 returns operationId; H1/H2 expose terminal versus supervised inventory; H3 proves binding | **Keep**. Stock operation replay is useful only for a launch performed through that API. Empty supervised inventory cannot retire a standalone Fleet launch receipt or authorize reconciliation. No live receipts were reconciled in this audit. |
+| `health.collect/binding/active/owner`, `classify/shell_ready/footer_model/model_matches/branch`: complete slot inventory and conservative owner mapping | `terminal list/show/read --screen`, `worktree list/ps`, `worker-list` | H1 standalone agent appears in ps/show; H2 supervised list empty; H3 explicit null binding | **Keep composition** over native inventory. PTY connected, agent done, shell ready and supervised liveness are different facts. Titles/footer models are diagnostics, not ownership proof; actual session events remain stronger. |
+| `orca_capture.collect`, `_processes/_session/_stat/_pick`: private cross-restart metadata projection | `status`, `terminal list`, `run-current/run-show`, `inbox`, `worker-list` | C1 real collection reports incomplete proc scan and unavailable read-only Delivery identity | **Keep**. Stock supplies runtime/mailbox metadata, not the local proc/session/systemd join or safe redaction. Capture is sequential and observational, not idle proof; no runtime restart was performed. |
+
+### Commands and observed receipts
+
+In this section `O` means `/home/dev/.config/orca/cli/bin/orca`; `W` is this
+existing configured lane (`path:/home/dev/orca/workspaces/fleet/fleet-lane2`).
+`P` denotes the owned standalone probe terminal; `C` the separately created
+scratch coordinator terminal; `R` its scratch Run `run_692229535c5c`.
+These labels are explanatory, not shell setup instructions or reusable handles.
+Both scratch terminals were closed with native `ptyKilled: true` receipts.
+No extra worktree, builder-terminal Run binding, sudo, runtime restart or shared
+checkout deployment occurred.
+
+- **L1 — requested effort:** `O agent launch --agent omp --worktree W --model
+  openai-codex/gpt-6.1-sol --effort medium --surface terminal --prompt
+  '<Pad-Ref: TASK-31; read-only probe>' --json` returned `ok:false`,
+  `invalid_argument`, **“Agent omp model openai-codex/gpt-6.1-sol does not
+  support effort medium.”** No successful launch receipt was returned.
+- **L2 — actual execution:** same command without `--effort` returned
+  `outcome.kind:terminal`, `prompt.outcome:handed-to-terminal`, operationId
+  `1793989811326-6f1568bdf7d64ec6aa132caba0891745`. Screen displayed the
+  Pad-Ref prompt and `STOCK-LAUNCH-PROBE` response. Open session log
+  `01a1b220-1f92-77ca-8587-bfd3716b241b` recorded
+  `model_change.model:openai-codex/gpt-6.1-sol`,
+  `resolvedModelIsFallback:false`, then
+  `thinking_level_change.thinkingLevel:high`, `configured:null`.
+  No tools were used by the probe. Thus fresh model/prompt delivery works,
+  but bare model launch still does not prove Sol medium.
+- **L3 — policy injection boundary:** `O agent launch --help` and
+  `O worktree create --help` expose model/effort and replay, not arbitrary
+  omp `--config` or `--session-dir`. Inspection of the probe's local process
+  arguments found no `--thinking`, `--config`, `--session-dir` or `--resume`.
+  This does **not** prove every inherited setting unsafe: no-fallback,
+  fail-closed reserve, fixed 200K, no-auto-resume and no-auto-reset equivalents
+  are **unverified for this launch**, not inferred from its successful response.
+  `worktree create --agent` was **not executed**: creating extra worktrees is
+  forbidden. Shared help semantics alone do not prove runtime equivalence.
+- **R1/R2 — idle versus exit:** `O terminal wait --terminal P --for tui-idle
+  --timeout-ms 60000 --json` returned `satisfied:true`, `status:running`,
+  `exitCode:null`. `--for exit --timeout-ms 1000` on that idle agent returned
+  `ok:false`, `timeout`. `tui-idle --timeout-ms 1000` on scratch shell C also
+  timed out. Neither primitive replaces positive same-incarnation shell proof
+  after OMP `/exit`; no Fleet restart was attempted.
+- **M1 — native FIFO:** `O orchestration send --from P --to run:R --type
+  question --thread-id task31-audit-native … --json` enqueued
+  `msg_a85b3c6ad37a`. `check --terminal C --run R --json` returned
+  `delivery_d21903e327f1`; repeating returned the same ID, `replayed:true`.
+  After processing the question and reply, `check … --ack
+  delivery_d21903e327f1 --wait --timeout-ms 1` returned acknowledged ID,
+  `count:0`, `timedOut:true`.
+- **M2 — native blocking wake:** started `O orchestration check --terminal C
+  --run R --wait --timeout-ms 10000 --json` in a subprocess, then sent status
+  to **C's terminal address**. Send normalized destination to `run:R`;
+  blocked check returned `msg_77eb29d9bf8b` in
+  `delivery_4a0a90a26b79`, `timedOut:false`. Explicit ack returned timeout
+  with zero messages. This proves the stock wait path, not an agent turn.
+- **T1/T2 — terminal questions:** `O orchestration ask --from P --to run:R
+  --question '<scratch question>' --timeout-ms 1 --json` returned
+  `dispatch_inactive`: **“ask requires an active supervised Dispatch.”**
+  `O orchestration reply --from C --id msg_a85b3c6ad37a --body
+  '<scratch decision>' --json` instead created `msg_f32e31c3c8b9`,
+  addressed to P, type status, same `task31-audit-native` thread.
+  `O orchestration inbox --terminal P --limit 10 --json` retained that reply,
+  `read:0`. This exercised native transport only, not Fleet's Pad-copy path.
+- **H1/H2/H3 — inventory:** `O terminal show --terminal P --json` reported
+  connected/writable/non-orphaned OMP with an incarnation ID.
+  `O worktree ps --json` showed three live terminals in this lane (builder,
+  probe, scratch shell), `terminalVerdict:live`; probe's exact pane had
+  `state:done`, `programStatus.state:done`. `O orchestration worker-list
+  --run R --json` returned `workers:[]`, page total 0, `hasMore:false`,
+  scope source `flag`, despite that live standalone agent. `O orchestration
+  run-current --from P --json` and the builder's own identity both returned
+  explicit `run:null`. Supervised listing is not standalone inventory.
+- **C1 — actual capture:** invoked `orca_capture.collect(load(private_config),
+  ['fleet-cswenor-fleet.service'])` from a throwaway Python cell. The native
+  queries listed in its table row produced a ready 1.4.242 runtime, 15
+  terminals and 17 process rows; own supervisor active/running, NRestarts 0.
+  Collection honestly retained `proc_scan_incomplete` and
+  `native_delivery_identity:unavailable_read_only_api`. Only sanitized
+  aggregates were emitted; the host snapshot was not committed.
+
+No production replacement is justified by these receipts. A future upstream
+OMP launch effort/config/session interface or standalone blocking question API
+needs a new real probe and Main approval before removing the corresponding glue.
 
 ## Orca capabilities and caveats
 

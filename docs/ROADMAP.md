@@ -88,6 +88,13 @@ PLAN-2685. No product code or shared-runtime restart was performed.
   Main approved stock unadvised-review overlay instead of improvised setup, plus
   native no-auto-reset pins in reviewer/builder overlays (owner never-auto-spend
   decision). TASK-33 owns installing the same overlay with the project skill.
+- **TASK-31 stock-first lifecycle audit:** [live function-level table](orca-feature-map.md#task-31-stock-first-lifecycle-audit-2026-11-06).
+  Orca 1.4.242 rejects OMP Sol `--effort medium`; model-only launch actually
+  records Sol/high. Native transport/replay/ack/wake works, but standalone
+  builders cannot use native `ask` and do not appear in supervised worker-list.
+  Main approved audit-only completion (decision `msg_e1e0ad77642b`): keep policy
+  wrappers; no equivalent replacement proved. Both scratch terminals closed;
+  no shared restart/deployment. TASK-34 separately owns restart race/self-claim.
 
 ## Phase status and evidence
 
