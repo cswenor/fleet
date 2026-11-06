@@ -295,9 +295,28 @@ Canonical slot-keyed `launches.json` binds the exact terminal/incarnation and
 private session directory. Single connected writable terminal, exact-pane
 idle/done, current empty idle composer, live session lease, local Linux foreground
 OMP process binding and final assistant stop are required. Unavailable `/proc`
-or unsupported hosts refuse. Only `credential_pin` / `title_change` may follow; unknown or later
-work refuses. Stale working screens, background jobs, dialogs, disconnected or
+or unsupported hosts refuse. TASK-28 matches real omp 18.17.0 metadata encodings:
+top-level `credential_pin` / `title_change` and exactly
+`type=custom, customType=todo_hud_state`; unknown or later work refuses.
+Stale working screens, background jobs, dialogs, disconnected or
 ambiguous targets and missing legacy binding all fail closed.
+TASK-28 also checks shared next-task eligibility/dependencies/duplicate assignments
+and competing receipts before exit, exempting only the exact proven old receipt.
+Foreground argv permits one optional leading configured Orca status-extension
+pair; every other argument stays exact. The path defaults only from Fleet's own
+`ORCA_OMP_STATUS_EXTENSION`, never from target-process environment.
+
+2026-11-06 TASK-28 CLI drill (private scratch state, Main-approved inventory
+adapter restricted to one owned lane2 terminal): real session
+`01a1b1e0-f215-700c-9447-ccb857eb5357` used todos, then `/todo expand` wrote
+`custom/todo_hud_state` after its final stop. Reserve admission refused with zero
+input; normal restart sent exactly one `/exit`, verified the same-incarnation
+shell and launched TASK-30 session with resolved Sol medium/no fallback.
+Unknown-event and mid-turn log-copy CLI probes refused. Actual plain-argv fleet
+builder foreground binding also passed and its native exact-pane projection was
+present without the injected extension. Both owned scratch terminals
+`term_431b5ad9` / `term_f2606fe3` were closed; scratch Run `run_4dbf1efa9597`
+remains as durable drill evidence. No production retirement or runtime restart.
 
 The launcher lock covers rechecks, journal-before-one-`/exit`, bounded wait for a
 same-incarnation POSIX shell and normal admission/fresh launch. Partial receipts

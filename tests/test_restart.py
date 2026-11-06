@@ -51,6 +51,9 @@ class RetirementTests(unittest.TestCase):
         self.comments = []
         self.sent = []
         self.exited = False
+        self.next_status = 'in-progress'
+        self.next_parent_status = 'active'
+        self.next_edges = []
         self.send_error = False
         self.patches = [patch.object(restart.health, 'collect', side_effect=lambda c: copy.deepcopy(self.inventory)),
                         patch.object(restart, 'orca', side_effect=self.orca),
@@ -58,6 +61,8 @@ class RetirementTests(unittest.TestCase):
                         patch.object(restart, 'gh', side_effect=lambda *a: self.prs),
                         patch.object(restart.snapshot, 'collect', side_effect=lambda c: {
                             'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True}, 'disk': {'low': False}}),
+                        patch.object(restart.dispatcher, 'pad', side_effect=self.dispatcher_pad),
+                        patch.object(restart.dispatcher, 'run', return_value='task-1'),
                         patch.object(restart.launcher, 'launch', return_value={'id': 'new'})]
         for p in self.patches:
             p.start()
@@ -66,6 +71,13 @@ class RetirementTests(unittest.TestCase):
 
     def write_log(self):
         self.log.write_text('\n'.join(json.dumps(e) for e in self.events) + '\n')
+
+    def dispatcher_pad(self, c, *args):
+        if args[1] == 'deps':
+            return self.next_edges
+        if args[2] == 'PLAN-1':
+            return {'fields': {'status': self.next_parent_status}}
+        return {'fields': {'status': self.next_status}, 'parent_ref': 'PLAN-1'}
 
     def pad(self, argv, cwd):
         if argv[0] == 'omp':
@@ -194,6 +206,43 @@ class RetirementTests(unittest.TestCase):
         self.write_log()
         self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
 
+    def test_real_shaped_post_turn_todo_snapshot_allows_retirement(self):
+        # Sanitized omp 18.17.0 shapes from fleet sessions 01a1b1aa / 01a1b1ae.
+        self.events += [
+            {'type': 'credential_pin', 'id': 'pin', 'parentId': 'stop',
+             'timestamp': '2026-11-06T16:39:19.000Z'},
+            {'type': 'title_change', 'id': 'title', 'parentId': 'pin',
+             'timestamp': '2026-11-06T16:39:20.000Z'},
+            {'type': 'custom', 'customType': 'todo_hud_state',
+             'data': {'sourceEntryId': 'stop', 'fingerprint': 'sanitized', 'visibility': {}},
+             'id': 'todo', 'parentId': 'title', 'timestamp': '2026-11-06T16:40:02.272Z'},
+        ]
+        self.write_log()
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_called_once_with(self.c, 'TASK-2', self.slot, _locked=True)
+
+    def test_unknown_or_misencoded_metadata_never_retires(self):
+        for event in (
+                {'type': 'custom', 'customType': 'tool_execution_start'},
+                {'type': 'custom', 'customType': 'session_exit'},
+                {'type': 'custom', 'customType': 'future_metadata'},
+                {'type': 'custom', 'customType': 'credential_pin'},
+                {'type': 'todo_hud_state'},
+                {'type': 'custom_message', 'customType': 'todo_hud_state'},
+                {'type': 'future_event', 'customType': 'todo_hud_state'}):
+            with self.subTest(event=event):
+                self.events = self.events[:2] + [event]
+                self.write_log()
+                self.refused('later work')
+
+    def test_todo_snapshot_does_not_make_mid_turn_session_finished(self):
+        self.events[-1]['message']['stopReason'] = 'toolUse'
+        self.events.append({'type': 'custom', 'customType': 'todo_hud_state', 'data': {}})
+        self.write_log()
+        self.refused('no final assistant stop')
+
     def test_missing_launch_binding_refuses(self):
         for key in ('terminal', 'ref', 'session_dir', 'terminal_incarnation_id'):
             with self.subTest(key=key):
@@ -241,6 +290,20 @@ class RetirementTests(unittest.TestCase):
         with patch.object(restart.snapshot, 'may_start', return_value={'may_start': False, 'reasons': ['quota reserve']}):
             self.refused('quota reserve')
 
+    def test_next_task_admission_refuses_before_exit(self):
+        self.next_status = 'done'
+        self.refused('task status')
+        self.next_status = 'in-progress'
+        self.next_parent_status = 'draft'
+        self.refused('active plan')
+        self.next_parent_status = 'active'
+        self.next_edges = [{'link_type': 'blocks', 'target_ref': 'TASK-2',
+                            'source_ref': 'TASK-9', 'source_status': 'open'}]
+        self.refused('blocked by TASK-9')
+
+    def test_competing_receipt_refuses_before_exit(self):
+        state.write(self.c, 'last-launch', dict(self.record, id='competing', ref='TASK-9'))
+        self.refused('unresolved launch receipt competing')
     def test_resumed_work_during_admission_never_receives_exit(self):
         def collect(c):
             self.events.append({'type': 'message', 'message': {'role': 'user'}})
@@ -316,6 +379,31 @@ class RetirementTests(unittest.TestCase):
         replacement = [*self.argv]
         replacement[replacement.index('--session-dir') + 1] = '/replacement'
         (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in replacement))
+        self.refused('no unique matching foreground')
+
+    def test_configured_leading_orca_extension_allows_exact_retirement(self):
+        self.c['builder']['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        argv = [self.argv[0], '--extension', '/trusted/orca-agent-status.ts', *self.argv[1:]]
+        (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_other_extra_or_unconfigured_extensions_never_receive_exit(self):
+        self.c['builder']['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        for extra in (
+                ['--extension', '/other/status.ts'],
+                ['--extension', '/trusted/orca-agent-status.ts', '--extension', '/trusted/orca-agent-status.ts'],
+                ['--extension', '/trusted/orca-agent-status.ts', '--no-tools'],
+                ['--no-tools']):
+            with self.subTest(extra=extra):
+                argv = [self.argv[0], *extra, *self.argv[1:]]
+                (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
+                self.refused('no unique matching foreground')
+        self.c['builder'].pop('orca_status_extension')
+        (self.process / 'environ').write_bytes(
+            b'ORCA_TERMINAL_HANDLE=target\0ORCA_OMP_STATUS_EXTENSION=/trusted/orca-agent-status.ts\0')
+        argv = [self.argv[0], '--extension', '/trusted/orca-agent-status.ts', *self.argv[1:]]
+        (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
         self.refused('no unique matching foreground')
 
     def test_foreground_requires_exact_terminal_routing_and_accessible_process_evidence(self):

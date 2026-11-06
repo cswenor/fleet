@@ -6,11 +6,13 @@ from pathlib import Path
 import re
 import sys
 import time
-from . import health, launcher, snapshot, state
+from . import dispatcher, health, launcher, snapshot, state
 from .commands import CommandError, gh, json_run, orca
 
-# OMP appends these after an otherwise completed conversation turn.
-POST_TURN_METADATA = frozenset({'credential_pin', 'title_change'})
+# Exact omp 18.17.0 (type, customType) encodings; never allow arbitrary custom events.
+POST_TURN_METADATA = frozenset({
+    ('credential_pin', None), ('title_change', None), ('custom', 'todo_hud_state'),
+})
 PROC = Path('/proc')
 
 
@@ -23,11 +25,15 @@ def _foreground(c, record, slot, handle):
     expected = ['--model', c['builder']['model'], '--thinking', c['builder']['thinking'],
                 '--config', record['overlay'], '--session-dir', record['session_dir'],
                 '@' + record['prompt']]
+    extension = c['builder'].get('orca_status_extension')
+    permitted = [expected]
+    if extension:
+        permitted.append(['--extension', extension, *expected])
     owners = []
     for proc in PROC.glob('[0-9]*'):
         try:
             argv = [part.decode() for part in (proc / 'cmdline').read_bytes().split(b'\0') if part]
-            if not argv or Path(argv[0]).name != 'omp' or argv[1:] != expected:
+            if not argv or Path(argv[0]).name != 'omp' or argv[1:] not in permitted:
                 continue
             before = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
             # Only the launched process, not a stopped old process or a shell's
@@ -46,7 +52,8 @@ def _foreground(c, record, slot, handle):
         except (OSError, ValueError, IndexError, UnicodeError):
             continue
     if len(owners) != 1:
-        raise ValueError('recorded session has no unique matching foreground OMP process; retirement withheld')
+        raise ValueError('recorded session has no unique matching foreground OMP process; '
+                         'argv must match launch exactly, with only the configured Orca status extension permitted; retirement withheld')
     return owners[0]
 
 
@@ -128,7 +135,7 @@ def _session(record, slot):
     if (message.get('role') != 'assistant' or message.get('stopReason') != 'stop' or
             any(part.get('type') == 'toolCall' for part in message.get('content', []))):
         raise ValueError('session has no final assistant stop; turn running or unfinished')
-    if any(e.get('type') not in POST_TURN_METADATA for e in events[last + 1:]):
+    if any((e.get('type'), e.get('customType')) not in POST_TURN_METADATA for e in events[last + 1:]):
         raise ValueError('session has later work or unknown events after final assistant stop')
     return {'path': str(logs[0]), 'id': headers[0]['id'], 'digest': hashlib.sha256(data).hexdigest()}
 
@@ -192,8 +199,9 @@ def restart(c, ref, slot, finished_ref):
         proof = _idle(c, record, tree, target['terminal'])
         completion = _completion(c, ref, finished_ref)
         # Validate next task and gates before retiring, then again inside normal launch.
-        json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', ref, '--format', 'json'], c['root'])
         s = snapshot.collect(c)
+        # Only this exact proven old launch is exempt; competing receipts still block.
+        dispatcher.check_launch(c, ref, s['inventory'], slot, retiring=record)
         s['inventory']['builders'] = [b for b in s['inventory']['builders'] if b['terminal'] != target['terminal']]
         admission = snapshot.may_start(c, s)
         if not admission['may_start']:

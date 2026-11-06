@@ -59,9 +59,9 @@ def unresolved(c, inventory):
     return list(pending.values())
 
 
-def receipt_reasons(c, inventory, path):
+def receipt_reasons(c, inventory, path, *, retiring=None):
     return sorted({f"slot has unresolved launch receipt {r.get('id', 'unknown')} ({r['ref']})"
-                   for r in unresolved(c, inventory) if r['worktree']['path'] == path})
+                   for r in unresolved(c, inventory) if r['worktree']['path'] == path and r != retiring})
 
 
 def reconcile(c, slot, launch_id, evidence):
@@ -129,7 +129,7 @@ def duplicate_reasons(ref, claims, slot=None):
                    and (path != slot or source not in ('branch', 'card'))})
 
 
-def check_launch(c, ref, inventory, slot):
+def check_launch(c, ref, inventory, slot, *, retiring=None):
     item = pad(c, 'item', 'show', ref)
     status = fields(item).get('status')
     reasons = [] if status in ('open', 'in-progress') else ['task status is not open or in-progress']
@@ -138,7 +138,7 @@ def check_launch(c, ref, inventory, slot):
         reasons.append('task is not in an active plan')
     reasons.extend(dependencies(c, ref))
     reasons.extend(duplicate_reasons(ref, assignments(c, inventory), slot))
-    reasons.extend(receipt_reasons(c, inventory, slot))
+    reasons.extend(receipt_reasons(c, inventory, slot, retiring=retiring))
     if reasons:
         raise ValueError('launch withheld: ' + '; '.join(reasons))
     return item

@@ -27,6 +27,10 @@ def load(path):
         raise ValueError('builder.resolved_model must include provider/model')
     b.setdefault('thinking', 'medium')
     b.setdefault('max', len(b['slots']))
+    b.setdefault('orca_status_extension', os.environ.get('ORCA_OMP_STATUS_EXTENSION'))
+    extension = b['orca_status_extension']
+    if extension is not None and (not isinstance(extension, str) or not Path(extension).is_absolute()):
+        raise ValueError('builder.orca_status_extension must be an absolute path or null')
     b.setdefault('footer', 'This session is already fresh for the assigned task. Do not signal FRESH-READY for an inherited handoff or boundary. Only after publishing your next piece of work, choose a different next task, write its handoff, report FRESH-READY with that different task ref to the coordinator, and stop. Never resume context or silently switch provider/model.')
     b.setdefault('idle_seconds', 2700)
     if b['thinking'] not in ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'):

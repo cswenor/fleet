@@ -356,6 +356,9 @@ No automatic retries, auto-dispatch from Pad, merge actions, or worktree cleanup
 
 `restart NEXT --slot PATH --finished-ref OLD` is the guarded replacement for
 manually exiting a finished builder. Main still confirms the next task/launch.
+Before `/exit`, restart checks quota/disk/cap and the next task's status, plan,
+dependencies, duplicate assignments and competing receipts. Only the exact
+proven retiring launch receipt is exempt from that preflight.
 OLD must differ from NEXT and have a merged PR in this repository whose title
 or body contains its exact Pad ref, plus either Pad status `done` or a
 post-publication handoff comment on NEXT referencing OLD. Publication ordering
@@ -367,8 +370,9 @@ except verified connected **Run-bound ready shells**, which launch already
 bypasses and retirement never touches. Unknown/unbound extra shells still block.
 Each launch gets a private `sessions-<id>` directory. Its single session log must
 belong to the slot, still have a live OMP session lease, and end with an assistant
-`stopReason=stop`. Only `credential_pin` and `title_change` metadata may follow;
-unknown events refuse. The exact pane must report idle/done, with a current idle,
+`stopReason=stop`. Only top-level `credential_pin` / `title_change` and
+`type=custom, customType=todo_hud_state` UI snapshots may follow; all other
+event encodings refuse. The exact pane must report idle/done, with a current idle,
 **empty** OMP composer and no dialog/background-job indicator. Single/multiline
 drafts (including draft text resembling UI borders) refuse without clearing or
 submitting them. A stale working screen after a completed turn still refuses;
@@ -380,6 +384,13 @@ foreground OMP process with the exact launch argv (including private session
 directory, overlay and prompt), slot cwd and matching terminal routing key.
 PID/start identity is rechecked before input. Only `ORCA_TERMINAL_HANDLE`
 equality is inspected in memory; no environment contents are logged or retained.
+One optional **leading** `--extension PATH` pair is accepted only when PATH
+exactly equals `builder.orca_status_extension` (absolute path or `null`).
+If omitted, that setting defaults to `ORCA_OMP_STATUS_EXTENSION` from Fleet's
+own environment, never the target process environment. Unset/null allows only
+the plain launch form; arbitrary, repeated or reordered extra arguments refuse.
+Native exact-pane idle/done evidence is required in either form; missing or
+unknown projection refuses rather than inferring status from the extension.
 Missing/inaccessible `/proc`, non-Linux hosts, changed argv/config, absent routing
 keys and ambiguous process ownership refuse. Restart is unavailable there;
 manual retirement requires independent reconciliation, never a force bypass.
