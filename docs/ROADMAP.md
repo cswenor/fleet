@@ -174,6 +174,27 @@ review + green CI, no builder Run binding or automatic reset spending.
 Session events recorded Sol medium, no fallback. No services/other projects
 changed; publication gate receipts are retained on TASK-33 and its PR.
 
+### TASK-38 — Registry preparation; publication deferred to TASK-43
+
+Owner/Main narrowed TASK-38 to docs-only on 2026-11-06 (ruling
+`msg_3024c91a84bd`): Stencil registry access is invite/waitlist-only and the owner
+has no account. Registry publication and registry-install acceptance move to
+TASK-43, blocked on owner access. No package name/scope/URL is assigned and
+nothing has been published; no login, token creation or credential-file access
+was performed.
+
+The skill retains approved `metadata.version: 0.1.0`. Stock omp 18.17.0
+`skill publish .omp/skills/fleet --dry-run` validates a package containing only
+`SKILL.md`; the validator requires version metadata and reports no license
+requirement. A dry-run is not publication or registry-authentication proof.
+Privacy scanning found no private host/account names, user paths, runtime
+handles, credential-shaped strings or URLs in the skill.
+README and skill onboarding keep the reviewed project-local copy procedure,
+not an invented registry install spec. A fresh temporary-project copy smoke
+verified byte-identical skill/overlay content, preservation of configured
+`fleet.yml` on repeat adoption and `omp skill list --json` discovery as
+`native:project`; no registry install is claimed.
+
 ### TASK-37 — Selective wake and urgent supervisor relays
 
 `fleet wait --wake-on question,escalation,urgent` gates native blocking wake,
@@ -200,9 +221,15 @@ acks drained the Run. Real scratch supervisor emitters also delivered wrong-mode
 and 45-minute PR-stuck events (`msg_a973e77a60df`, `msg_a24b4220ca2c`) together;
 replay and explicit whole-batch ack passed. All 179 local unit tests passed.
 Builder terminal remained unbound; no live-Run probes or production changes.
-Final publication receipts are retained on TASK-37.
-Main coordinates the Project Alpha switch and TASK-10 script retirement;
-merge is held until Main confirms the shared-behavior rollout window.
+Published in [PR34](https://github.com/cswenor/fleet/pull/34), merge
+`38c9a356e8c8895fab51a8225d606c0a9b0bb4d6`, after Main GO
+`msg_684d0aa6c2b6`. Final head `1caa1f4780e8464046d21e7fbcf46402246aeea0`
+received fresh independent stock-overlay Sol-medium PASS (session
+`01a1b270-229d-7522-8f7d-1f28c80725b5`) and green Ubuntu/macOS
+[CI42284129502](https://github.com/cswenor/fleet/actions/runs/42284129502).
+Main reports deployment to the stable shared checkout at 21:12 UTC and Fleet's
+supervisor reinstall; Project Alpha's supervisor reinstall remains pending its Main.
+Main coordinates the Project Alpha switch and TASK-10 script retirement.
 
 ### TASK-10 — Main wake-up through BOTH address forms
 
