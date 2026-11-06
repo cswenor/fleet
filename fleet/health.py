@@ -33,7 +33,8 @@ def shell_ready(text):
 
 
 def active(builder):
-    return builder['connected'] and not builder.get('shell_ready', False)
+    # Only a current connected shell receipt proves the old session is gone.
+    return not (builder['connected'] and builder.get('shell_ready', False))
 
 
 def classify(terminal, text, expected, idle_seconds, now):
@@ -82,9 +83,8 @@ def collect(c, now=None):
             text = '\n'.join(detail.get('tail', []))
         except RuntimeError:
             errors.append('terminal read unavailable: ' + t['handle'])
-        ready = shell_ready(text)
-        if t.get('agentIdentity') != 'omp' and not ready:
-            continue
+        ready = (t.get('connected', False) and not t.get('orphaned') and
+                 t.get('writable', False) and shell_ready(text))
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
         if ready:
             model, flags, idle = None, [], None
@@ -105,5 +105,5 @@ def owner(inventory, head):
     trees = [w for w in inventory['worktrees'] if w['branch'] == branch(head)]
     if len(trees) != 1:
         return None
-    candidates = [b for b in inventory['builders'] if b['worktree'] == trees[0]['id'] and active(b)]
+    candidates = [b for b in inventory['builders'] if b['worktree'] == trees[0]['id'] and b['connected'] and active(b)]
     return candidates[0]['terminal'] if len(candidates) == 1 else None

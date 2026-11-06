@@ -33,6 +33,22 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(builder['state'], 'active')
         self.assertEqual(builder['flags'], [])
 
+    def test_unknown_terminal_identity_keeps_slot_occupied(self):
+        c = {'root': '/root', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},
+             'builder': {'slots': ['/slot'], 'resolved_model': 'provider/model', 'idle_seconds': 600}}
+        for terminal in ({'connected': True}, {'connected': False, 'agentIdentity': 'omp'},
+                         {'connected': True, 'orphaned': True, 'agentIdentity': 'omp'}):
+            with self.subTest(terminal=terminal):
+                def orca(config, *args):
+                    if args[:2] == ('worktree', 'list'):
+                        return {'worktrees': [{'id': 'tree', 'repoId': 'repo', 'path': '/slot'}]}
+                    if args[:2] == ('terminal', 'list'):
+                        return {'terminals': [{'handle': 'lane', 'worktreeId': 'tree', **terminal}]}
+                    return {'terminal': {'tail': ['process still unresolved']}}
+                with patch.object(health, 'orca', side_effect=orca):
+                    inventory = health.collect(c, now=100)
+                self.assertEqual([b['path'] for b in inventory['builders'] if health.active(b)], ['/slot'])
+
     def test_ambiguous_owner_never_gets_message(self):
         inv = {'worktrees': [{'id': 'w', 'branch': 'feature'}], 'builders': [{'worktree': 'w', 'connected': True, 'terminal': 'a'}]}
         self.assertEqual(owner(inv, 'refs/heads/feature'), 'a')

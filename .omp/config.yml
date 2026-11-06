@@ -1,0 +1,66 @@
+modelRoleStorage: project
+modelRoles:
+  smol: anthropic/claude-sonnet-5-5:medium
+  task: openai-codex/gpt-6.1-sol:medium
+  review: openai-codex/gpt-6.1-sol:medium
+  designer: openai-codex/gpt-6.1-sol:medium
+  fast_worker: anthropic/claude-sonnet-5-5:medium
+  good_worker: openai-codex/gpt-6.1-sol:medium
+  default: anthropic/claude-opus-5-5:high
+  plan: openai-codex/gpt-6.1-sol:medium
+  advisor: anthropic/claude-opus-5-5:high
+advisor:
+  enabled: false
+retry:
+  enabled: true
+  modelFallback: true
+  usageAwareFallback: true
+  usageReservePct: 0
+  usageReservePolicy: auto
+  fallbackRevertPolicy: cooldown-expiry
+  fallbackChains:
+    anthropic/claude-opus-5-5:
+    - openai-codex/gpt-6.1-sol:medium
+    openai-codex/gpt-6.1-sol:
+    - anthropic/claude-opus-5-5:medium
+    anthropic/claude-sonnet-5-5:
+    - openai-codex/gpt-6-luna:medium
+    openai-codex/gpt-6-luna: []
+plan:
+  enabled: true
+  defaultOnStartup: false
+task:
+  batch: true
+  enableEffort: false
+  enableLsp: true
+  maxConcurrency: 4
+  maxRecursionDepth: 2
+  showResolvedModelBadge: true
+  maxEffort: max
+  agentAdvisor:
+    task: 'off'
+    sonic: 'off'
+    designer: 'off'
+    reviewer: 'off'
+    security-reviewer: 'off'
+    scout: 'off'
+  isolation:
+    apply: true
+    merge: patch
+    enabled: true
+  agentModelOverrides:
+    scout: '@fast_worker'
+    sonic: '@fast_worker'
+    task: '@task'
+    designer: '@designer'
+    reviewer: '@review'
+    security-reviewer: '@review'
+    librarian: '@review'
+tools:
+  approvalMode: yolo
+isolation:
+  backend: auto
+extendedContext: false
+compaction:
+  modelThresholds:
+    openai-codex/gpt-6.1-sol: f200000

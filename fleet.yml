@@ -1,0 +1,40 @@
+# Host binding for the fleet installation; credentials live only in private EnvironmentFile.
+version: 1
+repo: cswenor/fleet
+root: /home/dev/dev/cswenor/fleet
+orca_repo_id: 2d192998-c4ff-4ae1-92fe-8cd901e27f86
+pad_workspace: fleet
+orca: /home/dev/.config/orca/cli/bin/orca
+builder:
+  model: openai-codex/gpt-6.1-sol
+  resolved_model: openai-codex/gpt-6.1-sol
+  thinking: medium
+  max: 2
+  slots:
+  - /home/dev/orca/workspaces/fleet/fleet-phase1
+  - /home/dev/orca/workspaces/fleet/fleet-lane2
+  rules_file: .omp/AGENTS.md
+  idle_seconds: 2700
+  footer: Self-publish small PRs after a fresh independent read-only unadvised Sol
+    review and green CI (no fleet review bot). Use fleet watch-pr asynchronously,
+    never model-turn polling. This session is already fresh for its assigned task;
+    never signal FRESH-READY for an inherited handoff. Only after publishing new work,
+    write a handoff for a DIFFERENT next task, report FRESH-READY with that ref to
+    fleet Main, and stop. Never resume old context, silently fallback, create extra
+    worktrees, stash, or spend saved resets without owner approval.
+quota:
+  provider: openai-codex
+  reserve_percent: 10
+  max_age_seconds: 900
+disk:
+  path: /
+  min_free_gb: 20
+coordinator:
+  terminal: term_b69e32e9-2ad2-4e9d-8ea2-419f2ee94c00
+  run: run_ca3dd4d80c5a
+interval_seconds: 60
+status:
+  url: https://central.example.ts.net:8443/snapshots
+  token_env: FLEET_SELF_TOKEN
+  push_seconds: 300
+hooks: {}

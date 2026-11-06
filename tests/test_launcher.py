@@ -64,6 +64,14 @@ class RestartTests(unittest.TestCase):
             self.launch()
         self.assertEqual((self.sent, self.created), ([], 0))
 
+    def test_disconnected_session_never_frees_a_slot(self):
+        self.s['inventory']['builders'].pop()
+        self.s['inventory']['builders'][0].update(connected=False, shell_ready=False)
+        with self.assertRaisesRegex(ValueError, 'live or unconfirmed'):
+            self.launch()
+        self.assertEqual((self.sent, self.created), ([], 0))
+        self.assertIsNone(health.owner(self.s['inventory'], 'work'))
+
     def test_raced_or_ambiguous_shell_never_receives_input(self):
         self.prompt = '◑ model >'
         with self.assertRaisesRegex(ValueError, 'no longer a ready shell'):

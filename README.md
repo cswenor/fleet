@@ -4,6 +4,19 @@ Per-project Orca + omp fleet supervision. Generic project configuration; no mode
 calls in collection or event diffing. Requires Python 3.11+, PyYAML 6, `gh`, `omp`,
 and a running Orca runtime with its CLI.
 
+## Fleet's own project
+
+Fleet dogfoods this CLI: committed `fleet.yml`, `.pad.toml` (`fleet` workspace),
+and `.omp/config.yml`/`.omp/AGENTS.md` define the installation and agent policy.
+Start with [docs/MAIN.md](docs/MAIN.md); [docs/ROADMAP.md](docs/ROADMAP.md) is the
+single source of truth for all remaining PLAN-2685 work and acceptance.
+[docs/orca-feature-map.md](docs/orca-feature-map.md) records built-ins, live facts
+and limitations. Fleet Pad owns PLAN-9 and process lessons DOC-19; elsewhere's
+PLAN-2685 remains historical. Main coordinates, builders use `fleet launch`;
+fresh independent read-only unadvised Sol review then CI are the two PR gates.
+The committed host binding has no credentials; private supervisor config is
+`~/.config/fleet/fleet.yml`, token in a mode-0600 EnvironmentFile.
+
 ## Install and inspect
 
 ```sh
@@ -109,6 +122,10 @@ An existing slot reuses its single ready shell terminal after a fresh readiness/
 identity check; no `/exit` is sent and no old context is resumed. Live, unknown,
 and ambiguous sessions remain blocked. Prompt detection supports standard
 `user@host:path$` / `bash-version$` POSIX prompts; custom prompts fail closed.
+Disconnected/orphaned sessions and unknown terminal identities still occupy their
+configured slot and count toward admission until positively reconciled. A stale
+shell screen is not a connected, writable shell receipt. Disconnected terminals
+are never chosen as PR message owners.
 Without a ready shell it starts a **new terminal**. If a configured slot is absent,
 Orca creates a top-level
 worktree with that basename and validates the resulting path. Repo setup hooks
@@ -172,6 +189,8 @@ on host loopback. Keep the `snapshots` named volume across deployments.
 Set runtime-only variables in the PaaS (never build arguments):
 
 - `FLEET_PROJECT_TOKEN`: the private token shared with the first supervisor.
+- `FLEET_SELF_TOKEN`: optional second-project token for fleet's own supervisor;
+  required when `cswenor/fleet: FLEET_SELF_TOKEN` is in the central allowlist.
 - `FLEET_CENTRAL_CONFIG`: multiline/literal YAML, for example:
 
 ```yaml
