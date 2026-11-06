@@ -25,8 +25,20 @@ def main():
     p.add_argument('--interval', type=int, default=60)
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
+    sub.add_parser('central-serve')
+    p = sub.add_parser('central-install-service')
+    p.add_argument('--environment-file', required=True, help='private systemd EnvironmentFile with project tokens')
     args = parser.parse_args()
     try:
+        if args.command in ('central-serve', 'central-install-service'):
+            from . import central
+            c = central.load(args.config, require_tokens=args.command == 'central-serve')
+            if args.command == 'central-serve':
+                central.serve(c)
+            else:
+                from .service import install_central
+                print(json.dumps(install_central(c, args.environment_file)))
+            return 0
         c = load(args.config)
         if args.command == 'serve':
             from .supervisor import serve

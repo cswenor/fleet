@@ -1,0 +1,12 @@
+version: 1
+# Use the host's `tailscale ip -4`, never 0.0.0.0. Use 127.0.0.1 behind
+# Tailscale Serve when only the HTTPS frontend should be reachable.
+host: 127.0.0.1
+port: 8787
+stale_seconds: 600  # allow two default daemon push intervals
+history_hours: 48
+history_limit: 1000  # per project; always retain latest even after expiry
+# Optional database: /absolute/private/path/snapshots.sqlite3
+projects:
+  owner/project: FLEET_PROJECT_TOKEN
+  owner/other-project: FLEET_OTHER_TOKEN

@@ -143,3 +143,70 @@ TASK-2687 verification: real disposable PR fail/pass, inline review and close
 events delivered to owning builder and coordinator inbox; blocking PR watcher
 woke on a real status; fresh session model/thinking recorded by OMP; wrong model,
 reserve warning and delivery dedupe exercised. No Orca restart was tested.
+
+## Central read-only status
+
+The central app adds no runtime dependency: stdlib HTTP/HTML and SQLite, using the
+same snapshot version 1 as the daemon. `/` lists every configured project;
+`/project/owner%2Fproject` adds commit links and recent snapshot history. Both
+show last-24h PR counts/timestamps/time-to-merge, default-branch commits, queue,
+merge-group failures, builder task/PR/model/state, pooled quota and free disk.
+Missing collectors are unknown, not zero activity. Closed counts include merged
+PRs. Read-only pages refresh every 60 seconds; no launch/merge/control endpoints.
+
+Copy `central.example.yml` to a private configuration directory. Map each repo to
+a distinct environment-variable name, **not a token**. Generate independent
+random tokens locally (at least 32 ASCII characters), store them in a `chmod 600`
+systemd EnvironmentFile, and give each daemon only its own token:
+
+```sh
+mkdir -p ~/.config/fleet
+umask 077
+python3 -c 'import secrets; print("FLEET_PROJECT_TOKEN="+secrets.token_urlsafe(48)); print("FLEET_OTHER_TOKEN="+secrets.token_urlsafe(48))' > ~/.config/fleet/central.env
+cp central.example.yml ~/.config/fleet/central.yml
+# Edit project names and token env names; keep host 127.0.0.1 behind Tailscale Serve.
+fleet --config ~/.config/fleet/central.yml central-install-service \
+  --environment-file ~/.config/fleet/central.env
+systemctl --user status fleet-central.service
+```
+
+Re-run the same installer after upgrading the fleet package (or fast-forwarding
+the stable source checkout). It reloads/restarts only central; the original
+`install-service` command still installs per-project supervisors. Source installs
+keep using the stable checkout selected by `~/.local/bin/fleet`. For foreground
+operation, load the private environment without tracing and run `fleet --config
+/absolute/central.yml central-serve`.
+
+Expose the loopback backend on the **tailnet only**, with Tailscale HTTPS Serve:
+
+```sh
+# Choose a free tailnet HTTPS port, avoiding existing host services.
+sudo tailscale serve --bg --yes --https=8443 http://127.0.0.1:8787
+```
+
+Use the printed `https://host.tailnet.ts.net:8443/snapshots` as each daemon's
+`status.url`, and its matching environment name as `status.token_env`. Load that
+daemon's token through a private systemd EnvironmentFile drop-in, then reload/
+restart its supervisor. Do not use Funnel or expose the backend publicly.
+Tailscale Serve handles certificate renewal and binds the external frontend to
+the Tailscale interface; viewing trusts tailnet membership/ACLs, not a browser
+bearer credential. The app refuses wildcard/public bind addresses; direct HTTP
+on a configured Tailscale IPv4 address is also supported behind a TLS proxy.
+
+`POST /snapshots` checks per-project bearer identity, version, types, timestamps
+and a 2 MiB body limit. Unknown/private fields are discarded before storage;
+HTML is escaped and links limited to HTTP(S). Request headers/bodies and tokens
+are never logged. A token cannot submit another repo's state. Keep all tokens,
+SQLite files and project configs outside the repository.
+
+Private SQLite state defaults to `$XDG_STATE_HOME/fleet/central/snapshots.sqlite3`
+(otherwise `~/.local/state`). History is pruned on ingestion to 48 hours and at
+most 1,000 snapshots per configured project; the latest is always retained.
+Late/replayed older snapshots do not replace newer collection state. Drill-down
+shows up to 50 history timestamps. Projects with no snapshot stay visible as
+never received; collection or receipt older than `stale_seconds` is marked stale/
+unreachable (last known data remains visible). Default 600s allows two daemon
+push intervals. This indicates missing freshness, not proof of a network cause.
+An unavailable app never disables local supervision; failed pushes retry on
+subsequent daemon cycles. Back up SQLite with the service stopped or SQLite's
+backup API, not a partial live file copy.
