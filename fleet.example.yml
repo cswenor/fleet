@@ -3,6 +3,12 @@ repo: owner/project
 root: /path/to/project
 orca_repo_id: replace-with-orca-repo-id
 pad_workspace: project
+# Usually derived from `pad collection list` task status schema. Optional complete override:
+# pad:
+#   statuses:
+#     not_started: [open]
+#     in_progress: [in-progress]
+#     terminal: [done, cancelled]
 orca: /absolute/path/to/orca-ide
 builder:
   model: openai-codex/gpt-6.1-sol

@@ -22,6 +22,7 @@ class DispatcherTests(unittest.TestCase):
                       self.item('TASK-1', 'low', '2026-01-01'),
                       self.item('TASK-2', 'high', '2026-02-01')]
         self.edges = {}
+        self.parents = {'PLAN-1': {'ref': 'PLAN-1', 'fields': {'status': 'active'}}}
         self.pad_patch = patch.object(dispatcher, 'pad', side_effect=self.pad)
         self.pad_patch.start()
         self.addCleanup(self.pad_patch.stop)
@@ -34,19 +35,27 @@ class DispatcherTests(unittest.TestCase):
                 'parent_ref': 'PLAN-1', 'created_at': created}
 
     def pad(self, c, *args):
+        if args == ('collection', 'list'):
+            return [{'slug': 'tasks', 'schema': {'fields': [{
+                'key': 'status', 'default': 'open',
+                'options': ['open', 'in-progress', 'done', 'cancelled'],
+                'terminal_options': ['done', 'cancelled']}]}}]
         if args[:2] == ('item', 'deps'):
             value = self.edges.get(args[2], [])
             if isinstance(value, Exception):
                 raise value
             return value
         if args[:3] == ('item', 'list', 'plans'):
-            return [{'ref': 'PLAN-1', 'fields': {'status': 'active'}}]
+            return list(self.parents.values())
         if args[:3] == ('item', 'list', 'tasks'):
             return self.tasks
         if args[:2] == ('item', 'show'):
-            if args[2] == 'PLAN-1':
-                return {'fields': {'status': 'active'}}
-            return next(t for t in self.tasks if t['ref'] == args[2])
+            if args[2] in self.parents:
+                return self.parents[args[2]]
+            for task in self.tasks:
+                if task['ref'] == args[2]:
+                    return task
+            raise CommandError('missing item')
         raise AssertionError(args)
 
     def propose(self):
@@ -154,6 +163,83 @@ class DispatcherTests(unittest.TestCase):
         with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'builder'}):
             with self.assertRaisesRegex(ValueError, 'Main terminal'):
                 dispatcher.reconcile(self.c, self.path, 'launch', 'proof')
+
+    def test_nearest_plan_and_broken_ancestry(self):
+        task = self.tasks[0]
+        task['parent_ref'] = 'TASK-parent'
+        self.parents['TASK-parent'] = {'ref': 'TASK-parent', 'parent_ref': 'PLAN-1'}
+        self.assertEqual(dispatcher.plan_reasons(self.c, task), [])
+        self.parents['PLAN-1']['fields']['status'] = 'paused'
+        self.parents['PLAN-1']['parent_ref'] = 'PLAN-outer'
+        self.parents['PLAN-outer'] = {'ref': 'PLAN-outer', 'fields': {'status': 'active'}}
+        self.assertIn('not active', dispatcher.plan_reasons(self.c, task)[0])
+        self.parents['TASK-parent']['parent_ref'] = task['ref']
+        self.assertIn('cycle', dispatcher.plan_reasons(self.c, task)[0])
+        self.parents['TASK-parent']['parent_ref'] = 'TASK-missing'
+        self.assertIn('unreadable parent TASK-missing', dispatcher.plan_reasons(self.c, task)[0])
+        self.parents['TASK-parent'].pop('parent_ref')
+        self.assertIn('no PLAN', dispatcher.plan_reasons(self.c, task)[0])
+
+    def test_ancestry_depth_boundary(self):
+        task = self.tasks[0]
+        task['parent_ref'] = 'TASK-parent-0'
+        for n in range(19):
+            self.parents[f'TASK-parent-{n}'] = {
+                'ref': f'TASK-parent-{n}',
+                'parent_ref': f'TASK-parent-{n + 1}' if n < 18 else 'PLAN-1'}
+        self.assertEqual(dispatcher.plan_reasons(self.c, task), [])
+        self.parents['TASK-parent-18']['parent_ref'] = 'TASK-parent-19'
+        self.parents['TASK-parent-19'] = {'ref': 'TASK-parent-19', 'parent_ref': 'PLAN-1'}
+        self.assertIn('exceeds 20', dispatcher.plan_reasons(self.c, task)[0])
+
+    def test_workspace_status_schema_and_shared_launch_gate(self):
+        collection = [{'slug': 'tasks', 'schema': {'fields': [{
+            'key': 'status', 'default': 'todo',
+            'options': ['todo', 'in-progress', 'blocked', 'done'],
+            'terminal_options': ['done']}]}}]
+        original = self.pad
+        with patch.object(dispatcher, 'pad', side_effect=lambda c, *args:
+                          collection if args == ('collection', 'list') else original(c, *args)):
+            self.tasks[2]['fields']['status'] = 'todo'
+            self.tasks[2]['parent_ref'] = self.tasks[1]['ref']
+            self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
+            dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+            for status in ('blocked', 'unrecognized', 'done', None):
+                self.tasks[2]['fields']['status'] = status
+                with self.assertRaisesRegex(ValueError, 'status is not eligible'):
+                    dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+            self.tasks[2]['fields']['status'] = 'in-progress'
+            self.assertIsNone(self.propose()['proposal'])
+            dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+            self.block('cancelled')
+            with self.assertRaisesRegex(ValueError, 'blocked by TASK-9'):
+                dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+            self.block('done')
+            dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+
+    def test_explicit_status_mapping_and_validation(self):
+        self.c['pad'] = {'statuses': {'not_started': ['queued'], 'in_progress': ['working'],
+                                     'terminal': ['finished', 'abandoned']}}
+        self.tasks[2]['fields']['status'] = 'queued'
+        self.block('finished')
+        self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
+        dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+        self.c['pad']['statuses']['in_progress'] = ['queued']
+        with self.assertRaisesRegex(ValueError, 'disjoint'):
+            self.propose()
+        for bad in ([], 'working', [None]):
+            self.c['pad']['statuses']['in_progress'] = bad
+            with self.assertRaisesRegex(ValueError, 'non-empty lists'):
+                self.propose()
+
+    def test_schema_unavailable_defaults_but_malformed_refuses(self):
+        with patch.object(dispatcher, 'pad', side_effect=CommandError('old CLI')):
+            statuses = dispatcher.status_policy(self.c)
+        self.assertEqual(dispatcher.eligibility(self.c, self.tasks[0], statuses,
+                         cache=self.parents), [])
+        with patch.object(dispatcher, 'pad', return_value=[]):
+            with self.assertRaisesRegex(ValueError, 'schema invalid'):
+                dispatcher.status_policy(self.c)
 
 
 if __name__ == '__main__':

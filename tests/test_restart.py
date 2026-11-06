@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from fleet import restart, state
+from fleet.commands import CommandError
 
 
 class RetirementTests(unittest.TestCase):
@@ -73,11 +74,13 @@ class RetirementTests(unittest.TestCase):
         self.log.write_text('\n'.join(json.dumps(e) for e in self.events) + '\n')
 
     def dispatcher_pad(self, c, *args):
+        if args == ('collection', 'list'):
+            raise CommandError('schema unavailable')
         if args[1] == 'deps':
             return self.next_edges
         if args[2] == 'PLAN-1':
-            return {'fields': {'status': self.next_parent_status}}
-        return {'fields': {'status': self.next_status}, 'parent_ref': 'PLAN-1'}
+            return {'ref': args[2], 'fields': {'status': self.next_parent_status}}
+        return {'ref': args[2], 'fields': {'status': self.next_status}, 'parent_ref': 'PLAN-1'}
 
     def pad(self, argv, cwd):
         if argv[0] == 'omp':
@@ -295,7 +298,10 @@ class RetirementTests(unittest.TestCase):
         self.refused('task status')
         self.next_status = 'in-progress'
         self.next_parent_status = 'draft'
-        self.refused('active plan')
+        with self.assertRaises(ValueError):
+            self.run_restart()
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
         self.next_parent_status = 'active'
         self.next_edges = [{'link_type': 'blocks', 'target_ref': 'TASK-2',
                             'source_ref': 'TASK-9', 'source_status': 'open'}]

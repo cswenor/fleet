@@ -65,9 +65,10 @@ reconcile WIP/Pad handoff and confirm a fresh session before resuming parked wor
 
 Run `fleet --config ~/.config/fleet/fleet.yml next --json` for a read-only
 Main-confirmed proposal. Owner decided **no automatic starts** on TASK-12.
-The query uses open tasks in active plans, incoming blockers done/cancelled,
-Pad priority then oldest creation, and verified free shells; it lists exclusions
-for task status, dependencies, lane/receipt claims, occupancy and admission.
+The query uses workspace-schema not-started tasks under their nearest active PLAN,
+incoming blockers in schema terminal states, Pad priority then oldest creation,
+and verified free shells; it lists exclusions for task status, dependencies,
+lane/receipt claims, occupancy and admission.
 Pad `project ready` currently returns in-progress work instead of the open queue.
 Main applies scope/budget/not-before constraints (including prose-only dates),
 chooses the task, and writes its durable brief/comment before explicit launch.

@@ -185,6 +185,26 @@ Main owns final queued TASK-13 launch into reused lane2 after this builder's
 publication/handoff, including resolved Sol medium and Pad/Orca identity receipts.
 Until that receipt is recorded, end-to-end queued-launch acceptance remains open.
 
+### TASK-29 — Nested ancestry and workspace task states
+
+Corrects TASK-12's direct-parent/open-only regression. Shared `next` and explicit
+launch/restart eligibility walks up to 20 parent links to the nearest PLAN,
+requires that plan active, and refuses cycles, missing/unreadable parents or
+overflow with explicit reasons. No admission, retirement or dispatch-mode change.
+Main approved schema-derived categories: tasks status default = not-started,
+terminal_options = terminal, exact `in-progress` option = continuation; all other
+states refuse. Complete `pad.statuses` overrides support other vocabularies;
+unavailable discovery uses fleet defaults, malformed schemas refuse.
+
+Read-only live proof (2026-11-06): elsewhere schema derives todo/in-progress/done;
+TASK-2680 -> TASK-2102 -> active PLAN-1914 and todo TASK-2692 -> active PLAN-2646
+are eligible. Unknown status and missing TASK-999999999 parent refuse. Real fleet
+`next --json` retains TASK-17/TASK-18 as eligible, all drill fixtures cancelled,
+both live lanes excluded; no proposal under cap/unavailable quota. No Project Alpha
+mutation/launch or stable-checkout deployment. Main owns the pre-deployment
+announcement to Project Alpha Main; publication receipts retained on TASK-29/PR.
+
+
 ### TASK-22 — Quota freshness and transient unknown alerts
 
 Implemented completion-time quota evaluation and one provider-scoped cache

@@ -5,6 +5,24 @@ import re
 import shutil
 import yaml
 
+STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
+                   'terminal': ['done', 'cancelled']}
+
+
+def validate_statuses(statuses, *, allow_no_progress=False):
+    if not isinstance(statuses, dict) or set(statuses) != set(STATUS_DEFAULTS):
+        raise ValueError('pad.statuses requires not_started, in_progress and terminal')
+    seen = set()
+    for category, names in statuses.items():
+        if (not isinstance(names, list) or
+                (not names and not (allow_no_progress and category == 'in_progress')) or
+                any(not isinstance(n, str) or not n.strip() for n in names)):
+            raise ValueError('pad.statuses categories must be non-empty lists of status names')
+        if seen.intersection(names) or len(set(names)) != len(names):
+            raise ValueError('pad.statuses categories must be disjoint without duplicates')
+        seen.update(names)
+    return statuses
+
 
 def load(path):
     path = Path(path).expanduser().resolve()
@@ -19,6 +37,11 @@ def load(path):
     c['root'] = str(Path(c['root']).expanduser().resolve())
     if not Path(c['root']).is_dir():
         raise ValueError('root must be an existing checkout')
+    pad = c.setdefault('pad', {})
+    if not isinstance(pad, dict):
+        raise ValueError('pad must be a mapping')
+    if 'statuses' in pad:
+        validate_statuses(pad['statuses'])
     b = c['builder']
     for key in ('model', 'resolved_model', 'rules_file', 'slots'):
         if not b.get(key):

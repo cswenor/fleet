@@ -284,12 +284,15 @@ terminals/Run/config/state for probes, never the live coordinator identity.
 
 ### Main-confirmed ready queue
 
-`next` proposes one open task in an active Pad plan, ordered by priority
-(`critical`, `high`, `medium`, `low`, unset) then oldest creation time and ref.
+`next` proposes one not-started task whose nearest ancestor PLAN is active, ordered
+by priority (`critical`, `high`, `medium`, `low`, unset) then oldest creation time and ref.
 It queries the configured workspace's task list and dependency edges: Pad's
 `project ready` currently favors in-progress work and is not an open-task queue.
 Every task and configured slot includes exclusion reasons. Incoming blockers must
-be done/cancelled; unknown/unreadable dependency state excludes the task.
+be terminal under the workspace status mapping; unknown/unreadable dependency
+state excludes the task. Both `next` and explicit `launch` walk at most 20 parent
+links to the nearest PLAN, stopping there even when inactive. Missing/unreadable
+parents, cycles and depth overflow refuse with a reason.
 Actual lane Git branches, Orca card comments, active builders and unresolved
 launch receipts prevent duplicate-task proposals. Only one connected, verified
 shell with no other live/unknown terminal makes a proposed slot free. Quota,
@@ -297,6 +300,17 @@ disk, cap and incomplete health can withhold all proposals. Exit 0 means a
 proposal, 1 means none, 2 means collection/command failure; `--json` is structured.
 Not-before fields are shown when present; Main applies scheduling/scope/budget
 constraints, including dates expressed only in prose.
+
+Task states come from `pad collection list --format json` in `pad_workspace`:
+the tasks collection's status `default` is not-started (`open` or `todo`, for
+example), `terminal_options` supplies terminal states, and only an exact
+`in-progress` option authorizes continuation. Other options (including `blocked`)
+and unknown states remain ineligible. If collection schema discovery is unavailable,
+Fleet defaults to `open` / `in-progress` / `done,cancelled`; malformed schema refuses.
+For other vocabularies set a complete `pad.statuses` mapping with `not_started`,
+`in_progress` and `terminal`, each a non-empty, disjoint list of names (see
+`fleet.example.yml`). This explicit override takes precedence over schema discovery.
+`next` excludes in-progress tasks; only an explicit confirmed launch can continue them.
 
 There are **no automatic starts**. Main inspects `next`, writes the Pad brief,
 prepares the task branch, and explicitly runs `launch REF --slot PATH`.

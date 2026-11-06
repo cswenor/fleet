@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from . import health, snapshot, state
+from . import config, health, snapshot, state
 from .commands import CommandError, json_run, run
 
 PRIORITY = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
@@ -18,7 +18,64 @@ def fields(item):
     return json.loads(value) if isinstance(value, str) else value
 
 
-def dependencies(c, ref):
+def status_policy(c):
+    override = c.get('pad', {}).get('statuses')
+    if override is not None:
+        return config.validate_statuses(override)
+    try:
+        collections = pad(c, 'collection', 'list')
+    except CommandError:
+        return config.STATUS_DEFAULTS
+    try:
+        task_collection = next(row for row in collections if row['slug'] == 'tasks')
+        schema = task_collection['schema']
+        schema = json.loads(schema) if isinstance(schema, str) else schema
+        status = next(f for f in schema['fields'] if f['key'] == 'status')
+        options = status['options']
+        policy = {'not_started': [status['default']],
+                  'in_progress': ['in-progress'] if 'in-progress' in options else [],
+                  'terminal': status['terminal_options']}
+        config.validate_statuses(policy, allow_no_progress=True)
+        if any(name not in options for names in policy.values() for name in names):
+            raise ValueError('status category not in options')
+        return policy
+    except (KeyError, StopIteration, TypeError, ValueError) as e:
+        raise ValueError('Pad task status schema invalid; configure pad.statuses explicitly') from e
+
+
+def eligibility(c, item, statuses, *, continuing=False, cache=None):
+    status = fields(item).get('status')
+    allowed = statuses['not_started'] + (statuses['in_progress'] if continuing else [])
+    reasons = [] if status in allowed else ['task status is not eligible: ' + str(status)]
+    reasons.extend(plan_reasons(c, item, cache))
+    return reasons
+
+
+def plan_reasons(c, item, cache=None):
+    """Require the nearest PLAN, never skip an inactive nearer plan."""
+    cache = {} if cache is None else cache
+    seen = {item['ref']}
+    for _ in range(20):
+        parent = item.get('parent_ref')
+        if not parent:
+            return ['task ancestry has no PLAN']
+        if parent in seen:
+            return ['task ancestry cycle at ' + parent]
+        seen.add(parent)
+        try:
+            if parent not in cache:
+                cache[parent] = pad(c, 'item', 'show', parent)
+            item = cache[parent]
+            if item.get('ref') != parent:
+                return ['task ancestry missing parent ' + parent]
+            if parent.startswith('PLAN-'):
+                return [] if fields(item).get('status') == 'active' else ['nearest plan ' + parent + ' is not active']
+        except (CommandError, ValueError, TypeError, KeyError):
+            return ['task ancestry unreadable parent ' + parent]
+    return ['task ancestry exceeds 20 parent links']
+
+
+def dependencies(c, ref, statuses=None):
     reasons = []
     try:
         edges = pad(c, 'item', 'deps', ref)
@@ -26,7 +83,7 @@ def dependencies(c, ref):
         return ['dependency state unavailable']
     for edge in edges:
         if edge['link_type'] == 'blocks' and edge['target_ref'] == ref:
-            if edge.get('source_status') not in ('done', 'cancelled'):
+            if edge.get('source_status') not in (statuses or status_policy(c))['terminal']:
                 reasons.append('blocked by ' + edge['source_ref'] + ' (' + str(edge.get('source_status', 'unknown')) + ')')
     return reasons
 
@@ -131,12 +188,9 @@ def duplicate_reasons(ref, claims, slot=None):
 
 def check_launch(c, ref, inventory, slot, *, retiring=None):
     item = pad(c, 'item', 'show', ref)
-    status = fields(item).get('status')
-    reasons = [] if status in ('open', 'in-progress') else ['task status is not open or in-progress']
-    parent = item.get('parent_ref')
-    if not parent or fields(pad(c, 'item', 'show', parent)).get('status') != 'active':
-        reasons.append('task is not in an active plan')
-    reasons.extend(dependencies(c, ref))
+    statuses = status_policy(c)
+    reasons = eligibility(c, item, statuses, continuing=True)
+    reasons.extend(dependencies(c, ref, statuses))
     reasons.extend(duplicate_reasons(ref, assignments(c, inventory), slot))
     reasons.extend(receipt_reasons(c, inventory, slot, retiring=retiring))
     if reasons:
@@ -150,21 +204,17 @@ def propose(c):
         admission = snapshot.may_start(c, s)
         inventory = s.get('inventory', {})
         claims = assignments(c, inventory)
-        plans = pad(c, 'item', 'list', 'plans', '--full', '--limit', '1000')
+        statuses = status_policy(c)
         tasks = pad(c, 'item', 'list', 'tasks', '--all', '--full', '--limit', '1000')
-        if len(plans) >= 1000 or len(tasks) >= 1000:
+        if len(tasks) >= 1000:
             raise ValueError('Pad inventory may be truncated; refusing partial proposal')
-        active = {p['ref'] for p in plans if fields(p).get('status') == 'active'}
+        ancestors = {item['ref']: item for item in tasks}
         slots = [{'path': path, 'reasons': slot_reasons(c, inventory, path)} for path in c['builder']['slots']]
         rows = []
         for item in tasks:
             f = fields(item)
-            reasons = []
-            if f.get('status') != 'open':
-                reasons.append('task status is ' + str(f.get('status', 'unknown')))
-            if item.get('parent_ref') not in active:
-                reasons.append('task is not in an active plan')
-            reasons.extend(dependencies(c, item['ref']))
+            reasons = eligibility(c, item, statuses, cache=ancestors)
+            reasons.extend(dependencies(c, item['ref'], statuses))
             reasons.extend(duplicate_reasons(item['ref'], claims))
             rows.append({'ref': item['ref'], 'title': item['title'], 'priority': f.get('priority'),
                          'created_at': item['created_at'], 'not_before': f.get('not_before'), 'reasons': reasons})
