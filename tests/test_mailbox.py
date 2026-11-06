@@ -93,6 +93,37 @@ class WaitTests(unittest.TestCase):
             self.assertEqual([call.args[1] for call in native.call_args_list], ['inbox'])
 
 
+    def test_classifies_all_mail_decisions_first_without_changing_ack(self):
+        messages = [
+            {'id': 'report', 'type': 'status', 'from_handle': 'builder', 'body': '[fleet x] report'},
+            {'id': 'relay', 'type': 'status', 'from_handle': 'coordinator', 'body': '[fleet x] alert'},
+            {'id': 'decision', 'type': 'question', 'from_handle': 'coordinator', 'body': '[fleet x] approve?'},
+            {'id': 'escalation', 'type': 'escalation', 'body': 'blocked'},
+            {'id': 'other', 'type': 'unknown', 'from_handle': 'coordinator', 'body': 'ordinary'},
+            {'id': 'missing', 'body': None}]
+        config = {**CONFIG, 'coordinator': {'run': RUN, 'terminal': 'coordinator'}}
+        with patch.object(mailbox, 'request', side_effect=[
+                {'run': {'id': RUN, 'coordinator_handle': CALLER}},
+                response(messages=messages, count=len(messages), acknowledged='prior'),
+                {'messages': messages, 'count': len(messages)}]) as native:
+            result = mailbox.wait(config, ack_run='prior')
+        batch = result['batches'][0]
+        self.assertEqual(batch['deliveryId'], 'delivery_one')
+        self.assertEqual(result['acknowledged'], 'prior')
+        self.assertIn('--ack', native.call_args_list[1].args)
+        self.assertEqual([m['id'] for m in batch['messages']],
+                         ['decision', 'escalation', 'report', 'relay', 'other', 'missing'])
+        self.assertEqual(batch['counts'], {'builder_decision_request': 2,
+                                         'supervisor_relay': 1, 'builder_report': 3})
+        self.assertEqual(result['legacyTerminalInbox']['counts'], batch['counts'])
+        self.assertEqual(result['legacyTerminalInbox']['messages'], batch['messages'])
+        self.assertEqual(batch['messages'][0]['body'], '[fleet x] approve?')
+
+    def test_missing_coordinator_cannot_mark_unknown_sender_as_relay(self):
+        messages, counts = mailbox.classify([{'id': 'one', 'body': '[fleet x] text'}], None)
+        self.assertEqual(messages[0]['classification'], 'builder_report')
+        self.assertEqual(counts['supervisor_relay'], 0)
+
 class NativeErrorTests(unittest.TestCase):
     def test_runtime_errors_cannot_look_like_timeout(self):
         for stdout, code, expected in [

@@ -21,6 +21,8 @@ class HealthTests(unittest.TestCase):
         c = {'root': '/slot', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},
              'builder': {'slots': ['/slot'], 'resolved_model': 'openai-codex/gpt-6.1-sol', 'idle_seconds': 600}}
         def orca(config, *args):
+            if args[:2] == ('orchestration', 'run-current'):
+                return {'run': None}
             if args[:2] == ('worktree', 'list'):
                 return {'worktrees': [{'id': 'tree', 'repoId': 'repo', 'path': '/slot', 'branch': 'TASK-1'}]}
             if args[:2] == ('terminal', 'list'):
@@ -48,6 +50,64 @@ class HealthTests(unittest.TestCase):
                 with patch.object(health, 'orca', side_effect=orca):
                     inventory = health.collect(c, now=100)
                 self.assertEqual([b['path'] for b in inventory['builders'] if health.active(b)], ['/slot'])
+
+    def test_binding_requires_explicit_native_null_or_run_id(self):
+        cases = [
+            ({'run': None}, {'state': 'none', 'run_id': None}),
+            ({'run': {'id': 'run_owner'}}, {'state': 'bound', 'run_id': 'run_owner'}),
+            ({}, {'state': 'unknown', 'run_id': None}),
+            ({'run': {}}, {'state': 'unknown', 'run_id': None}),
+            ({'run': {'id': ''}}, {'state': 'unknown', 'run_id': None}),
+            ({'run': {'id': 123}}, {'state': 'unknown', 'run_id': None}),
+            ({'run': 'run_owner'}, {'state': 'unknown', 'run_id': None}),
+            (None, {'state': 'unknown', 'run_id': None}),
+        ]
+        for response, expected in cases:
+            with self.subTest(response=response), patch.object(health, 'orca', return_value=response) as native:
+                self.assertEqual(health.binding({}, 'lane'), expected)
+                native.assert_called_once_with({}, 'orchestration', 'run-current', '--from', 'lane')
+        with patch.object(health, 'orca', side_effect=RuntimeError('unavailable')):
+            self.assertEqual(health.binding({}, 'lane'), {'state': 'unknown', 'run_id': None})
+
+    def test_each_slot_terminal_exposes_binding_even_at_ready_shell(self):
+        c = {'root': '/root', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},
+             'builder': {'slots': ['/slot'], 'resolved_model': 'provider/model', 'idle_seconds': 600}}
+        queries = []
+        bindings = {'unbound': {'run': None}, 'bound': {'run': {'id': 'run_owner'}}}
+        def orca(config, *args):
+            if args[:2] == ('worktree', 'list'):
+                return {'worktrees': [
+                    {'id': 'tree', 'repoId': 'repo', 'path': '/slot'},
+                    {'id': 'other', 'repoId': 'repo', 'path': '/unconfigured'}]}
+            if args[:2] == ('terminal', 'list'):
+                return {'terminals': [
+                    {'handle': handle, 'worktreeId': 'tree', 'connected': True, 'writable': True}
+                    for handle in ('unbound', 'bound', 'unknown', 'main')] +
+                    [{'handle': 'outside', 'worktreeId': 'other', 'connected': True}]}
+            if args[:2] == ('terminal', 'read'):
+                return {'terminal': {'tail': ['user@host:~/slot$ ']}}
+            if args[:2] == ('orchestration', 'run-current'):
+                handle = args[args.index('--from') + 1]
+                queries.append(handle)
+                if handle == 'unknown':
+                    raise RuntimeError('unavailable')
+                return bindings[handle]
+            self.fail('unexpected native call')
+        with patch.object(health, 'orca', side_effect=orca):
+            inventory = health.collect(c, now=100)
+        self.assertEqual(queries, ['unbound', 'bound', 'unknown'])
+        builders = {b['terminal']: b for b in inventory['builders']}
+        self.assertEqual(builders['unbound']['binding'], {'state': 'none', 'run_id': None})
+        self.assertEqual(builders['unbound']['flags'], [])
+        self.assertEqual(builders['unbound']['state'], 'shell')
+        self.assertEqual(builders['bound']['binding'], {'state': 'bound', 'run_id': 'run_owner'})
+        self.assertEqual(builders['bound']['flags'], ['owner_delivery_broken'])
+        self.assertEqual(builders['bound']['state'], 'owner_delivery_broken')
+        self.assertEqual(builders['unknown']['binding'], {'state': 'unknown', 'run_id': None})
+        self.assertEqual(builders['unknown']['flags'], ['binding_unknown'])
+        self.assertTrue(all(b['shell_ready'] for b in builders.values()))
+        self.assertTrue(all(not health.active(b) for b in builders.values()))
+        self.assertEqual(inventory['errors'], [])
 
     def test_ambiguous_owner_never_gets_message(self):
         inv = {'worktrees': [{'id': 'w', 'branch': 'feature'}], 'builders': [{'worktree': 'w', 'connected': True, 'terminal': 'a'}]}

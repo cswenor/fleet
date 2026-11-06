@@ -15,16 +15,16 @@ statuses are `open`, `in-progress`, `done`, `cancelled`, not elsewhere's `todo`.
 
 | # | Original target | Current contract / gap |
 |---|---|---|
-| 1 | Task = Pad item + Orca worktree + Task/Dispatch; Pad-Ref first; disposable terminal/session IDs | Reuse configured slots, task-specific branches/comments. Terminal launcher has no authoritative supervised Dispatch; TASK-15 closes generic task/thread integration without inventing one. |
+| 1 | Task = Pad item + Orca worktree + Task/Dispatch; Pad-Ref first; disposable terminal/session IDs | TASK-15 links canonical Pad task thread, actual branch, reusable slot and launch attempt; unique native question subthreads isolate replies. Terminal builders have no supervised Dispatch; none invented. |
 | 2 | Fresh supervised omp workers, pinned model, retry-of, effective launch check | **Superseded/NO-GO for builders**. `fleet launch` uses terminal omp with explicit Sol + medium and fresh overlay; actual session events prove resolved model/thinking, not launch.effective alone. Restart still open. |
-| 3 | One Run/project; ask/reply/send/check/worker_done; Pad durable | Fleet has its own Run. Terminal builders report status/questions through durable inboxes, not keystrokes or fake worker_done. One-thread-per-task remains TASK-15. |
+| 3 | One Run/project; ask/reply/send/check/worker_done; Pad durable | Fleet's Run receives typed questions/status; thread wait caches terminal history and copies Main decisions to Pad. Decision-first presentation never filters or changes whole-batch ack. |
 | 4 | Main wakes on worker_done/escalation/question via background check --wait | TASK-10 implements `fleet wait`: bound Run receives both Run- and bound-terminal-addressed mail; native replay/ack, timeout/error distinction, read-only legacy diagnostics. Project Alpha cutover remains open. |
 | 5 | Builders use async builds/CI; supervisor relays PR/review/queue/merge events | Implemented `fleet watch-pr`; send is enqueue only. PR initial DIRTY/failing/merged/closed diagnoses immediately. |
 | 6 | Per-project supervisor: health, PR watcher, Pad dispatcher, quota, snapshot | Health/watch/push/install implemented. TASK-12 adds read-only `fleet next` proposals; owner chose Main-confirmed explicit launch, never automatic starts. |
 | 7 | Quota reserve, no silent builder fallback, fail-closed | New launches withheld with unknown/stale/reserve/cap/disk failure; TASK-11 adds known-reserve cooperative priority parking, recovery reporting and explicit saved-reset consent policy (no spending command). |
 | 8 | Fresh task context; Sol compaction fixed ~200K; extended context off | `fleet launch` overlay enforces `f200000`, no auto-resume, extendedContext false. Repo config also fixes threshold; native Main/helper fallback policy mirrors Project Alpha, builder overlay overrides it. |
 | 9 | Read-only central with 24h PRs/commits/queue/builders/model/quota/disk; outage independent | Implemented the central host/the PaaS central, per-project systemd supervisors. Distinct project tokens; tailnet-only view, no controls. |
-| 10 | Decision rights, initially Project Alpha standing policy | Generic template `templates/AGENTS.decision-rights.md` adopted in fleet (TASK-14); task threads remain TASK-15. Project Alpha standing policy stays Project Alpha-owned via TASK-16 coordination. |
+| 10 | Decision rights, initially Project Alpha standing policy | Generic template adopted (TASK-14); TASK-15 adds typed decision requests and durable task threads. Project Alpha standing policy stays Project Alpha-owned via TASK-16 coordination. |
 | 11 | Project Alpha tier-e CI produces CG + stock1000 + affected-consumer 200; retire local cohorts | Project Alpha repo/lane work under Project Alpha Main, not fleet implementation. TASK-16 tracks acceptance links. |
 
 ## Decisions log (2026-11-06)
@@ -91,7 +91,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | 1 supervisor and Project Alpha adoption | Delivered core; identified gaps below remain | fleet [#1](https://github.com/cswenor/fleet/pull/1), [#3](https://github.com/cswenor/fleet/pull/3), [#4](https://github.com/cswenor/fleet/pull/4), [#5](https://github.com/cswenor/fleet/pull/5), [#6](https://github.com/cswenor/fleet/pull/6). Project Alpha [#2368](https://github.com/example-org/project-alpha/pull/2368) actually merged 2026-11-06; PR CI 42222656293, full native merge-group CI 42223792846 green. Real owner/coordinator event delivery, wrong-model alert, reserve path and fresh model/thinking proved in TASK-2687; no restart proof. |
 | 2 central | Delivered, owner-corrected placement | fleet [#7](https://github.com/cswenor/fleet/pull/7), [#8](https://github.com/cswenor/fleet/pull/8), [#9](https://github.com/cswenor/fleet/pull/9), [#10](https://github.com/cswenor/fleet/pull/10), [#11](https://github.com/cswenor/fleet/pull/11). TASK-2690: the central host the PaaS app yktqfo8prpciui09gm2i4763, healthy deployment rrl3jc2y3ngx3elsa8pck3ml at b501e23; live Project Alpha ingestion 8 builders/31 PRs, no collector errors; consistent history migration, 46 rows/integrity ok. |
 | Self-host/handover | Delivered and installed 2026-11-06 | [#12](https://github.com/cswenor/fleet/pull/12) setup + fail-closed unknown/disconnected occupancy; [#13](https://github.com/cswenor/fleet/pull/13) complete knowledge. Fresh independent unadvised read-only Sol review PASS, CI [42240339663](https://github.com/cswenor/fleet/actions/runs/42240339663) / [42240526182](https://github.com/cswenor/fleet/actions/runs/42240526182) green. Fleet PLAN-9/DOC-19, two reusable slots and own active supervisor; real CLI status/live-slot refusal and the central host **both projects LIVE** verified. Run run_ca3dd4d80c5a reserved; **Main not started by builder**. Installation receipt in docs/MAIN.md. |
-| 3 generic process + Project Alpha process | Partial | TASK-14 generic policy adopted; TASK-15 threads and TASK-16 coordination remain. Project Alpha standing policy/tier-e must land in Project Alpha via its Main/lanes. |
+| 3 generic process + Project Alpha process | Partial | TASK-14 generic policy and TASK-15 threads implemented; publication receipts on assigned Pad tasks. TASK-16 Project Alpha coordination remains. |
 | 4 additional projects | Open, owner chooses | Fleet TASK-17; candidates below, no implied permission to install all. |
 | Usage outcome | Baseline recorded; after measurement open | Fleet TASK-18. Do not label the workflow a measured saving yet. |
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
@@ -213,11 +213,53 @@ Publication review/CI receipts are retained in the TASK-14 PR and Pad outcome.
 
 ### TASK-15 — One durable thread per task
 
-Link Pad ref, task branch/comment, reusable Orca slot and Task/Dispatch where
-applicable, across disposable sessions. Terminal launcher currently has no
-supervised Dispatch: never fabricate lifecycle completion. Prove a real question,
-in-thread reply and result with durable Pad outcome, no lost status under type
-filters and no reply on a settled attempt. Fresh session each new task.
+Implemented `fleet thread open/question/wait/result`: canonical task ID links Pad
+ref, actual branch, reusable slot and authoritative launch attempt. Main approved
+unique native question subthreads per attempt/question (native reply lacks a
+reply-to field); old/settled attempts cannot authorize new work. Async builder
+wait inspects non-consuming terminal history in one process, caches all types,
+and copies only question/decision/outcome to Pad. Unseen terminal replies still
+require retaining the terminal until copied; no Dispatch/worker_done invented.
+
+`fleet wait` adds stable decision-first classification/counts, no filtering or
+ack change. Consecutive identical GitHub relay content dedupes per stream;
+alert content change and recovery/recurrence still notify. Delivery errors log
+recipient plus safe Orca code. Health flags known bound slot terminals
+`owner_delivery_broken`; launcher creates a new terminal in the same slot rather
+than reusing bound/unknown-binding shells, retaining selection reasons.
+Sender/body classification is advisory triage only (`--from` is not
+authenticated); it never grants authority, suppresses, auto-acks or downgrades.
+
+2026-11-06 real question `msg_abb92cc4c1f6` -> Main in-thread approval
+`msg_793046954969` -> background wait returned in 24.35s and copied the decision
+to Pad, canonical task thread `fleet-40361fd9-c248-4226-a3cc-52d318103de6`.
+Main requires all further relay probes on scratch identities, not live Main.
+Scratch Run `run_165b92486eb1`: 20 baseline sends versus one deduped send for 20
+identical candidate events; CLI delivery `delivery_fd91ee1570a2` showed the
+question first and all 21 relays, replayed unchanged, then whole-batch ack.
+Real health flagged a bound scratch ready shell; launcher harness with adapted
+inventory/admission and harmless command created a different terminal in the
+same slot with reason `run_bound` (no third paid builder/model launched).
+Real mismatched scratch delivery logged `recipient_run_mismatch`.
+Separate CLI processes with isolated adapted launch receipts for scratch
+TASK-26/27 showed old reply `msg_df104931d560` without accepting it (timeout),
+then accepted only matching new reply `msg_af22a9adceef` and recorded Pad result.
+All three owned scratch terminals closed. Fresh-session/model launch boundary
+remains the existing launcher contract; the isolation drill did not launch omp.
+Independent final-head review/CI and publication receipts are retained on Pad/PR.
+Initial independent review found two P2 defects, both reproduced with failing
+regressions then fixed: retained bound ready shells no longer block retirement
+of the exact builder; failed question Pad writes retry before the decision.
+101 tests passed before current-main integration. Final-source native scratch question
+`msg_b2f43c67d5f2` / reply `msg_854cabb99fef` survived an injected initial Pad
+outage: original question then decision copied, no resend. Live read-only
+retirement selection excluded the retained bound shell without input/exit.
+Both additional owned scratch terminals closed; no service/runtime restart.
+Follow-up review caught cross-lane contention on a nonblocking project-wide
+thread lock. Task-local ledgers/locks now isolate unrelated waits, with a
+two-lane simultaneous-I/O regression. Integrated current-main dispatcher guards
+and preserved both branches' launcher checks; 113 tests and real cached-reply
+CLI replay pass. Own pre-publication TASK-15 ledger migrated, canonical ID kept.
 
 ### TASK-20 — Guarded finished-session retirement
 

@@ -61,6 +61,23 @@ def classify(terminal, text, expected, idle_seconds, now):
     return model, flags, idle
 
 
+def binding(c, handle):
+    """Only an explicit native null Run proves a terminal is unbound."""
+    unknown = {'state': 'unknown', 'run_id': None}
+    try:
+        result = orca(c, 'orchestration', 'run-current', '--from', handle)
+    except RuntimeError:
+        return unknown
+    if not isinstance(result, dict) or 'run' not in result:
+        return unknown
+    current = result['run']
+    if current is None:
+        return {'state': 'none', 'run_id': None}
+    if isinstance(current, dict) and isinstance(current.get('id'), str) and current['id'].strip():
+        return {'state': 'bound', 'run_id': current['id']}
+    return unknown
+
+
 def collect(c, now=None):
     now = time.time() if now is None else now
     trees = orca(c, 'worktree', 'list', '--repo', 'id:' + c['orca_repo_id'])
@@ -88,12 +105,17 @@ def collect(c, now=None):
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
         if ready:
             model, flags, idle = None, [], None
+        terminal_binding = binding(c, t['handle'])
+        if terminal_binding['state'] == 'bound':
+            flags.append('owner_delivery_broken')
+        elif terminal_binding['state'] == 'unknown':
+            flags.append('binding_unknown')
         ref = REF.search(branch(w.get('branch'))) or REF.search(t.get('title', ''))
         builders.append({'terminal': t['handle'], 'worktree': w['id'], 'path': w['path'],
                          'branch': branch(w.get('branch')), 'task': ref[1].upper() if ref else None,
                          'title': t.get('title'), 'model': model, 'flags': flags,
-                         'idle_seconds': idle, 'state': 'shell' if ready else (flags[0] if flags else 'active'),
-                         'shell_ready': ready,
+                         'idle_seconds': idle, 'state': flags[0] if flags else ('shell' if ready else 'active'),
+                         'shell_ready': ready, 'binding': terminal_binding,
                          'incarnation_id': t.get('incarnationId'),
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])

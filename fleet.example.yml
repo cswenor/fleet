@@ -24,6 +24,8 @@ builder:
     with that different task ref to the coordinator, and stop.
     On PARK: finish current step, commit+push WIP, write Pad handoff, report PARKED
     to the configured Run, then stop yourself. Resume only as a confirmed fresh session.
+    Decision requests MUST use --type question to run:<coordinator.run>;
+    reports use --type status. Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex
   reserve_percent: 10

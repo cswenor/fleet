@@ -40,12 +40,20 @@ def launch(c, ref, slot=None, *, _locked=False):
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
+        shells = []
+        skipped = []
         if existing:
             matches = [w for w in inventory['worktrees'] if w['path'] == chosen]
             if len(matches) != 1:
                 raise ValueError('slot must map to exactly one Orca worktree')
             w = matches[0]
-            shells = [b for b in inventory['builders'] if b['path'] == chosen and b['connected'] and b.get('shell_ready')]
+            ready_shells = [b for b in inventory['builders'] if b['path'] == chosen and b['connected'] and b.get('shell_ready')]
+            for shell in ready_shells:
+                binding = shell.get('binding', {'state': 'unknown', 'run_id': None})
+                if binding['state'] == 'none':
+                    shells.append(shell)
+                else:
+                    skipped.append({'terminal': shell['terminal'], 'binding': binding})
             if len(shells) > 1:
                 raise ValueError('slot has multiple ready shells; refusing ambiguous terminal reuse')
         else:
@@ -79,12 +87,18 @@ def launch(c, ref, slot=None, *, _locked=False):
         rules = Path(w['path']) / b['rules_file']
         if not rules.is_file():
             raise ValueError('configured project rules_file is absent in slot')
+        thread_command = shlex.join(['fleet', '--config',
+                                     str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
+                                     'thread', 'open', ref, '--slot', w['path']])
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
 Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
 Never create extra git worktrees. Self-publish according to project rules.
+Open the durable task thread before working: {thread_command}
+Never bind this builder terminal to an orchestration Run. Keep terminal identity for thread replies and inbox delivery.
 Use the following durable command to report, not terminal input:
 {shlex.quote(c['orca'])} orchestration send --to run:{c['coordinator']['run']} --type status --subject "{ref}: report" --body "<evidence and outcome>"
+Decision requests MUST use --type question addressed to run:{c['coordinator']['run']}; reports use --type status. Use fleet thread question {ref} for durable task questions, fleet thread wait {ref} for replies, and fleet thread result {ref} for the final outcome, with the same --config as thread open.
 An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet watch-pr PR as an async background command; never poll with model turns.
 On a durable PARK request: finish your current step, commit and push WIP to this task branch, write a Pad handoff, report PARKED with evidence to the Run above, then stop yourself. No next task or FRESH-READY; resume only in a Main-confirmed fresh session.
 {b['footer']}
@@ -104,22 +118,37 @@ On a durable PARK request: finish your current step, commit and push WIP to this
         session_dir = path / ('sessions-' + nonce)
         session_dir.mkdir(mode=0o700)
         command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '--session-dir', str(session_dir), '@' + str(prompt_path)])
-        if existing and shells:
-            handle = shells[0]['terminal']
-            terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
-            latest = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
+        handle = None
+        terminal = None
+        reason = 'no_ready_shell'
+        if shells:
+            candidate = shells[0]['terminal']
+            terminal = orca(c, 'terminal', 'show', '--terminal', candidate)['terminal']
+            latest = orca(c, 'terminal', 'read', '--terminal', candidate, '--screen')['terminal']
             if (not terminal.get('connected') or terminal.get('orphaned') or
                     not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
                     not shells[0].get('incarnation_id') or terminal.get('incarnationId') != shells[0]['incarnation_id'] or
                     not health.shell_ready('\n'.join(latest.get('tail', [])))):
                 raise ValueError('slot terminal is no longer a ready shell; launch withheld')
+            # Recheck immediately before sending: collection is not a reuse lease.
+            binding = health.binding(c, candidate)
+            if binding['state'] == 'none':
+                handle = candidate
+            else:
+                skipped.append({'terminal': candidate, 'binding': binding})
+        if handle is not None:
+            reason = 'ready_unbound_shell'
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')
         else:
+            if skipped:
+                reason = 'run_bound' if any(t['binding']['state'] == 'bound' for t in skipped) else 'binding_unknown'
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
         receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'worktree': w,
-                   'terminal': handle if existing and shells else result['terminal']['handle'],
-                   'terminal_incarnation_id': (terminal if existing and shells else result['terminal']).get('incarnationId'),
+                   'terminal': handle if handle is not None else result['terminal']['handle'],
+                   'terminal_incarnation_id': (terminal if handle is not None else result['terminal']).get('incarnationId'),
+                   'terminal_selection': {'action': 'reuse' if handle is not None else 'create',
+                                          'reason': reason, 'skipped_terminals': skipped},
                    'session_dir': str(session_dir),
                    'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
         state.write(c, 'last-launch', receipt)

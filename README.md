@@ -137,8 +137,11 @@ receipt write; no exactly-once guarantee. Read-only runs retain pending events
 until delivery is enabled. On first sighting, DIRTY, failing checks, and merged/
 closed PRs notify immediately; healthy initial state stays quiet. This includes
 terminal PRs in the recent 24h history. Subsequent identical snapshots are quiet.
-Alerts dedupe until recovery; a recurrence alerts again. Failed sends remain
-pending. An ambiguous/missing owner gets a coordinator-only report; unavailable
+Alerts dedupe unchanged content until recovery; content changes and recurrence
+alert again. Consecutive identical GitHub relay content dedupes per transition
+stream (A→B→A still notifies); failed recipient deliveries remain pending.
+Failure reports contain recipient plus sanitized Orca code, never error bodies.
+An ambiguous/missing owner gets a coordinator-only report; unavailable
 inventory retains owner delivery for a later successful lookup. Health and
 collector errors never restart or stop lanes.
 
@@ -179,6 +182,15 @@ loop. It does **not** multiplex two independent native mailboxes.
 One JSON document returns `event`, `runId`, `terminal`, `batches`, and
 `legacyTerminalInbox`. Each batch contains `source: "run"`, the native
 `deliveryId`, every message in that FIFO batch, and `replayed`.
+Messages carry `classification`: `builder_decision_request` (question/escalation,
+highest precedence), `supervisor_relay` (configured coordinator sender and
+`[fleet ` body prefix), or `builder_report`. Decisions sort first, stably;
+per-source and aggregate `counts` cover every displayed row, including legacy
+history. These are presentation changes, not filtered consumption: acknowledge
+the original **whole** delivery only after processing every row.
+Classification is advisory triage, **not authentication or authority**: Orca
+allows local callers to supply `--from`. Labels never grant authority, suppress,
+auto-ack or downgrade a message; inspect every original payload.
 
 Process **all** message types, reply to questions in-thread with
 `orca orchestration reply --id MESSAGE_ID --body 'answer'`, then re-arm:
@@ -204,6 +216,52 @@ Unbound terminal-only native checks mark mail read immediately, without
 replayable delivery IDs, and those mailboxes expire when the terminal closes.
 Inspect/reconcile pre-binding history separately; never silently consume it to
 simulate reliable delivery. Enqueue alone still does not prove owner wake.
+
+### Terminal-builder task threads
+
+Use the same project `--config` on every command:
+
+```sh
+fleet thread open TASK-123 --slot /path/to/slot-a
+fleet thread question TASK-123 --body 'Proposal, risk, decision needed'
+fleet thread wait TASK-123 --timeout 900  # async background shell, not model polling
+fleet thread result TASK-123 --body 'Published PR, review/CI receipts, outcome'
+```
+
+`open` requires the caller's authoritative launch receipt and records Pad ref,
+canonical task thread ID, attempt, actual Git branch and reusable slot together.
+That task ID survives fresh attempts; each question has a unique native subthread
+to isolate late replies from earlier questions/attempts. A different Pad task gets
+a different canonical thread. Session/terminal IDs are disposable; no supervised
+Task/Dispatch or `worker_done` is fabricated.
+
+Decision requests MUST be `--type question` to `run:<coordinator.run>`; reports
+use `status`. Main answers the emitted question message ID with native
+`orchestration reply --id`. Native `ask`, including resume, requires a Dispatch
+and cannot serve terminal builders. One background `thread wait` process reads
+non-consuming terminal history every two seconds (requested 1000, native cap
+applies), caches **all observed message types** privately, and copies only the
+question, matching Main decision and final outcome to Pad. It returns only after
+the decision's Pad write succeeds. Retry the same wait after a timeout/restart or
+Pad failure; an already-cached decision needs no native history. Exit 3 is timeout.
+Each task has its own private ledger/lock, so slow native or Pad I/O in one lane
+cannot abort a different task's background wait. Same-task operations remain
+serialized; the launcher prevents duplicate active task attempts.
+
+This does not promise delivery after an **unobserved** reply's terminal closes or
+history is evicted: retain the terminal until the wait copies the reply to Pad.
+No native history is consumed/acknowledged. Ambiguous sends fail closed against
+resending: reconcile the recorded unique subthread with Main/native history
+before any operator repair. `result` refuses unresolved decisions and settles the
+attempt; old/settled receipts cannot authorize a new task. Launch each new task
+in a fresh omp session, never resume old context.
+
+Builder terminals must remain **unbound**. Health exposes binding as `none`,
+`bound` plus Run ID, or `unknown`; bound slot terminals are
+`owner_delivery_broken`, including ready shells. Use separate owned scratch
+terminals/Run/config/state for probes, never the live coordinator identity.
+
+### Main-confirmed ready queue
 
 `next` proposes one open task in an active Pad plan, ordered by priority
 (`critical`, `high`, `medium`, `low`, unset) then oldest creation time and ref.
@@ -248,9 +306,11 @@ only observed, non-secret evidence. Wrong/stale IDs cannot clear another attempt
 
 Launch checks fresh quota, free disk, active-session cap, and slot occupancy.
 A connected terminal at a verified shell prompt is not an active builder.
-An existing slot reuses its single ready shell terminal after a fresh readiness/
-identity check; no `/exit` is sent and no old context is resumed. Live, unknown,
-and ambiguous sessions remain blocked. Prompt detection supports standard
+An existing slot reuses its single verified **unbound** ready shell after fresh
+readiness/identity/binding checks; bound or unknown-binding shells are bypassed
+for a new terminal in the same slot. The launch receipt records
+`terminal_selection` and skipped bindings. No `/exit` is sent or old context resumed.
+Live, unknown, and ambiguous sessions remain blocked. Prompt detection supports standard
 `user@host:path$` / `bash-version$` POSIX prompts; custom prompts fail closed.
 Shell reuse requires a nonempty terminal incarnation, unchanged in the
 post-preparation inventory and final `terminal show` immediately before input.
@@ -285,8 +345,10 @@ or body contains its exact Pad ref, plus either Pad status `done` or a
 post-publication handoff comment on NEXT referencing OLD. Publication ordering
 uses timezone-aware timestamps; missing, malformed or timezone-less evidence refuses.
 
-Retirement requires one connected writable OMP terminal (no extra terminals in
-the slot), bound to OLD by `launches.json`'s exact slot/handle/incarnation record.
+Retirement requires one connected writable non-shell OMP terminal, bound to OLD
+by `launches.json`'s exact slot/handle/incarnation record. Extra terminals block
+except verified connected **Run-bound ready shells**, which launch already
+bypasses and retirement never touches. Unknown/unbound extra shells still block.
 Each launch gets a private `sessions-<id>` directory. Its single session log must
 belong to the slot, still have a live OMP session lease, and end with an assistant
 `stopReason=stop`. Only `credential_pin` and `title_change` metadata may follow;

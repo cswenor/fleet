@@ -57,11 +57,34 @@ def delivery(result, run):
     return None
 
 
+CLASSES = ('builder_decision_request', 'supervisor_relay', 'builder_report')
+
+
+def classify(messages, coordinator):
+    """Keep every native field and delivery, prioritizing decisions stably."""
+    classified = []
+    counts = dict.fromkeys(CLASSES, 0)
+    for message in messages:
+        body = message.get('body')
+        if message.get('type') in ('question', 'escalation'):
+            kind = 'builder_decision_request'
+        elif (coordinator and message.get('from_handle') == coordinator
+              and isinstance(body, str) and body.startswith('[fleet ')):
+            kind = 'supervisor_relay'
+        else:
+            kind = 'builder_report'
+        classified.append({**message, 'classification': kind})
+        counts[kind] += 1
+    classified.sort(key=lambda m: m['classification'] != 'builder_decision_request')
+    return classified, counts
+
+
 def wait(c, timeout=900, ack_run=None, terminal=None):
     run = c['coordinator']['run']
     caller = os.environ.get('ORCA_TERMINAL_HANDLE')
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
-              'batches': [], 'legacyTerminalInbox': {'readOnly': True}}
+              'batches': [], 'counts': dict.fromkeys(CLASSES, 0),
+              'legacyTerminalInbox': {'readOnly': True}}
     try:
         if not math.isfinite(timeout) or not 1 <= timeout <= 1800:
             raise MailboxError('timeout_must_be_1_to_1800_seconds')
@@ -81,6 +104,10 @@ def wait(c, timeout=900, ack_run=None, terminal=None):
         received = request(c, *args, timeout=timeout + 30)
         batch = delivery(received, run)
         if batch:
+            batch['messages'], batch['counts'] = classify(
+                batch['messages'], c['coordinator'].get('terminal'))
+            for kind in CLASSES:
+                result['counts'][kind] += batch['counts'][kind]
             result['batches'].append(batch)
         result.update(event='messages' if batch else 'timeout',
                       acknowledged=received.get('acknowledged'))
@@ -92,9 +119,14 @@ def wait(c, timeout=900, ack_run=None, terminal=None):
         try:
             history = request(c, 'inbox', '--terminal', caller, '--limit', '1000')
             if (not isinstance(history.get('messages'), list)
+                    or not all(isinstance(m, dict) for m in history['messages'])
                     or history.get('count') != len(history['messages'])):
                 raise MailboxError('invalid_terminal_inbox')
             result['legacyTerminalInbox'].update(history, requestedLimit=1000)
+            messages, counts = classify(history['messages'], c['coordinator'].get('terminal'))
+            result['legacyTerminalInbox'].update(messages=messages, counts=counts)
+            for kind in CLASSES:
+                result['counts'][kind] += counts[kind]
         except MailboxError as e:
             result['legacyTerminalInbox']['error'] = str(e)
             result.update(event='error', error=result.get('error', 'terminal_inbox_unavailable'))

@@ -23,14 +23,22 @@ class RestartTests(unittest.TestCase):
                               'rules_file': 'RULES.md', 'footer': '', 'idle_seconds': 2700}}
         self.s = {'errors': [], 'quota': {'may_start': True}, 'disk': {'low': False},
                   'inventory': {'errors': [], 'worktrees': [{'id': 'tree', 'path': self.slot, 'branch': 'work'}],
-                                'builders': [dict(terminal='old-shell', incarnation_id='inc', path=self.slot, worktree='tree', connected=True, shell_ready=True)] +
+                                'builders': [dict(terminal='old-shell', incarnation_id='inc', path=self.slot, worktree='tree', connected=True, shell_ready=True,
+                                                  binding={'state': 'none', 'run_id': None})] +
                                             [dict(terminal=f'live-{i}', path=f'/other-{i}', worktree=f'other-{i}', connected=True) for i in range(7)]}}
         self.created = 0
         self.sent = []
         self.prompt = 'user@host:~/slot$ '
+        self.binding = {'run': None}
+        self.calls = []
         self.incarnation = 'inc'
 
     def orca(self, config, *args):
+        self.calls.append(args)
+        if args[:2] == ('orchestration', 'run-current'):
+            if isinstance(self.binding, Exception):
+                raise self.binding
+            return self.binding
         if args[:2] == ('terminal', 'show'):
             return {'terminal': {'connected': True, 'writable': True, 'worktreeId': 'tree', 'incarnationId': self.incarnation}}
         if args[:2] == ('terminal', 'read'):
@@ -46,7 +54,7 @@ class RestartTests(unittest.TestCase):
         return {}
 
     def launch(self, snapshots=None, automatic=False):
-        with patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
+        with patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
             return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot)
 
     def test_eight_connected_terminals_with_one_exited_session_reuse_its_shell(self):
@@ -56,6 +64,64 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(self.sent, ['old-shell'])
         self.assertEqual(self.created, 0)
         self.assertEqual(health.owner(self.s['inventory'], 'work'), None)
+        self.assertEqual(receipt['terminal_selection']['reason'], 'ready_unbound_shell')
+        self.assertEqual(self.calls[-2][:2], ('terminal', 'send'))
+        send_index = next(i for i, args in enumerate(self.calls) if args[:2] == ('terminal', 'send'))
+        self.assertEqual(self.calls[send_index - 1], ('orchestration', 'run-current', '--from', 'old-shell'))
+
+    def test_bound_ready_shell_creates_in_same_worktree_without_sending_or_binding(self):
+        self.s['inventory']['builders'][0]['binding'] = {'state': 'bound', 'run_id': 'run_old'}
+        receipt = self.launch()
+        self.assertEqual((self.sent, self.created), ([], 1))
+        self.assertEqual(receipt['terminal'], 'new-terminal')
+        self.assertEqual(receipt['worktree']['path'], self.slot)
+        self.assertEqual(receipt['terminal_selection'], {
+            'action': 'create', 'reason': 'run_bound',
+            'skipped_terminals': [{'terminal': 'old-shell', 'binding': {'state': 'bound', 'run_id': 'run_old'}}]})
+        create = next(args for args in self.calls if args[:2] == ('terminal', 'create'))
+        self.assertEqual(create[create.index('--worktree') + 1], 'id:tree')
+        self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
+        self.assertTrue(all(args[1] in ('run-show', 'run-current') for args in self.calls if args[0] == 'orchestration'))
+
+    def test_unknown_or_missing_binding_is_never_permission_to_reuse(self):
+        for value in ({'state': 'unknown', 'run_id': None}, None):
+            with self.subTest(binding=value):
+                self.c['_state'] = str(Path(self.directory.name) / f'state-case-{self.created}')
+                shell = self.s['inventory']['builders'][0]
+                if value is None:
+                    shell.pop('binding', None)
+                else:
+                    shell['binding'] = value
+                receipt = self.launch()
+                self.assertEqual(receipt['terminal_selection']['reason'], 'binding_unknown')
+                self.assertEqual(receipt['terminal'], 'new-terminal')
+        self.assertEqual((self.sent, self.created), ([], 2))
+
+    def test_binding_race_and_failed_recheck_create_fresh_instead_of_send(self):
+        for value, reason in (({'run': {'id': 'run_new'}}, 'run_bound'),
+                              (RuntimeError('unavailable'), 'binding_unknown'),
+                              ({}, 'binding_unknown')):
+            with self.subTest(binding=value):
+                self.c['_state'] = str(Path(self.directory.name) / f'state-case-{self.created}')
+                self.binding = value
+                receipt = self.launch()
+                self.assertEqual(receipt['terminal_selection']['reason'], reason)
+                self.assertEqual(receipt['terminal'], 'new-terminal')
+        self.assertEqual((self.sent, self.created), ([], 3))
+
+    def test_retired_bound_shell_does_not_prevent_reusing_one_unbound_shell(self):
+        self.s['inventory']['builders'].append(dict(self.s['inventory']['builders'][0],
+            terminal='retired-bound', binding={'state': 'bound', 'run_id': 'run_old'}))
+        receipt = self.launch()
+        self.assertEqual(receipt['terminal'], 'old-shell')
+        self.assertEqual((self.sent, self.created), (['old-shell'], 0))
+
+    def test_bound_live_session_is_still_occupied(self):
+        self.s['inventory']['builders'].pop()
+        self.s['inventory']['builders'][0].update(shell_ready=False, binding={'state': 'bound', 'run_id': 'run_old'})
+        with self.assertRaisesRegex(ValueError, 'live or unconfirmed'):
+            self.launch()
+        self.assertEqual((self.sent, self.created), ([], 0))
 
     def test_automatic_slot_selection_accepts_its_prepared_task_branch(self):
         receipt = self.launch(automatic=True)

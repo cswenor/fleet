@@ -40,6 +40,21 @@ def main():
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--ack-run', help='acknowledge a processed Run delivery before waiting')
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
+    p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')
+    commands = p.add_subparsers(dest='thread_command', required=True)
+    t = commands.add_parser('open')
+    t.add_argument('ref')
+    t.add_argument('--slot')
+    t = commands.add_parser('question')
+    t.add_argument('ref')
+    t.add_argument('--body', required=True)
+    t.add_argument('--subject')
+    t = commands.add_parser('wait')
+    t.add_argument('ref')
+    t.add_argument('--timeout', type=int, default=900)
+    t = commands.add_parser('result')
+    t.add_argument('ref')
+    t.add_argument('--body', required=True)
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     sub.add_parser('central-serve')
@@ -59,6 +74,18 @@ def main():
         c = load(args.config)
         if getattr(args, 'drill_usage_file', None):
             c['_drill_usage_file'] = args.drill_usage_file
+        if args.command == 'thread':
+            from . import threads
+            if args.thread_command == 'open':
+                result = threads.open_thread(c, args.ref, args.slot)
+            elif args.thread_command == 'question':
+                result = threads.question(c, args.ref, args.body, args.subject)
+            elif args.thread_command == 'wait':
+                result = threads.wait(c, args.ref, args.timeout)
+            else:
+                result = threads.result(c, args.ref, args.body)
+            print(json.dumps(result))
+            return 3 if result.get('event') == 'timeout' else 0
         if args.command == 'wait':
             from .mailbox import wait
             result = wait(c, args.timeout, args.ack_run, args.terminal)

@@ -109,6 +109,23 @@ class RetirementTests(unittest.TestCase):
         self.launch.reset_mock()
         self.refused('already attempted')
 
+    def test_ready_bound_shell_does_not_block_exact_builder_retirement(self):
+        self.inventory['builders'].append({
+            'terminal': 'retired-bound-shell', 'path': self.slot,
+            'connected': True, 'shell_ready': True,
+            'binding': {'state': 'bound', 'run_id': 'run_scratch'}})
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['terminal'], 'target')
+        self.assertEqual([args[args.index('--terminal') + 1] for args in self.sent], ['target'])
+
+    def test_unbound_or_unknown_extra_shell_still_blocks_retirement(self):
+        for binding in ({'state': 'none'}, {'state': 'unknown'}, {}):
+            with self.subTest(binding=binding):
+                self.inventory['builders'] = [self.builder, {
+                    'terminal': 'extra', 'path': self.slot, 'connected': True,
+                    'shell_ready': True, 'binding': binding}]
+                self.refused('multiple terminals')
+
     def test_working_dialog_background_and_unknown_screens_refuse(self):
         for screen in (['⠹ working > ◑ GPT >', '╰─'], ['Select permission', 'Approve / Deny'],
                        ['Waiting for background job', ' π > ◑ GPT >', '╰─'], [], ['old working footer']):

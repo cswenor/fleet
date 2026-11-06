@@ -96,8 +96,11 @@ def _target(c, slot):
     target = candidates[0]
     if not target['connected']:
         raise ValueError('target disconnected or orphaned; retirement withheld')
-    # A second shell would make the subsequent normal launch ambiguous.
-    if len([b for b in inventory['builders'] if b['path'] == slot]) != 1:
+    # Launcher bypasses ready Run-bound shells without touching them. They cannot
+    # compete for the subsequent launch; every other extra terminal stays ambiguous.
+    extras = [b for b in inventory['builders'] if b['path'] == slot and b['terminal'] != target['terminal']]
+    if any(not (b['connected'] and b.get('shell_ready') and
+                b.get('binding', {}).get('state') == 'bound') for b in extras):
         raise ValueError('slot has multiple terminals; retirement withheld')
     return trees[0], target
 

@@ -87,6 +87,35 @@ def push(c, s, receipt):
     return {'signature': signature, 'at': now}
 
 
+def github_relays(ledger, events, current):
+    """Collapse identical consecutive content per GitHub transition stream.
+
+    Retain the last identity, not a forever-seen content set: A→B→A is new.
+    Pending retries share that identity and keep per-recipient receipts.
+    """
+    streams = ledger.setdefault('github_relays', {})
+    # Recovery emits no group relay, but ends this failure occurrence.
+    failed_groups = {
+        f'group:{r["id"]}:{r["conclusion"]}:{number}'
+        for r in current.get('merge_group_runs', [])
+        if r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required')
+        for number in r.get('prs', []) or [None]}
+    for scope in list(streams):
+        if scope.startswith('group:') and scope not in failed_groups:
+            del streams[scope]
+    result = []
+    for event in events:
+        scope = ':'.join(event['key'].split(':')[:3]) if event['key'].startswith('pr:') else event['key']
+        signature = digest([event['subject'], event['body'], event.get('branch')])
+        previous = streams.get(scope)
+        if previous and previous['signature'] == signature:
+            continue
+        event = {**event, 'key': event['key'] + ':relay:' + str(time.time_ns())}
+        streams[scope] = {'signature': signature}
+        result.append(event)
+    return result
+
+
 def cycle(c, deliver=True):
     s = snapshot.collect(c)
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
@@ -100,19 +129,23 @@ def cycle(c, deliver=True):
         diagnosed = {e['pr'] for e in initial}
         # A saved baseline from before initial-state support is not a notification receipt.
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
-        pending.extend(changes + initial)
+        pending.extend(github_relays(ledger, changes + initial, current_g))
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
     active = alerts(s)
-    prior = set(ledger['active_alerts'])
+    prior = ledger['active_alerts']
+    # Old ledgers held only keys; migrate by reporting their current content once.
+    prior = prior if isinstance(prior, dict) else {}
     for a in active:
-        if a['key'] not in prior:
-            # Each recovery→recurrence receives a new identity.
-            a['key'] += ':' + str(time.time_ns())
+        signature = digest([a['subject'], a['body'], a.get('branch')])
+        if prior.get(a['key']) != signature:
+            # Content changes and every recovery→recurrence receive a new identity.
+            a = {**a, 'key': a['key'] + ':' + str(time.time_ns())}
             pending.append(a)
-    ledger['active_alerts'] = [a['key'] for a in alerts(s)]
+    ledger['active_alerts'] = {
+        a['key']: digest([a['subject'], a['body'], a.get('branch')]) for a in active}
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')
@@ -120,7 +153,7 @@ def cycle(c, deliver=True):
     failures = []
     protected = set()
     for event in pending:
-        recipients = event.get('recipients', ['run:' + c['coordinator']['run']])
+        recipients = list(event.get('recipients', ['run:' + c['coordinator']['run']]))
         owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
         if owning_terminal:
             recipients.append(owning_terminal)
@@ -142,8 +175,9 @@ def cycle(c, deliver=True):
                 receipt = enqueue(c, event, recipient)
                 ledger['sent'][key] = {'at': time.time(), 'receipt': receipt}
                 state.write(c, 'supervisor', ledger)
-            except (CommandError, ValueError):
-                failures.append(event['subject'])
+            except (CommandError, ValueError) as error:
+                failures.append({'recipient': recipient,
+                                 'code': error.code if isinstance(error, CommandError) else 'delivery_failed'})
         # Unknown inventory is a transient lookup failure, not proof there is no owner.
         resolved = inventory is not None or not event.get('branch')
         done = resolved and all(digest([event['key'], r]) in ledger['sent'] for r in recipients)

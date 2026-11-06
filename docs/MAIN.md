@@ -164,10 +164,18 @@ restart was attempted.
 
 Output is one JSON document: `event`, source-tagged `batches` with native
 `deliveryId` and **all** messages, plus `legacyTerminalInbox` read-only history
-diagnostics (requested limit 1000, subject to Orca's cap). Do not filter
-worker_done only: terminal builders report status and questions. Process every
-row, reply in-thread with `orchestration reply --id MESSAGE_ID --body 'ruling'`,
-then explicitly acknowledge and re-arm in background:
+diagnostics (requested limit 1000, subject to Orca's cap). Do not hide status or
+questions behind type filters: terminal builders have no supervised worker_done.
+Rows carry `classification` and per-source/aggregate `counts`: questions and
+escalations are decisions and sort first; configured-coordinator messages with
+`[fleet ` bodies are supervisor relays; remaining rows are builder reports.
+Nothing is filtered, and ack remains **whole-batch**. Process every row and
+reply in-thread with `orchestration reply --id MESSAGE_ID --body 'ruling'`.
+Classification is advisory, not authority/authentication: local callers can
+supply Orca `--from`. Never use a label to grant authority, suppress, auto-ack
+or downgrade a message. Retain and inspect every payload.
+Decision requests MUST use `--type question` to `run:<coordinator.run>`;
+`status` is only for reports. Then explicitly acknowledge and re-arm:
 
 ```sh
 fleet --config ~/.config/fleet/fleet.yml wait --ack-run DELIVERY_ID --timeout 900
@@ -190,6 +198,31 @@ Send is enqueue, never proof of new turn. On reconnect/outage, inspect own lanes
 screens and legacy history, reconcile PRs/pending threads before trusting quiet
 status. Never restart shared Orca without an owner-approved window; re-list
 handles and rebind the Run before retrying.
+
+### Builder task threads
+
+Launch prompts require `fleet --config CONFIG thread open REF --slot PATH`.
+This records one canonical Pad task thread, branch, reusable slot and launch
+attempt. Use `thread question REF --body 'proposal/risk/decision'`; Main replies
+to its emitted native message ID. Native question subthreads are unique per
+attempt/question, so a late reply cannot authorize a different decision or task.
+Builders run `thread wait REF` as an **async background command**; one process
+inspects non-consuming terminal history every two seconds, caching every type
+privately. Only questions, Main decisions and outcomes go to Pad, never relay
+noise or secrets. The wait returns after the matching Main decision is copied
+to Pad; restart/Pad-write retry reuses that private copy. Native terminal history
+is capped and expires on close: do not close before an unseen reply is copied.
+`thread result REF --body 'publication receipts/outcome'` records the durable
+outcome and settles only that launch attempt, without fake Dispatch completion.
+
+Never bind a lane terminal to a Run, even during a scratch proof. Health marks
+known bound slot terminals `owner_delivery_broken` and preserves unknown binding
+as unknown. Launch bypasses bound/unknown ready shells for a fresh terminal in
+the same slot and records the selection reason; live/unconfirmed sessions still
+block. Scratch proofs use separate owned terminals, private config/state and a
+scratch coordinator identity, then close only those terminals. Do not borrow the
+live coordinator sender or inject relay probes into the live Run.
+
 
 ## Install, production and reporting
 

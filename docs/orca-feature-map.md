@@ -24,7 +24,7 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 |---|---|---|
 | Fresh pinned task session | omp --model / --thinking, project roles/config, --config overlay | `fleet launch`: explicit Sol medium, fresh context, no fallback/auto-resume, 200K compaction. Guard quota/disk/cap/slot; private prompt and launch receipt. |
 | Supervised resource lifecycle | worker-start/list/show/read/stop/abandon/retain/release; Task/Dispatch; retry-request/request-show | **Not builder launch policy today**: preamble publication conflict and bare-Sol high. Preserve docs as capability, not permission. |
-| Identity | Worktree ID, Run/Task/Dispatch/request IDs; Pad-ref convention | Pad ref first in spec; configured slots reused, task branch/comment carries ref. Session/terminal disposable. Task/thread integration still open. |
+| Identity | Worktree ID, Run/Task/Dispatch/request IDs; Pad-ref convention | `fleet thread open` links canonical Pad thread/ref, actual branch, reusable slot and launch attempt. Native question subthreads isolate late answers; no fabricated terminal-builder Task/Dispatch. |
 | Main event wait | orchestration check --wait, FIFO Delivery replay until ack | `fleet wait` requires caller bound to configured Run; current Orca routes both Run and bound-terminal addresses there. Read-only legacy history diagnostics; Project Alpha cutover remains TASK-10. |
 | Builder waiting | Async bash completion; Actions run_watch; terminal wait tui-idle/exit | `fleet watch-pr` covers reviews, initial failure/DIRTY, merge-group failures and merged/closed, not only Actions. |
 | Durable communication | send to run/dispatch/terminal; ask/reply; checkpoint check/ack | Send enqueues only, no guaranteed turn. Use in-thread replies; do not report terminal launch as supervised worker_done. |
@@ -103,6 +103,15 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 - `ask` blocks durably; resume same message ID after timeout instead of duplicating.
   Coordinator `reply --id` closes the original question thread from its own Orca
   terminal identity. Terminal input is neither thread acknowledgment nor reply.
+- Terminal builders use `fleet thread question` plus async `thread wait`, not
+  native `ask` (even resume requires a Dispatch). One process reads terminal
+  history non-destructively, caching all types and writing the matched decision
+  to Pad before return. Canonical task thread survives attempts; per-question
+  native subthreads prevent old decisions crossing fresh task boundaries.
+  Unseen replies are not durable after terminal close/history eviction.
+- `fleet wait` sorts question/escalation decisions first with classification
+  and counts, without dropping rows or changing native whole-batch ack.
+  Keep builders unbound; scratch Runs require separate owned scratch terminals.
 - Terminal send accepted/input_accepted is not turn_started; inspect receipt or
   screen without resending. Permission menus require menu handling, not prompts.
 
