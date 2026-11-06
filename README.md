@@ -60,8 +60,8 @@ From source, `python3 -m fleet.cli --config /absolute/project/fleet.yml
 install-service` also installs `~/.local/bin/fleet` pointing at this checkout.
 Keep that checkout at a stable path and install system PyYAML first. Service name:
 `fleet-owner-project.service`. Inspect with `systemctl --user status` and
-`journalctl --user -u fleet-owner-project.service`. To change a running unit,
-reinstall, then `systemctl --user restart fleet-owner-project.service`.
+`journalctl --user -u fleet-owner-project.service`. Reinstalling applies changed
+arguments by restarting only this supervisor, never its builders.
 Installation fails unless the user service is active; a successful unit-file
 write or `enable --now` alone is not startup proof.
 The service survives terminal exit; host reboot requires a user manager at boot
@@ -73,10 +73,13 @@ pending events and successful per-recipient delivery receipts survive process
 restarts. Supervisor/launcher locks prevent duplicate local instances. Delivery
 is at-least-once across a crash between Orca accepting a send and the local
 receipt write; no exactly-once guarantee. Read-only runs retain pending events
-until delivery is enabled. Initial GitHub collection establishes a baseline, not
-a replay of historical PR events. Alerts dedupe until recovery; a recurrence
-alerts again. Failed sends remain pending. An ambiguous/missing owner gets a
-coordinator-only report. Health and collector errors never restart or stop lanes.
+until delivery is enabled. On first sighting, DIRTY, failing checks, and merged/
+closed PRs notify immediately; healthy initial state stays quiet. This includes
+terminal PRs in the recent 24h history. Subsequent identical snapshots are quiet.
+Alerts dedupe until recovery; a recurrence alerts again. Failed sends remain
+pending. An ambiguous/missing owner gets a coordinator-only report; unavailable
+inventory retains owner delivery for a later successful lookup. Health and
+collector errors never restart or stop lanes.
 
 Coordinator messages target `run:<id>`; owning builders receive durable terminal
 inbox messages, **not terminal keystrokes**. The service uses the explicitly
@@ -85,10 +88,18 @@ After an Orca restart, refresh the coordinator handle/run configuration.
 Builder handles are re-listed every cycle, never stored as durable identities.
 Terminal-only builder mailboxes expire when their terminal closes; the Run inbox
 is durable across terminal replacement. Fleet never promises replay into a new session.
-Inbox enqueue does not prove the agent woke or read it. `watch-pr` blocks on
-only the selected PR (plus project merge-group failures) and exits on changes,
-terminal PR state, timeout, or API failure, so an async shell completion can wake
-the builder without polling model turns.
+Inbox enqueue does not prove the agent woke or read it. `watch-pr` first reports
+an already-DIRTY, failing, merged or closed PR immediately. Otherwise it blocks
+on only the selected PR (plus relevant project merge-group failures) and exits
+on changes, timeout, or API failure, so async shell completion can wake a builder
+without polling model turns.
+
+Failed native merge groups resolve all constituent PRs by walking the synthetic
+first-parent merge chain between the queue branch's base SHA and run head SHA.
+Side-branch commits are not group members. Proven immutable membership is cached;
+unresolved membership is explicit in the coordinator report rather than guessed.
+Every known member gets its owning-builder event and per-PR watcher wake,
+including non-leading PRs. Later membership recovery notifies newly resolved members.
 
 Launch checks fresh quota, free disk, builder cap, and slot occupancy. It starts
 a **new terminal**; it never types `/exit` or resumes another session. An existing

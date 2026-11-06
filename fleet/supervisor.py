@@ -71,7 +71,15 @@ def cycle(c, deliver=True):
     pending = ledger['pending']
     current_g = s.get('github')
     if current_g is not None:
-        pending.extend(github.events(ledger['github'], current_g))
+        changes = github.events(ledger['github'], current_g)
+        seen = set(ledger.get('seen_prs', []))
+        initial = [github.initial_event(p) for p in current_g['prs'] if p['number'] not in seen]
+        initial = [e for e in initial if e is not None]
+        diagnosed = {e['pr'] for e in initial}
+        # A saved baseline from before initial-state support is not a notification receipt.
+        changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
+        pending.extend(changes + initial)
+        ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
     active = alerts(s)
     prior = set(ledger['active_alerts'])
@@ -103,8 +111,9 @@ def cycle(c, deliver=True):
                 state.write(c, 'supervisor', ledger)
             except (CommandError, ValueError):
                 failures.append(event['subject'])
-        # Retain until coordinator delivered. Missing/ambiguous owner is explicit coordinator-only.
-        done = all(digest([event['key'], r]) in ledger['sent'] for r in recipients)
+        # Unknown inventory is a transient lookup failure, not proof there is no owner.
+        resolved = inventory is not None or not event.get('branch')
+        done = resolved and all(digest([event['key'], r]) in ledger['sent'] for r in recipients)
         if not done:
             remaining.append(event)
         elif c['hooks'].get('event'):

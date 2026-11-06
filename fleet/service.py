@@ -50,6 +50,7 @@ WantedBy=default.target
 '''
     (units / unit_name).write_text(unit)
     run(['systemctl', '--user', 'daemon-reload'])
-    run(['systemctl', '--user', 'enable', '--now', unit_name])
+    run(['systemctl', '--user', 'enable', unit_name])
+    run(['systemctl', '--user', 'restart', unit_name])
     run(['systemctl', '--user', 'is-active', '--quiet', unit_name])
     return {'unit': unit_name, 'delivery_enabled': deliver, 'config': c['_path']}

@@ -1,8 +1,8 @@
 """GitHub reads, pagination, and semantic event identities."""
 from datetime import datetime, timezone, timedelta
 import json
-import re
 from .commands import gh
+from . import groups
 
 
 def pages(c, endpoint):
@@ -37,6 +37,8 @@ def collect(c, pr_number=None):
         comments = []
         reviews = []
         if p['state'] == 'open':
+            if 'mergeable_state' not in p:
+                p = gh(c, 'api', f'repos/{repo}/pulls/{number}')
             sha = p['head']['sha']
             check_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/commits/{sha}/check-runs?per_page=100')
             checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'], 'conclusion': r['conclusion']} for page in check_pages for r in page['check_runs']]
@@ -51,13 +53,17 @@ def collect(c, pr_number=None):
         merged = p.get('merged_at')
         result.append({'number': number, 'url': p['html_url'], 'branch': p['head']['ref'], 'head': p['head']['sha'],
                        'state': 'merged' if merged else p['state'], 'created_at': p['created_at'],
+                       'updated_at': p['updated_at'], 'merge_state': (p.get('mergeable_state') or 'unknown').upper(),
                        'closed_at': p['closed_at'], 'merged_at': merged,
                        'time_to_merge_seconds': int((datetime.fromisoformat(merged.replace('Z', '+00:00')) - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))).total_seconds()) if merged else None,
                        'checks': sorted(checks, key=lambda x: (x['name'], x['id'])),
                        'comments': sorted([{'id': x['id'], 'updated_at': x.get('updated_at', x.get('submitted_at')), 'url': x.get('html_url')} for x in comments], key=lambda x: (x['id'], x['url'] or '')),
                        'reviews': [{'id': x['id'], 'state': x['state'], 'submitted_at': x.get('submitted_at')} for x in reviews]})
     run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{since}&per_page=100')
-    runs = [{'id': r['id'], 'branch': r['head_branch'], 'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']} for page in run_pages for r in page['workflow_runs']]
+    runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
+                             'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
+                             'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
+                            for page in run_pages for r in page['workflow_runs']])
     if pr_number is not None:
         return {'prs': result, 'merge_group_runs': runs}
     owner, name = repo.split('/')
@@ -76,25 +82,53 @@ def collect(c, pr_number=None):
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
 
 
+def initial_event(p):
+    reasons = []
+    if p['state'] in ('merged', 'closed'):
+        reasons.append(p['state'])
+    else:
+        if p.get('merge_state') == 'DIRTY':
+            reasons.append('DIRTY')
+        failed = [x['name'] for x in p['checks'] if x.get('conclusion') in
+                  ('failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale')]
+        if failed:
+            reasons.append('failing checks: ' + ', '.join(failed))
+    if not reasons:
+        return None
+    detail = '; '.join(reasons)
+    return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{detail}',
+            'subject': f'PR #{p["number"]} initial state: {detail}', 'pr': p['number'],
+            'branch': p['branch'], 'body': p['url'] + '\n' + detail}
+
+
 def events(previous, current):
     old = {p['number']: p for p in previous.get('prs', [])}
     events = []
     for p in current['prs']:
         before = old.get(p['number'])
         if before is None:
-            if previous:
+            initial = initial_event(p)
+            if initial:
+                events.append(initial)
+            elif previous:
                 events.append({'key': f'pr:{p["number"]}:opened:{p["head"]}', 'subject': f'PR #{p["number"]} {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url']})
             continue
-        fields = ('state', 'head', 'checks', 'comments', 'reviews') if p['state'] == 'open' else ('state',)
+        fields = ('state', 'head', 'merge_state', 'checks', 'comments', 'reviews') if p['state'] == 'open' else ('state',)
         for field in fields:
-            if before[field] != p[field]:
-                value = json.dumps(p[field], sort_keys=True)
-                events.append({'key': f'pr:{p["number"]}:{field}:{value}', 'subject': f'PR #{p["number"]} {field} changed: {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})
-    old_runs = {(r['id'], r['conclusion']) for r in previous.get('merge_group_runs', [])}
+            if field not in before and field == 'merge_state' and p.get(field) != 'DIRTY':
+                continue
+            if before.get(field) != p.get(field):
+                value = json.dumps(p.get(field), sort_keys=True)
+                occurrence = p.get('updated_at', p['head'])
+                events.append({'key': f'pr:{p["number"]}:{field}:{occurrence}:{value}', 'subject': f'PR #{p["number"]} {field} changed: {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})
+    old_runs = {(r['id'], r['conclusion']): set(r.get('prs', []) or [None]) for r in previous.get('merge_group_runs', [])}
     for r in current['merge_group_runs']:
-        if previous and r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required') and (r['id'], r['conclusion']) not in old_runs:
-            matches = re.findall(r'(?:^|/)pr-(\d+)-', r['branch'] or '')
-            for number in matches or [None]:
-                p = next((p for p in current['prs'] if p['number'] == int(number)), None) if number else None
-                events.append({'key': f'group:{r["id"]}:{r["conclusion"]}:{number}', 'subject': f'Merge group {r["id"]} {r["conclusion"]}', 'pr': int(number) if number else None, 'branch': p['branch'] if p else None, 'body': r['url']})
+        if previous and r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required'):
+            already = old_runs.get((r['id'], r['conclusion']), set())
+            for number in r.get('prs', []) or [None]:
+                if number in already:
+                    continue
+                p = next((p for p in current['prs'] if p['number'] == number), None)
+                detail = r['url'] + ('\nGroup membership unresolved; notify coordinator for reconciliation.' if not r.get('membership_complete') else '')
+                events.append({'key': f'group:{r["id"]}:{r["conclusion"]}:{number}', 'subject': f'Merge group {r["id"]} {r["conclusion"]}', 'pr': number, 'branch': p['branch'] if p else None, 'body': detail})
     return events
