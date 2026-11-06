@@ -172,8 +172,26 @@ resets. Coordinate Project Alpha-only requests through Project Alpha Main, not i
 
 ## Installation evidence
 
-Run reservation and second slot creation returned real Orca IDs on 2026-11-06;
-reserved coordinator remained an idle shell. Final merged PR, service, two-project
-the central host ingestion and startup handover receipts are recorded on elsewhere
-TASK-2694 and fleet PLAN-9. No claim of Orca restart verification or fleet Main
-execution is part of setup acceptance.
+- Setup [PR12](https://github.com/cswenor/fleet/pull/12) and knowledge
+  [PR13](https://github.com/cswenor/fleet/pull/13) merged after fresh independent
+  unadvised read-only Sol reviews and green CI runs 42240339663 / 42240526182.
+- 29 tests passed. Disconnected/unknown slot safety regressions failed before and
+  passed after correction; actual CLI refused launch into the live setup lane.
+  Installed `fleet --config ~/.config/fleet/fleet.yml status` returned real PRs,
+  commits, queue, Sol builder, ready second-slot shell, quota and disk, no errors.
+- `fleet-cswenor-fleet.service` installed through `fleet install-service --deliver`,
+  active/running, NRestarts=0; Project Alpha supervisor also remained active. Private
+  fleet.yml and fleet.env mode 0600; private config equals committed host binding.
+- the central host the PaaS deployment **7cvqslleuekhbaxt1fpoobg6**, commit
+  **6c6cb97b0ff12b49fedcecd284e0a397144bcf4c**, finished healthy. Browser verified
+  **example-org/project-alpha and cswenor/fleet both LIVE**, plus fleet drill-down and
+  snapshot history. Distinct runtime-only token registered, no token logged.
+  Two sensitive deploy-key fields were sanitized; retained key rotated and
+  previous GitHub deploy key revoked; new read-only key authenticated main.
+  Automatic/preview deployments remain off. SQLite volume preserved.
+- Pad resolves fleet from the stable checkout and both slots; PLAN-9 links
+  historical elsewhere PLAN-2685 both ways, with TASK-10..18 and DOC-19.
+  Supervisor PR events were observed queued in the reserved Main Run.
+- Reserved coordinator remained a verified idle shell after installation:
+  **Main was not started**. No Orca restart verification was attempted. Runtime
+  receipts and the startup handover are also on elsewhere TASK-2694/fleet PLAN-9.
