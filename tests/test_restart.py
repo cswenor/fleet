@@ -310,6 +310,76 @@ class RetirementTests(unittest.TestCase):
     def test_competing_receipt_refuses_before_exit(self):
         state.write(self.c, 'last-launch', dict(self.record, id='competing', ref='TASK-9'))
         self.refused('unresolved launch receipt competing')
+
+    def during_admission(self, change):
+        def collect(c):
+            change()
+            return {'errors': [], 'inventory': copy.deepcopy(self.inventory),
+                    'quota': {'may_start': True}, 'disk': {'low': False}}
+        return patch.object(restart.snapshot, 'collect', side_effect=collect)
+
+    def test_late_allowlisted_metadata_reverified_before_single_exit(self):
+        def append():
+            self.events.extend([{'type': 'custom', 'customType': 'todo_hud_state', 'data': {}},
+                                {'type': 'credential_pin'}, {'type': 'title_change'}])
+            self.write_log()
+        with self.during_admission(append):
+            result = self.run_restart()
+        self.assertEqual(result['retirement']['session']['size'], self.log.stat().st_size)
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_changed_prefix_and_completed_new_turn_refuse(self):
+        original = copy.deepcopy(self.events)
+        for events in (
+                [dict(original[0], extra='rewritten'), original[1]],
+                [dict(original[0], cwd=self.slot, id='other'), original[1]],
+                original + [{'type': 'message', 'message': {'role': 'user'}}, original[1]],
+                original + [{'type': 'custom', 'customType': 'future_metadata'}]):
+            with self.subTest(events=events):
+                self.events = copy.deepcopy(original)
+                self.write_log()
+                def change():
+                    self.events = events
+                    self.write_log()
+                with self.during_admission(change):
+                    self.refused('evidence changed|later work')
+                self.assertIsNone(state.read(self.c, 'retirements'))
+
+    def test_truncated_metadata_and_partial_append_refuse(self):
+        self.events.append({'type': 'custom', 'customType': 'todo_hud_state'})
+        self.write_log()
+        baseline = self.log.read_bytes()
+        for data in (baseline[:baseline.rfind(b'\n', 0, -1) + 1],
+                     baseline + b'{\"type\":\"custom\"'):
+            with self.subTest(data=data):
+                self.log.write_bytes(baseline)
+                with self.during_admission(lambda: self.log.write_bytes(data)):
+                    self.refused('evidence changed|incomplete')
+                self.assertIsNone(state.read(self.c, 'retirements'))
+
+
+    def test_prepared_next_branch_exempts_only_exact_retiring_builder(self):
+        self.builder.update(task='TASK-2', worktree='tree', incarnation_id='incarnation')
+        with patch.object(restart.dispatcher, 'run', return_value='task-2-prepared'):
+            result = self.run_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_competing_next_builder_still_refuses(self):
+        self.builder.update(task='TASK-2', worktree='tree', incarnation_id='incarnation')
+        self.inventory['builders'].append(dict(self.builder, path='/other', worktree='other', terminal='other'))
+        self.refused('TASK-2 already assigned to /other')
+
+    def test_changed_retiring_inventory_identity_is_not_exempt(self):
+        self.builder.update(task='TASK-2', worktree='tree', incarnation_id='incarnation')
+        for key, value in (('incarnation_id', 'new'), ('worktree', 'other')):
+            with self.subTest(key=key):
+                original = self.builder[key]
+                self.builder[key] = value
+                self.refused('TASK-2 already assigned')
+                self.builder[key] = original
+
     def test_resumed_work_during_admission_never_receives_exit(self):
         def collect(c):
             self.events.append({'type': 'message', 'message': {'role': 'user'}})
@@ -328,19 +398,6 @@ class RetirementTests(unittest.TestCase):
         self.refused('builder cap reached')
         self.assertFalse(self.exited)
         self.assertIsNone(state.read(self.c, 'retirements'))
-
-    def test_changed_log_before_input_refuses(self):
-        original = restart._idle
-        observations = 0
-        def changed(*args):
-            nonlocal observations
-            proof = original(*args)
-            observations += 1
-            if observations == 2:
-                proof['digest'] = 'changed'
-            return proof
-        with patch.object(restart, '_idle', side_effect=changed):
-            self.refused('evidence changed')
 
     def test_connection_loss_after_exit_never_launches(self):
         original = self.orca

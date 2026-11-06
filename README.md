@@ -415,7 +415,11 @@ No automatic retries, auto-dispatch from Pad, merge actions, or worktree cleanup
 manually exiting a finished builder. Main still confirms the next task/launch.
 Before `/exit`, restart checks quota/disk/cap and the next task's status, plan,
 dependencies, duplicate assignments and competing receipts. Only the exact
-proven retiring launch receipt is exempt from that preflight.
+proven retiring launch receipt and its matching slot/worktree/terminal/incarnation
+active-builder claim are exempt from that preflight. Prepare NEXT's task branch
+in the existing clean lane **before** restart; restart does not switch branches.
+The still-live OLD session may inherit NEXT's cached branch label, but only its
+exact verified identity is exempt. Other terminals, slots and receipts still block.
 OLD must differ from NEXT and have a merged PR in this repository whose title
 or body contains its exact Pad ref, plus either Pad status `done` or a
 post-publication handoff comment on NEXT referencing OLD. Publication ordering
@@ -452,8 +456,12 @@ Missing/inaccessible `/proc`, non-Linux hosts, changed argv/config, absent routi
 keys and ambiguous process ownership refuse. Restart is unavailable there;
 manual retirement requires independent reconciliation, never a force bypass.
 
-Under the launcher lock, restart rechecks evidence and admission, journals
-`exit-attempted` in the slot-keyed `retirements.json` **before** sending `/exit`
+Under the launcher lock, restart rechecks evidence and admission. A changed log
+is accepted only when its previously checked bytes are unchanged and all appended
+events are allowlisted post-turn metadata; the fresh idle/pane/lease/process checks
+must still pass. Rewrites, truncation, new turns and unknown events withhold input.
+The rechecked proof is journaled as `exit-attempted` in the slot-keyed
+`retirements.json` **before** sending `/exit`
 once, then waits up to 15 seconds between bounded Orca calls for a standard
 POSIX shell prompt in the same terminal incarnation. Only then does it invoke
 normal guarded launch, including fresh quota/disk/cap/occupancy checks.

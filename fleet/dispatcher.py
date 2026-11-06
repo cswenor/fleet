@@ -162,9 +162,15 @@ def slot_reasons(c, inventory, path):
     return reasons
 
 
-def assignments(c, inventory):
+def assignments(c, inventory, *, retiring=None):
     """Actual Git beats cached Orca branches; retain comments and launch receipts."""
     claims = []
+    # Only restart supplies a positively verified canonical launch. Branch-derived
+    # task labels can already name NEXT while this exact OLD process is still live.
+    if retiring is not None and (
+            not retiring.get('id') or
+            state.read(c, 'launches', {}).get(retiring.get('worktree', {}).get('path')) != retiring):
+        retiring = None
     for w in inventory.get('worktrees', []):
         if w['path'] not in c['builder']['slots']:
             continue
@@ -175,7 +181,13 @@ def assignments(c, inventory):
     for receipt in unresolved(c, inventory):
         claims.append((receipt['ref'], receipt['worktree']['path'], 'unresolved launch receipt'))
     for b in inventory.get('builders', []):
-        if health.active(b) and b.get('task'):
+        exact_retiring = (retiring is not None and
+                          b.get('path') == retiring['worktree']['path'] and
+                          b.get('worktree') == retiring['worktree']['id'] and
+                          b.get('terminal') == retiring.get('terminal') and
+                          bool(retiring.get('terminal_incarnation_id')) and
+                          b.get('incarnation_id') == retiring['terminal_incarnation_id'])
+        if health.active(b) and b.get('task') and not exact_retiring:
             claims.append((b['task'], b['path'], 'active builder'))
     return claims
 
@@ -191,7 +203,7 @@ def check_launch(c, ref, inventory, slot, *, retiring=None):
     statuses = status_policy(c)
     reasons = eligibility(c, item, statuses, continuing=True)
     reasons.extend(dependencies(c, ref, statuses))
-    reasons.extend(duplicate_reasons(ref, assignments(c, inventory), slot))
+    reasons.extend(duplicate_reasons(ref, assignments(c, inventory, retiring=retiring), slot))
     reasons.extend(receipt_reasons(c, inventory, slot, retiring=retiring))
     if reasons:
         raise ValueError('launch withheld: ' + '; '.join(reasons))

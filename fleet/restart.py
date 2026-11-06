@@ -112,7 +112,7 @@ def _target(c, slot):
     return trees[0], target
 
 
-def _session(record, slot):
+def _session(record, slot, previous=None):
     directory = record.get('session_dir')
     if not directory:
         raise ValueError('launch record has no session directory; manual reconciliation required')
@@ -137,10 +137,23 @@ def _session(record, slot):
         raise ValueError('session has no final assistant stop; turn running or unfinished')
     if any((e.get('type'), e.get('customType')) not in POST_TURN_METADATA for e in events[last + 1:]):
         raise ValueError('session has later work or unknown events after final assistant stop')
-    return {'path': str(logs[0]), 'id': headers[0]['id'], 'digest': hashlib.sha256(data).hexdigest()}
+    proof = {'path': str(logs[0]), 'id': headers[0]['id'],
+             'digest': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+    if previous is not None:
+        size = previous['size']
+        if (proof['path'] != previous['path'] or proof['id'] != previous['id'] or
+                len(data) < size or hashlib.sha256(data[:size]).hexdigest() != previous['digest']):
+            raise ValueError('retirement evidence changed; input withheld')
+        try:
+            appended = [json.loads(line) for line in data[size:].splitlines()]
+        except (ValueError, UnicodeError) as e:
+            raise ValueError('session log incomplete or unreadable') from e
+        if any((e.get('type'), e.get('customType')) not in POST_TURN_METADATA for e in appended):
+            raise ValueError('retirement evidence changed; input withheld')
+    return proof
 
 
-def _idle(c, record, tree, handle):
+def _idle(c, record, tree, handle, previous=None):
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
             terminal.get('worktreeId') != tree['id'] or terminal.get('agentIdentity') != 'omp' or
@@ -171,7 +184,7 @@ def _idle(c, record, tree, handle):
             agents[0].get('state') not in ('done', 'idle') or agents[0].get('interrupted') or
             agents[0].get('programStatus', {}).get('state') not in ('done', 'idle')):
         raise ValueError('exact-pane agent is running, interrupted, or unknown')
-    proof = _session(record, tree['path'])
+    proof = _session(record, tree['path'], previous)
     lease = json_run(['omp', 'session', 'lease', '--json', '--', proof['id']], c['root'])
     if lease.get('held') != [proof['id']] or lease.get('unknown') != []:
         raise ValueError('recorded session is no longer positively owned by a live omp process')
@@ -207,8 +220,11 @@ def restart(c, ref, slot, finished_ref):
         if not admission['may_start']:
             raise ValueError('restart withheld: ' + '; '.join(admission['reasons']))
         fresh_tree, fresh_target = _target(c, slot)
-        if fresh_tree != tree or fresh_target['terminal'] != target['terminal'] or _idle(c, record, tree, target['terminal']) != proof:
+        fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof)
+        if (fresh_tree != tree or fresh_target['terminal'] != target['terminal'] or
+                fresh_proof['process'] != proof['process']):
             raise ValueError('retirement evidence changed; input withheld')
+        proof = fresh_proof
         receipt = {'at': time.time(), 'launch_id': record['id'], 'next_ref': ref,
                    'finished_ref': finished_ref, 'terminal': target['terminal'],
                    'terminal_incarnation_id': record['terminal_incarnation_id'],

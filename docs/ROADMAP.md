@@ -241,6 +241,38 @@ mutation/launch or stable-checkout deployment. Main owns the pre-deployment
 announcement to Project Alpha Main; publication receipts retained on TASK-29/PR.
 
 
+### TASK-34 — Restart check-to-send metadata and prepared NEXT branches
+
+Restart re-verifies append-only allowlisted post-turn metadata instead of
+requiring the whole log digest to remain equal. Previously checked bytes,
+session identity and foreground process remain bound; rewrites, truncation,
+new turns, unknown events and non-idle panes still refuse before input.
+Pre-exit duplicate admission exempts only the canonical retiring launch's exact
+slot/worktree/terminal/incarnation active-builder claim, not competing claims.
+Main prepares NEXT's branch in the clean existing lane before restart.
+
+Root cause: health prefers Orca's cached branch to the terminal title, whereas
+dispatcher branch claims read actual Git. Once Orca refreshes a prepared NEXT
+branch, the still-live OLD session self-claims NEXT; stale OLD cache avoids it.
+The old retirement exemption covered receipts only. Separately, late allowed UI
+metadata changed the full-log digest between the two idle checks.
+
+2026-11-06 real scratch CLI: Main-approved isolation excludes only this builder
+terminal from inventory; all target pane/screen/lease/proc/input/shell/launch
+operations are real. On local `task-35-restart-drill`, health labelled the
+retiring TASK-28 fixture as TASK-35. Appending `custom/todo_hud_state` during
+admission still produced one exit, same-incarnation shell verification and fresh
+TASK-35 launch `1793990391811651379` on scratch Run `run_5c543be6255b`.
+Unknown metadata refused with no retirement journal; an explicitly adapted
+competing other-slot TASK-35 claim also refused (no other live slot mutated).
+Clean TASK-34 pushed candidate `8ee6b0d` was restored after the drill.
+Replacement session `01a1b228-fef2-72ff-8063-3dfde6e88d3d` recorded actual Sol
+medium and an assistant stop acknowledging TASK-35 without changes. Both owned
+scratch terminals were closed with `ptyKilled=true`. Its thread-open refused
+because the isolated state was not inherited by the terminal; this drill proves
+restart/launch, not task-thread delivery. Final suite: 154 tests pass.
+Publication/reviewer/final-head CI receipts are retained on TASK-34 and its PR.
+
 ### TASK-22 — Quota freshness and transient unknown alerts
 
 Implemented completion-time quota evaluation and one provider-scoped cache
