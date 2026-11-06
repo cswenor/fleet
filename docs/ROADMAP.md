@@ -259,6 +259,32 @@ both supervisors active/running with NRestarts=0, output 0700/0600.
 Partial exit 1 reports `proc_scan_incomplete`; missing session evidence stays
 unknown. Tool/runbook are phase A preparation, **not Phase 0 d GO**.
 
+Completeness follow-up: all same-user OMP processes (not only configured cwd),
+safe argv shape, explicit internal-worker non-session status, per-entry proc
+diagnostics, and live deleted-executable link handling. External BEFORE unit
+`fleet-task13-complete-before2-1793985794`, invocation
+`52acd8c64d8c48e4916805cc976acd66`, exits 0: 17 processes (9 complete agents,
+7 daemon brokers, 1 text-predict worker), no process errors. Remaining per-entry
+exclusions are foreign owners, known non-OMP OS services and zombie Orca; exact
+PIDs/fields/errno recorded in the runbook/private snapshot. Both supervisors
+active/running, NRestarts=0. No shared restart; phase B remains unverified.
+Review correction: use kernel status UIDs, not proc directory ownership;
+unknown credentials remain incomplete. Historical credential-based BEFORE
+capture `fleet-task13-statusuid-final-1793985794`, invocation
+`08ba668f56624b74b80eb212daff4abc`, exits 0 with 17 processes/no errors.
+143 tests pass, including credential mismatch and exit-race boundaries.
+Final independent review removed mutable-name-based non-OMP exclusions; earlier
+exit-0 classifications are superseded. Strict final external unit
+`fleet-task13-strict-final-1793985794` exits 1 with explicit incompleteness:
+19 OMP, one agent without an open session log (PID 2523586), plus same-user
+executable EACCES at PIDs 1248/1249/3582181. 143 tests pass. Main ruling
+`msg_88fdc4be4ae4`: partial alone is not failure, but every model-bearing
+builder/Main session must be complete and every incomplete entry listed.
+No fleet privilege escalation; no builder sudo without Main approval.
+Before final owner go, require launch-recorded session-directory/ID bindings and
+complete model/thinking evidence. Unverifiable legacy sessions block scheduling;
+project Mains coordinate safe retirement or fresh admitted launches first.
+
 Phase B remains UNVERIFIED/NO-GO pending the coordinated owner-operated restart.
 Capture actual model/thinking, process survival/resume, replacement handles,
 coordinator Run rebinding and pending replay/ack before any GO verdict.

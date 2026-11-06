@@ -47,7 +47,7 @@ class CaptureTests(unittest.TestCase):
             self.fail('mutation or unsupported read')
         c = {'root': '/root', 'builder': {'slots': ['/slot']}, 'coordinator': {'run': 'run'}}
         with patch.object(capture, 'orca', side_effect=native), \
-                patch.object(capture, '_processes', return_value=([], [])), \
+                patch.object(capture, '_processes', return_value=([], [], [])), \
                 patch.object(capture, 'run', return_value='ActiveState=active\nMainPID=9\n'):
             result = capture.collect(c, ['fleet-test.service'])
         self.assertIn('runtime_identity_unstable', result['errors'])
@@ -69,6 +69,66 @@ class CaptureTests(unittest.TestCase):
                 self.assertEqual(capture.main(), 2)
                 self.assertEqual(collect.call_count, 1)
                 self.assertEqual(json.loads(path.read_text()), result)
+
+    def test_owned_agents_outside_slots_and_sessionless_internal_workers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root / 'omp'
+            exe.touch()
+            cwd = root / 'outside-slots'
+            cwd.mkdir()
+            for pid, command in ((101, b'omp\0--model\0private\0'), (102, b'omp\0__omp_worker_js_eval_process\0')):
+                proc = root / str(pid)
+                proc.mkdir()
+                (proc / 'status').write_text('Uid: 1234 1234 1234 1234\n')
+                fields = ['0'] * 20
+                fields[0], fields[19] = 'S', '123'
+                (proc / 'stat').write_text(f'{pid} (omp) ' + ' '.join(fields))
+                (proc / 'exe').symlink_to(root / 'omp (deleted)' if pid == 101 else exe)
+                (proc / 'cwd').symlink_to(cwd)
+                (proc / 'cmdline').write_bytes(command)
+                (proc / 'fd').mkdir()
+                (proc / 'fd/0').symlink_to('pipe:[123]')
+            # Process credentials differ from the fake proc directory's owner.
+            with patch.object(capture, 'PROC', root), patch.object(capture.os, 'getuid', return_value=1234):
+                rows, errors, diagnostics = capture._processes({'/configured-slot'})
+            by_pid = {r['pid']: r for r in rows}
+            self.assertEqual(by_pid[101]['errors'], ['session_metadata_incomplete'])
+            self.assertEqual(by_pid[101]['argv_shape'], ['--model'])
+            self.assertFalse(by_pid[101]['configured_cwd'])
+            self.assertEqual(by_pid[102]['session_status'], 'not_applicable_internal_worker')
+            self.assertEqual(by_pid[102]['errors'], [])
+            self.assertEqual(errors, ['owned_omp_incomplete'])
+            self.assertEqual(diagnostics, [])
+            self.assertNotIn('private', json.dumps(rows))
+
+    def test_unknown_credentials_are_incomplete_not_foreign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / '101').mkdir()
+            (root / '101/status').write_text('Uid: unknown\n')
+            with patch.object(capture, 'PROC', root):
+                rows, errors, diagnostics = capture._processes(set())
+            self.assertEqual(rows, [])
+            self.assertEqual(errors, ['proc_scan_incomplete'])
+            self.assertEqual(diagnostics, [{'pid': 101, 'owned': None, 'uids': None, 'field': 'owner',
+                                            'errno': None, 'reason': 'unreadable'}])
+
+    def test_unreadable_executable_requires_positive_exit_evidence_not_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / '101').mkdir()
+            (root / '101/status').write_text('Uid: 1234 1234 1234 1234\n')
+            (root / '101/comm').write_text('systemd\n')
+            for current, expected in (('S', 'unreadable'), ('Z', 'zombie_no_executable')):
+                with self.subTest(state=current), patch.object(capture, 'PROC', root), \
+                        patch.object(capture.os, 'getuid', return_value=1234), \
+                        patch.object(capture, '_stat', side_effect=[{'start_ticks': 123, 'state': 'S'},
+                                                                   {'start_ticks': 123, 'state': current}]):
+                    rows, errors, diagnostics = capture._processes(set())
+                self.assertEqual(rows, [])
+                self.assertEqual(errors, ['proc_scan_incomplete'] if current == 'S' else [])
+                self.assertEqual(diagnostics[0]['reason'], expected)
 
 
 if __name__ == '__main__':

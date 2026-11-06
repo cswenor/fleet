@@ -54,43 +54,88 @@ def _session(path):
 
 
 def _processes(paths):
-    rows, errors = [], []
+    rows, errors, diagnostics = [], [], []
     if not sys.platform.startswith('linux') or not PROC.is_dir():
-        return [], ['local_linux_proc_unavailable']
+        return [], ['local_linux_proc_unavailable'], []
     for proc in PROC.glob('[0-9]*'):
+        field, owned, before, uids = 'owner', None, None, None
         try:
-            if (proc / 'exe').resolve().name != 'omp':
+            # Non-dumpable processes can have root-owned /proc directories even
+            # when their real/effective credentials are ours. Kernel status,
+            # not directory ownership, determines the conservative user scope.
+            uid_rows = [line.split()[1:] for line in (proc / 'status').read_text().splitlines()
+                        if line.startswith('Uid:')]
+            if len(uid_rows) != 1 or len(uid_rows[0]) != 4 or not all(v.isdecimal() for v in uid_rows[0]):
+                raise ValueError('process credentials unavailable')
+            uids = list(map(int, uid_rows[0]))
+            owned = os.getuid() in uids
+            if not owned:
+                diagnostics.append({'pid': int(proc.name), 'field': field, 'reason': 'non_owned'})
                 continue
-            cwd = str((proc / 'cwd').resolve(strict=True))
-            if cwd not in paths:
-                continue
+            field = 'stat'
             before = _stat(proc)
-            row = {**before, 'cwd': cwd, 'sessions': [], 'errors': []}
+            field = 'exe'
+            if (proc / 'exe').readlink().name.removesuffix(' (deleted)') != 'omp':
+                continue
+            field = 'cmdline'
+            argv = (proc / 'cmdline').read_bytes().split(b'\0')
+            helper = next((kind for kind in ('daemon_broker', 'text_predict', 'js_eval_process')
+                           if argv[1:2] == [('__omp_worker_' + kind).encode()]), None)
+            flags = ('--model', '--thinking', '--session-dir', '--resume', '--restore',
+                     '--continue', '--print', '--mode', '--no-session')
+            shape = [flag for flag in flags if any(
+                arg == flag.encode() or arg.startswith((flag + '=').encode()) for arg in argv)]
+            field = 'cwd'
+            cwd = str((proc / 'cwd').resolve(strict=True))
+            row = {**before, 'cwd': cwd, 'configured_cwd': cwd in paths,
+                   'kind': helper or 'agent', 'argv_shape': shape,
+                   'sessions': [], 'errors': []}
             logs = set()
+            field = 'fd'
             for fd in (proc / 'fd').iterdir():
                 try:
-                    path = fd.resolve(strict=True)
-                    if path.suffix == '.jsonl':
+                    path = fd.readlink()
+                    # Pipes/sockets/anon_inode are not filesystem paths. Do not
+                    # resolve them and mistake ENOENT for a lost session log.
+                    if path.is_absolute() and path.suffix == '.jsonl':
                         logs.add(path)
-                except OSError:
-                    continue
+                except OSError as exc:
+                    diagnostics.append({'pid': int(proc.name), 'field': 'fd_readlink',
+                                        'errno': exc.errno, 'reason': 'fd_changed_or_unreadable'})
+                    row['errors'].append('fd_scan_incomplete')
             for path in sorted(logs):
                 try:
                     row['sessions'].append(_session(path))
                 except (OSError, ValueError, TypeError, AttributeError):
                     row['errors'].append('session_unreadable')
+            field = 'stat_after'
             after = _stat(proc)
-            row['identity_stable'] = before['start_ticks'] == after['start_ticks'] and before['pid'] == after['pid']
+            row['identity_stable'] = (before['start_ticks'] == after['start_ticks']
+                                      and (proc / 'exe').readlink().name.removesuffix(' (deleted)') == 'omp'
+                                      and str((proc / 'cwd').resolve(strict=True)) == cwd)
             row['foreground'] = before['tty'] != 0 and before['pgrp'] == before['foreground_pgrp']
             if not row['identity_stable']:
                 row['errors'].append('process_identity_changed')
-            if not row['sessions'] or any(not s['complete'] for s in row['sessions']):
+            row['session_status'] = 'not_applicable_internal_worker' if helper else 'observed'
+            if not helper and (not row['sessions'] or any(not s['complete'] for s in row['sessions'])):
                 row['errors'].append('session_metadata_incomplete')
+            if row['errors']:
+                errors.append('owned_omp_incomplete')
             rows.append(row)
-        except (OSError, ValueError, IndexError):
-            # Races and permission failures cannot prove an absent process exited.
-            errors.append('proc_scan_incomplete')
-    return rows, sorted(set(errors))
+        except (OSError, ValueError, IndexError) as exc:
+            reason = 'vanished_mid_scan' if not proc.exists() else 'unreadable'
+            try:
+                current = _stat(proc)
+            except (OSError, ValueError, IndexError):
+                current = None
+            if before and (before['state'] == 'Z' or
+                           current and current['start_ticks'] == before['start_ticks'] and current['state'] == 'Z'):
+                reason = 'zombie_no_executable'
+            diagnostics.append({'pid': int(proc.name), 'owned': owned, 'uids': uids, 'field': field,
+                                'errno': getattr(exc, 'errno', None), 'reason': reason})
+            if reason == 'unreadable':
+                errors.append('proc_scan_incomplete')
+    return rows, sorted(set(errors)), diagnostics
 
 
 def collect(c, services):
@@ -128,7 +173,7 @@ def collect(c, services):
     # complete set even if the server omits an explicit truncation flag.
     if len(messages) >= 1000 or inbox.get('truncated') or inbox.get('count', len(messages)) > len(messages):
         errors.append('inbox_inventory_incomplete')
-    processes, proc_errors = _processes({t.get('worktreePath') for t in terminals} | set(c['builder']['slots']) | {c['root']})
+    processes, proc_errors, proc_diagnostics = _processes({t.get('worktreePath') for t in terminals} | set(c['builder']['slots']) | {c['root']})
     errors.extend(proc_errors)
     states = []
     for service in services:
@@ -148,15 +193,16 @@ def collect(c, services):
             'runtime': _pick(runtime, ('runtimeId', 'appVersion', 'state', 'reachable')),
             'runtime_process': _pick(status.get('app', {}), ('pid', 'running')),
             'terminals': terminals, 'processes': processes, 'services': states,
+            'proc_diagnostics': proc_diagnostics,
             'run': _pick(current.get('run') or {}, RUN_FIELDS),
             'mailbox': {'messages': [_pick(m, MESSAGE_FIELDS) for m in messages],
                         'native_delivery_identity': 'unavailable_read_only_api',
                         'limit': 1000, 'returned': len(messages)},
             'errors': sorted(set(errors)),
             'limitations': ['No consuming check/ack; Main must retain existing native Delivery receipt separately.',
-                            'Titles hashed; no bodies, subjects, payloads, previews, argv or environments retained.',
+                            'Titles hashed; no bodies, subjects, payloads, previews, raw argv or environments retained.',
                             'Processes mapped by cwd, not terminal ownership; absence never proves exit.',
-                            'Open session logs only; missing/incomplete logs remain unknown.',
+                            'Open session logs only; known internal workers have no model session; other missing logs stay unknown.',
                             'Capture is sequential, not an atomic runtime snapshot; no idle/safety verdict.']}
 
 

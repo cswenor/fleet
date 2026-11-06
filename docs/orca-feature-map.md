@@ -112,7 +112,16 @@ Do not assume `open` restarts this headless deployment.
    handoff documents with their startup instructions, Run IDs, task/PR/WIP
    evidence and unresolved attempts. Owner starts **fresh** Mains afterward;
    do not restore old task context or automatically relaunch builders.
-3. Fleet Main saves its last observed `fleet wait` receipt as a **metadata-only
+3. Before final owner go, record explicit `session_dir`/session-ID bindings for
+   every model-bearing builder and Main, linked to PID/start ticks and launch
+   records. Verify the complete actual model/thinking evidence is readable.
+   Legacy sessions without verifiable bindings (including observed PID 2523586)
+   block scheduling: each project's Main must coordinate safe retirement or,
+   when needed for the drill, a fresh explicitly admitted launch with recorded
+   bindings. Never terminate unknown/live work or infer a binding from cwd/title.
+   Recheck this evidence immediately before the owner's final go; no restart
+   with a known-unverifiable model-bearing session.
+4. Fleet Main saves its last observed `fleet wait` receipt as a **metadata-only
    projection**, mode 0600: native `deliveryId`, message IDs and read/ack state.
    Do not save raw message bodies/subjects/payloads. Record explicitly whether
    there was no outstanding Delivery. Keep a known delivered-unacked batch and
@@ -120,7 +129,7 @@ Do not assume `open` restarts this headless deployment.
    or prematurely acknowledging real work. The capture never consumes mail.
    Native unacked Delivery identity is **unavailable on Orca 1.4.242's read-only
    API**; inbox `read` is not proof of batch acknowledgement.
-4. Identify an external operator shell that survives Orca exit and a live
+5. Identify an external operator shell that survives Orca exit and a live
    systemd user manager. Pin the reviewed fleet checkout throughout the drill.
    Record the owner's stop/start procedure and obtain the immediate final go.
    If any prerequisite fails, retain evidence and defer; never improvise.
@@ -151,14 +160,31 @@ Transient service exit after capture is expected; preserve its invocation ID
 and result. Never commit the full host snapshot; share only reviewed projections.
 
 Capture includes runtime/version, handles/incarnations/worktree paths, title
-SHA256 + extracted Pad refs, read-only per-terminal Run bindings, local OMP
-PID/start ticks/boot ID/foreground state, open session logs' latest actual
-model/thinking events, Run metadata, inbox message metadata and supervisor
-state. No raw titles, transcript text, previews, argv, environments or message
-contents. Process/session mappings are observational (cwd/open descriptors),
-not terminal ownership or idle proof; missing logs/processes stay unknown.
+SHA256 + extracted Pad refs, read-only per-terminal Run bindings, all same-user
+local OMP PID/start ticks/boot ID/foreground state, safe argv-shape flags,
+open session logs' latest actual model/thinking events, Run metadata, inbox
+message metadata and supervisor state. No raw titles, transcript text, previews,
+argument values, environments or message contents. Process/session mappings
+are observational (cwd/open descriptors), not terminal ownership or idle proof.
+Known internal `daemon_broker` / `text_predict` / `js_eval_process` workers have
+no model session; other missing logs/processes stay unknown. Deleted-but-live
+executable links are inspected without resolving their removed on-disk path.
+Per-entry `proc_diagnostics` distinguishes foreign owners, zombies and unreadable
+entries with PID/known UID credentials/field/errno. Process names never establish
+non-OMP executable identity; unreadable same-user entries make capture partial.
+User scope comes from `/proc/PID/status` real/effective/saved/filesystem UIDs,
+never directory ownership (non-dumpable same-user processes can appear root-owned).
+Unreadable/malformed credentials stay incomplete. A process that exits between
+stat and executable lookup requires a second matching-start zombie observation
+or disappearance before it is classified as exited-mid-scan.
 Collection is sequential; a changed runtime ID invalidates a cross-restart
 capture. Inbox/terminal caps and missing host coverage are reported incomplete.
+Phase B acceptance (Main ruling `msg_88fdc4be4ae4`): every model-bearing OMP
+session, including launch-recorded builders and Mains, must have PID/start ticks,
+argv shape, cwd, session binding and actual model/thinking. Every incomplete
+entry must be listed explicitly; partial status alone is not a failure.
+Fleet code never escalates privileges. Builders must not run even read-only
+`sudo` without Main approval.
 
 **After the owner restarts once**
 
@@ -197,6 +223,35 @@ permissions 0700/0600. Exit 1 honestly reports `proc_scan_incomplete`; some
 processes lack open session metadata and remain unknown. Actual builder session
 `01a1b1e2-d572-70bb-9107-50f73ade72fa` recorded Sol medium, no fallback.
 No restart, handle replacement, post-restart rebind or replay was exercised.
+
+Completeness follow-up (Main ruling): the first generic scan error conflated
+foreign-user executable EACCES, same-user non-dumpable systemd/sd-pam/sshd,
+zombie Orca executable ENOENT and vanished entries. Sessionless OMP rows were
+internal workers, not missing agent sessions. Resolving an executable symlink
+also incorrectly skipped live binaries whose on-disk executable was deleted;
+use the kernel link's basename instead. No raw argv/environment was retained.
+External unit `fleet-task13-complete-before2-1793985794.service`, invocation
+`52acd8c64d8c48e4916805cc976acd66`, historically exits **0**: 17 same-user OMP processes
+(9 agents with complete actual model/thinking metadata, 7 daemon brokers,
+1 text-predict worker), no process errors. Per-entry exclusions: 539 foreign
+owners; executable EACCES for known non-OMP services at PIDs 1248/1249/3582181;
+zombie executable ENOENT at PIDs 4110530/4110532. Both supervisors remain
+active/running, NRestarts=0. These are BEFORE-only observations, not restart GO.
+Historical credential-based capture: unit `fleet-task13-statusuid-final-1793985794`,
+invocation `08ba668f56624b74b80eb212daff4abc`, exits 0 with 17 OMP processes
+and no collection errors. 143 tests pass, including process-credential vs
+directory-owner mismatch, unknown credentials and the observed-zombie race.
+Those exit-0 classifications are superseded: independent review found that
+mutable process names cannot prove non-OMP identity. The final tool leaves all
+unreadable same-user executables partial, never suppressing them by name.
+Final strict external BEFORE unit `fleet-task13-strict-final-1793985794.service`
+exits **1**, honestly partial: 13 terminals, 19 OMP processes (7 complete agents,
+1 agent without an open session log, 8 daemon brokers, 1 text-predict worker,
+2 JS-eval workers). PID 2523586 lacks session metadata; PIDs
+1248/1249/3582181 have same-user UID credentials and executable EACCES.
+Every entry is explicit in the private snapshot; none is silently waived.
+143 tests pass, including mutable-name rejection. This BEFORE capture is not
+phase B acceptance: obtain complete model-bearing session evidence before GO.
 
 
 ### Inbox and wake
