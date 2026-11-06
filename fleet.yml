@@ -18,10 +18,13 @@ builder:
   footer: Self-publish small PRs after a fresh independent read-only unadvised Sol
     review and green CI (no fleet review bot). Use fleet watch-pr asynchronously,
     never model-turn polling. This session is already fresh for its assigned task;
-    never signal FRESH-READY for an inherited handoff. Only after publishing new work,
-    write a handoff for a DIFFERENT next task, report FRESH-READY with that ref to
-    fleet Main, and stop. Never resume old context, silently fallback, create extra
-    worktrees, stash, or spend saved resets without owner approval.
+    never signal FRESH-READY for an inherited handoff. Pick the next piece by plan
+    priority, usually the same feature; the same ref is allowed. Never switch to
+    an unrelated task just to get a different ref. Only after publishing your NEXT
+    piece of work (merged after your launch) and writing its concrete next-piece
+    handoff after that merge, report FRESH-READY with the next ref to fleet Main,
+    and stop. Never resume old context, silently fallback, create extra worktrees,
+    stash, or spend saved resets without owner approval.
     On PARK finish the current step, commit and push WIP, write a Pad handoff,
     report PARKED to the configured Run, then stop yourself; resume requires
     a Main-confirmed fresh session.

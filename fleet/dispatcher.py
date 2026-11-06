@@ -224,7 +224,8 @@ def assignments(c, inventory, *, retiring=None):
                 claims.append((match[1].upper(), w['path'], source))
     carries = state.read(c, 'carries', {})
     for receipt in unresolved(c, inventory):
-        claims.append((receipt['ref'], receipt['worktree']['path'], 'unresolved launch receipt'))
+        if receipt != retiring:
+            claims.append((receipt['ref'], receipt['worktree']['path'], 'unresolved launch receipt'))
         for ref, approval in carries.get(receipt.get('id'), {}).items():
             if (approval.get('launch_id') == receipt.get('id') and
                     approval.get('slot') == receipt['worktree']['path'] and

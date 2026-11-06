@@ -152,6 +152,65 @@ class RetirementTests(unittest.TestCase):
         self.launch.reset_mock()
         self.refused('already attempted')
 
+    def same_ref(self, launched=1767225599):
+        self.record['at'] = launched
+        state.write(self.c, 'launches', {self.slot: self.record})
+        self.comments = [{'id': 'next-piece', 'body': 'TASK-1 handoff: implement the next CLI piece',
+                          'created_at': '2026-01-01T00:00:00.500Z'}]
+        self.run_restart = lambda: restart.restart(self.c, 'TASK-1', self.slot, 'TASK-1')
+
+    def test_same_ref_new_publication_and_concrete_handoff_allow_restart(self):
+        self.same_ref()
+        self.item = {'fields': {'status': 'in-progress'}}
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['completion']['handoff'], 'next-piece')
+        self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
+        self.launch.assert_called_once_with(self.c, 'TASK-1', self.slot, _locked=True)
+
+    def test_same_ref_without_new_publication_refuses_even_when_pad_done(self):
+        self.same_ref()
+        self.prs = []
+        self.refused('no merged PR')
+
+    def test_same_ref_merge_before_or_at_launch_refuses(self):
+        for launched in (1767225600, 1767225601):
+            with self.subTest(launched=launched):
+                self.same_ref(launched)
+                self.refused('merged after this launch')
+
+    def test_same_ref_old_or_marker_only_handoff_refuses(self):
+        for body, created in (
+                ('TASK-1 handoff: implement next piece', '2025-12-31T23:59:59Z'),
+                ('TASK-1 handoff: implement next piece', '2026-01-01T00:00:00Z'),
+                ('TASK-1 handoff:', '2026-01-01T00:00:01Z')):
+            with self.subTest(body=body, created=created):
+                self.same_ref()
+                self.comments[0].update(body=body, created_at=created)
+                self.refused('neither Pad done nor handed off')
+
+    def test_same_ref_launch_timestamp_must_be_valid(self):
+        for launched in (None, '2026-01-01', True, float('nan'), float('inf')):
+            with self.subTest(launched=launched):
+                self.same_ref(launched)
+                self.refused('launch timestamp')
+
+    def test_same_ref_merge_comparison_uses_timezone(self):
+        self.same_ref(1767225600)
+        self.prs[0]['mergedAt'] = '2026-01-01T01:00:00.250+01:00'
+        self.assertEqual(self.run_restart()['retirement']['completion']['handoff'], 'next-piece')
+
+    def test_same_ref_competing_receipt_still_blocks(self):
+        self.same_ref()
+        state.write(self.c, 'last-launch', {**self.record, 'id': 'competing'})
+        self.refused('already assigned|unresolved launch receipt')
+
+    def test_same_ref_active_builder_on_other_terminal_still_blocks(self):
+        self.same_ref()
+        self.inventory['builders'].append({
+            **self.builder, 'path': '/other-slot', 'terminal': 'other',
+            'task': 'TASK-1', 'worktree': 'other-tree', 'incarnation_id': 'other-incarnation'})
+        self.refused('already assigned')
+
     def test_reply_residue_is_cleared_once_before_launch(self):
         self.residue = '16;8t'
         result = self.run_restart()

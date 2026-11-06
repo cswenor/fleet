@@ -1,5 +1,5 @@
 """Retire one proven finished idle session, never interrupt or retry uncertain input."""
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -70,7 +70,7 @@ def _timestamp(value):
     raise ValueError('publication/handoff timestamp is missing, malformed, or lacks timezone')
 
 
-def _completion(c, ref, finished):
+def _completion(c, ref, finished, record):
     item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
     prs = gh(c, 'pr', 'list', '--repo', c['repo'], '--state', 'merged', '--search', finished,
              '--limit', '100', '--json', 'number,title,body,mergedAt,url')
@@ -80,15 +80,33 @@ def _completion(c, ref, finished):
     prs = [p for p in prs if p.get('mergedAt') and pattern.search(p.get('title', '') + '\n' + (p.get('body') or ''))]
     if not prs:
         raise ValueError('finished task has no merged PR carrying its Pad ref')
+    same_ref = ref == finished
+    if same_ref:
+        started = record.get('at')
+        if isinstance(started, bool) or not isinstance(started, (int, float)):
+            raise ValueError('same-ref restart requires a valid launch timestamp')
+        try:
+            launched = datetime.fromtimestamp(started, timezone.utc)
+        except (ValueError, OverflowError, OSError) as exc:
+            raise ValueError('same-ref restart requires a valid launch timestamp') from exc
+        prs = [p for p in prs if _timestamp(p['mergedAt']) > launched]
+        if not prs:
+            raise ValueError('same-ref restart requires a new PR merged after this launch')
     fields = item.get('fields', {})
     if isinstance(fields, str):
         fields = json.loads(fields)
-    if fields.get('status') == 'done':
+    if not same_ref and fields.get('status') == 'done':
         return {'finished_ref': finished, 'pr': prs[0]['url'], 'pad_status': 'done'}
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments', ref, '--format', 'json'], c['root'])
     for comment in comments:
         body = comment.get('body', '')
         if pattern.search(body) and re.search(r'\bhandoff\b', body, re.I):
+            if same_ref:
+                # A bare ref/handoff marker is not a next-piece description.
+                tail = pattern.split(body, maxsplit=1)[1]
+                tail = re.sub(r'\bhandoff\b', '', tail, flags=re.I).strip(' \t\r\n:;,.!-')
+                if not tail:
+                    continue
             for pr in prs:
                 if _timestamp(comment.get('created_at')) > _timestamp(pr['mergedAt']):
                     return {'finished_ref': finished, 'pr': pr['url'], 'handoff': comment['id']}
@@ -230,8 +248,8 @@ def _exited_shell(process, handle):
 def restart(c, ref, slot, finished_ref):
     if not sys.platform.startswith('linux'):
         raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
-    if not all(re.fullmatch(r'[A-Z]+-\d+', x) for x in (ref, finished_ref)) or ref == finished_ref:
-        raise ValueError('restart requires different uppercase next and finished Pad refs')
+    if not all(re.fullmatch(r'[A-Z]+-\d+', x) for x in (ref, finished_ref)):
+        raise ValueError('restart requires uppercase next and finished Pad refs')
     slot = str(Path(slot).expanduser().resolve())
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
@@ -247,7 +265,7 @@ def restart(c, ref, slot, finished_ref):
         if previous.get('launch_id') == record['id']:
             raise ValueError('retirement already attempted for this launch; inspect retirement and launch receipts, never retry blindly')
         proof = _idle(c, record, tree, target['terminal'])
-        completion = _completion(c, ref, finished_ref)
+        completion = _completion(c, ref, finished_ref, record)
         # Validate next task and gates before retiring, then again inside normal launch.
         s = snapshot.collect(c)
         # Only this exact proven old launch is exempt; competing receipts still block.

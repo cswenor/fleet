@@ -569,9 +569,11 @@ run only on creation. A private prompt includes the Pad ref/handoff instruction,
 rules file and configured footer. Private prompt/overlay files remain for the
 session lifetime; remove them after the owning terminal exits.
 The default/example footer identifies the current task as already fresh.
-`FRESH-READY` is for a **different next task**, only after publishing the new
-session's next piece of work, never for the inherited handoff. Keep project-local
-footer overrides consistent with this boundary to avoid restart loops.
+Pick the next piece by plan priority, usually the same feature; the same ref is
+allowed. Never switch to an unrelated task just to get a different ref.
+`FRESH-READY` requires publishing this session's NEXT piece of work (merged after
+its launch), then writing a concrete next-piece handoff after that merge; never
+signal it for an inherited handoff. Keep project-local footer overrides consistent.
 
 The launch overlay disables auto-resume, extended context, and model fallback;
 sets reserve policy fail-closed and an empty pinned-model fallback chain; and
@@ -591,10 +593,14 @@ active-builder claim are exempt from that preflight. Prepare NEXT's task branch
 in the existing clean lane **before** restart; restart does not switch branches.
 The still-live OLD session may inherit NEXT's cached branch label, but only its
 exact verified identity is exempt. Other terminals, slots and receipts still block.
-OLD must differ from NEXT and have a merged PR in this repository whose title
-or body contains its exact Pad ref, plus either Pad status `done` or a
-post-publication handoff comment on NEXT referencing OLD. Publication ordering
-uses timezone-aware timestamps; missing, malformed or timezone-less evidence refuses.
+OLD must have a merged PR in this repository whose title or body contains its
+exact Pad ref. When OLD differs from NEXT, require either Pad OLD status `done`
+or a post-publication handoff comment on NEXT referencing OLD (unchanged).
+When OLD equals NEXT, Pad `done` is insufficient: require a PR merged strictly
+after the retiring launch receipt's timestamp, and a handoff comment on that
+same ref strictly after the merge, with a non-empty next-piece description after
+the ref (not just a bare handoff marker). Publication/handoff ordering uses
+timezone-aware timestamps; missing, malformed or timezone-less evidence refuses.
 
 Retirement requires one connected writable non-shell OMP terminal, bound to OLD
 by `launches.json`'s exact slot/handle/incarnation record. Extra terminals block

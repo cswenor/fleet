@@ -108,8 +108,10 @@ fleet --config ~/.config/fleet/fleet.yml restart TASK-N --slot /home/dev/orca/wo
 On withheld/error: inspect reasons, state and `~/.local/state/fleet/cswenor--fleet/last-launch.json`.
 A saved receipt after partial failure forbids blind relaunch. Verify actual new
 session model/thinking and first turn (screen/session events), not just argv or
-input acceptance. Builder uses this task's fresh context; FRESH-READY is only for
-a DIFFERENT next task after publishing new work and writing its handoff.
+input acceptance. Pick the next piece by plan priority, usually the same feature;
+the same ref is allowed. Never switch to an unrelated task just to get a different
+ref. FRESH-READY requires this session's NEXT piece merged after its launch and a
+concrete next-piece handoff written after that merge; never an inherited boundary.
 
 Fresh independent read-only unadvised Sol medium reviewer is gate one for every
 PR; record reviewer/session/final-head findings. Fleet has no review bot: final
@@ -171,9 +173,12 @@ or credential metadata. Any changed head requires a fresh final-head review.
 No model or stock command bypasses the two publication gates.
 
 ### Guarded retirement
-`restart` requires OLD != NEXT, a merged PR carrying OLD, and Pad OLD done or a
-post-publication handoff on NEXT. Its launch must have a canonical `launches.json`
-binding, dedicated session log and live lease. Local Linux `/proc` must bind
+For OLD != NEXT, `restart` requires a merged PR carrying OLD and Pad OLD done or
+a post-publication handoff on NEXT. For OLD == NEXT, require a PR carrying that
+ref merged strictly after the retiring launch timestamp, then a handoff on the
+same ref strictly after the merge with a non-empty next-piece description after
+the ref; Pad done alone never suffices. Its launch must have a canonical
+`launches.json` binding, dedicated session log and live lease. Local Linux `/proc` must bind
 that exact argv/session directory to the terminal's live foreground OMP process.
 One optional leading `--extension PATH` is allowed only for the configured
 `builder.orca_status_extension` (default: Fleet's own `ORCA_OMP_STATUS_EXTENSION`);

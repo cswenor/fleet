@@ -53,8 +53,12 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   use `git archive` for frozen scratch sources. Never reset/clean unrelated work.
 - Keep reusable slots after merge. Close only your retired session when safe;
   retiring a slot requires explicit config/Orca coordination.
-- Current task is already fresh. FRESH-READY is only after publishing NEW work
-  and handing off a DIFFERENT next task, never the inherited boundary.
+- Current task is already fresh. Pick the next piece by plan priority, usually
+  the same feature; the same ref is allowed. Never switch to an unrelated task
+  just to get a different ref. FRESH-READY requires this session's NEXT piece
+  merged after its launch and a concrete next-piece handoff written after that
+  merge, never the inherited boundary. Same-ref restart requires both on that
+  ref; Pad done alone is insufficient.
 - On a durable quota PARK request: finish the current step, commit and push WIP
   to the task branch, write the Pad handoff, report PARKED with evidence to the
   configured coordinator Run, then stop this session yourself. No next task or

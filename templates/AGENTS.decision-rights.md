@@ -64,6 +64,14 @@ Do not assume a review bot exists or count CI as a second model review. A projec
 may require its own bot in addition to these gates. Verify the changed real
 surface and retain evidence in the PR and durable task outcome.
 
+Pick the next piece by plan priority, usually the same feature; the same ref is
+allowed. Never switch to an unrelated task just to get a different ref.
+FRESH-READY requires this session's NEXT piece published in a merged PR carrying
+its ref after its launch, then a concrete next-piece handoff written after that
+merge. An inherited publication/handoff is not readiness. Same-ref `restart`
+requires that new merge and later handoff on the same ref, with a non-empty
+next-piece description after the ref; Pad done alone does not satisfy this guard.
+
 Keep project-specific rules in project AGENTS, `fleet.yml` (supported configuration
 only), or referenced templates, never project-name branches in fleet code. The
 filled fleet bindings illustrate adoption, not defaults for other projects.

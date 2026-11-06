@@ -291,9 +291,11 @@ gates; there is no Fleet review bot or implied second model reviewer.
 After merge, update the project roadmap and durable Pad result:
 `fleet ... thread result TASK-N --body 'PR, exact review/CI receipts, runtime proof, outcome'`.
 Unresolved decisions prevent settlement. Report via durable Orca `send --to
-run:RUN --type status`, not keystrokes. Keep reusable slots. FRESH-READY is valid
-only after publishing **new** work and writing a handoff for a **different** next
-task; never for an inherited boundary. Main chooses/approves the next launch.
+run:RUN --type status`, not keystrokes. Keep reusable slots. Pick the next piece
+by plan priority, usually the same feature; the same ref is allowed. Never switch
+to an unrelated task just to get a different ref. FRESH-READY requires this
+session's NEXT piece merged after its launch and a concrete next-piece handoff
+written after that merge, never an inherited boundary. Main approves the launch.
 
 Merge is not deployment permission. A shared Fleet checkout may back every
 project's launcher/supervisor: fast-forwarding it deploys behavior immediately.
@@ -304,8 +306,12 @@ Do not change other projects, restart shared services or imply installation from
 merge alone. Verify actual deployed CLI/service/browser and report receipts.
 
 For a published finished builder, Main can use
-`fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD` only with OLD !=
-NEXT, merged-PR + Pad/handoff proof, exact launch/session/foreground ownership,
+`fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD` with merged-PR +
+Pad/handoff proof. For OLD != NEXT, require Pad OLD done or a post-publication
+handoff on NEXT. For OLD == NEXT, require a PR carrying that ref merged strictly
+after the retiring launch timestamp and a handoff on that ref strictly after the
+merge, with a non-empty next-piece description after the ref; Pad done alone
+never suffices. Both paths retain exact launch/session/foreground ownership,
 positive idle/empty composer, next-task admission, and one journaled exit followed
 by same-incarnation verified shell. No force, Esc, interrupt or blind retry.
 Only strict bounded terminal-reply residue permits one journaled Ctrl-U (no Enter):

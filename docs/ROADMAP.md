@@ -58,8 +58,10 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 - **Slot reuse:** two fleet lanes; a verified ready shell can be reused, active,
   unknown or ambiguous terminals cannot. No extra worktrees; no /exit injection.
   Keep lanes after merge; delete only on explicit slot retirement.
-- **Footer:** assigned task is already fresh. FRESH-READY only after publishing
-  new work and handing off a DIFFERENT next task, never inherited handoff.
+- **Footer (TASK-40):** assigned task is already fresh. Pick the next piece by plan
+  priority, usually the same feature; same ref allowed, never unrelated work just
+  for a different ref. FRESH-READY requires this session's NEXT piece merged after
+  launch and a concrete next-piece handoff after the merge, never inherited work.
 - **the PaaS log hygiene:** hidden stored commands may include encoded deploy-key
   material; hidden is not redacted. Runtime-only token variables, redaction on,
   auto-deploy off on affected releases; sanitize only this app's sensitive command
@@ -729,7 +731,10 @@ CLI replay pass. Own pre-publication TASK-15 ledger migrated, canonical ID kept.
 ### TASK-20 — Guarded finished-session retirement
 
 `fleet restart NEXT --slot PATH --finished-ref OLD` requires a merged PR carrying
-OLD, plus Pad OLD done or a post-publication handoff on NEXT, with OLD != NEXT.
+OLD, plus Pad OLD done or a post-publication handoff on NEXT for OLD != NEXT.
+TASK-40 permits OLD == NEXT only with a PR carrying that ref merged strictly
+after the retiring launch and a concrete next-piece handoff on that ref strictly
+after the merge; Pad done alone is insufficient. Timestamp ordering is timezone-aware.
 Canonical slot-keyed `launches.json` binds the exact terminal/incarnation and
 private session directory. Single connected writable terminal, exact-pane
 idle/done, current empty idle composer, live session lease, local Linux foreground
