@@ -110,42 +110,54 @@ omp wait only when blocked. CI Actions-only watches may use `gh run watch` or
 run_watch; they do not replace the full PR event watcher. No model-turn polling,
 no repeatedly asking for status, no sleep loops that invoke a model.
 
-Main Run wait, also as an async background command from Main's own terminal:
+Main inbox wait, also as an async background command from Main's own terminal:
 
 ```sh
-/home/dev/.config/orca/cli/bin/orca orchestration check --run run_ca3dd4d80c5a --wait --timeout-ms 900000 --json
+fleet --config ~/.config/fleet/fleet.yml wait --timeout 900
 ```
 
-Do **not** restrict wake to worker_done: fleet terminal builders and supervisor
-send `status`, questions/escalations may also arrive. Returned Delivery is whole
-FIFO batch even with a type wake filter. Process every message, reply in-thread
-with `orchestration reply --id MESSAGE_ID --body 'ruling' --json`, then acknowledge
-its deliveryId on the next check (`--ack DELIVERY_ID`). Re-arm in background;
-timeout is a checkpoint, not worker death. Never invent worker_done for terminal
-builders with no active Dispatch.
+**Binding precondition:** the caller's own `ORCA_TERMINAL_HANDLE` must already be
+bound to the configured `coordinator.run`, using `orchestration run-use` from
+that terminal. Fleet refuses an unbound/differently-bound caller before waiting
+or acknowledging. Never borrow `coordinator.terminal` as a caller identity.
+An explicit `--terminal` fallback is only for environments without the variable.
 
-**Known gap:** a Run wait is not a terminal mailbox wait. Require fleet reports
-and questions to target `run:run_ca3dd4d80c5a`; at each natural checkpoint inspect
-terminal mail separately:
+TASK-10 observed current Orca route both `send --to run:RUN` and
+`send --to BOUND_TERMINAL` into the same native Run Delivery. Main approved this
+single-native-path contract after live discovery; it is **not** independent
+two-mailbox multiplexing. Real arrivals through each address woke background
+`fleet wait`; unacked delivery IDs replayed, ack preserved newer status+question
+mail, and timeout / SIGKILL-and-rerun lost no tested messages. No shared runtime
+restart was attempted.
+
+Output is one JSON document: `event`, source-tagged `batches` with native
+`deliveryId` and **all** messages, plus `legacyTerminalInbox` read-only history
+diagnostics (requested limit 1000, subject to Orca's cap). Do not filter
+worker_done only: terminal builders report status and questions. Process every
+row, reply in-thread with `orchestration reply --id MESSAGE_ID --body 'ruling'`,
+then explicitly acknowledge and re-arm in background:
 
 ```sh
-/home/dev/.config/orca/cli/bin/orca orchestration inbox --terminal term_b69e32e9-2ad2-4e9d-8ea2-419f2ee94c00 --json
+fleet --config ~/.config/fleet/fleet.yml wait --ack-run DELIVERY_ID --timeout 900
 ```
 
-This is honest interim Run-only blocking coverage, **not** a claimed solution for
-unattended terminal-addressed mail. Make TASK-10 the first wake-capability brief:
-one fleet wait covering both paths, real two-path wake and ack/replay proof.
-Do not claim terminal delivery wakes the Run, and do not retire Project Alpha's existing
-zero-model script watcher until that acceptance. The existing
-`/var/tmp/project-alpha-scratch/TASK-2464/queue-report.sh` is Project Alpha-specific (reads
-its terminals and queue), not a fleet command to run against fleet. Its retirement
-and `/var/tmp/project-alpha-scratch/shared/pr-wait.sh` replacement are coordinated with
-Project Alpha Main. Fleet Main must not silently inherit their project-specific code.
+Exit 0 / `messages` is delivery; exit 3 / `timeout` is a checkpoint, not worker
+death; exit 2 / `error` is a distinct binding/runtime/diagnostic failure. On error
+inspect any returned batches; no implicit ack occurs. Read-only legacy history
+is never locally acknowledged or claimed as a native terminal Delivery.
+Pre-binding mail can remain there unread and cannot wake the Run; reconcile it
+separately before unattended waiting. An unbound terminal's native consuming
+check marks mail read without a replayable delivery ID. If terminal-addressed
+mail bypasses the Run **while bound**, stop cutover and report the upstream gap.
 
+Main still coordinates Project Alpha replacement acceptance and retirement of
+`/var/tmp/project-alpha-scratch/TASK-2464/queue-report.sh` and
+`/var/tmp/project-alpha-scratch/shared/pr-wait.sh` (replaced by `fleet watch-pr`).
+TASK-10 remains open for that step; the builder does not edit/retire those scripts.
 Send is enqueue, never proof of new turn. On reconnect/outage, inspect own lanes'
-current screens and both inbox surfaces, reconcile PRs and pending threads before
-trusting quiet status. Never restart shared Orca without owner-approved window;
-handles may change, restored_unconfirmed is not permission to retry.
+screens and legacy history, reconcile PRs/pending threads before trusting quiet
+status. Never restart shared Orca without an owner-approved window; re-list
+handles and rebind the Run before retrying.
 
 ## Install, production and reporting
 

@@ -18,7 +18,7 @@ statuses are `open`, `in-progress`, `done`, `cancelled`, not elsewhere's `todo`.
 | 1 | Task = Pad item + Orca worktree + Task/Dispatch; Pad-Ref first; disposable terminal/session IDs | Reuse configured slots, task-specific branches/comments. Terminal launcher has no authoritative supervised Dispatch; TASK-15 closes generic task/thread integration without inventing one. |
 | 2 | Fresh supervised omp workers, pinned model, retry-of, effective launch check | **Superseded/NO-GO for builders**. `fleet launch` uses terminal omp with explicit Sol + medium and fresh overlay; actual session events prove resolved model/thinking, not launch.effective alone. Restart still open. |
 | 3 | One Run/project; ask/reply/send/check/worker_done; Pad durable | Fleet has its own Run. Terminal builders report status/questions through durable inboxes, not keystrokes or fake worker_done. One-thread-per-task remains TASK-15. |
-| 4 | Main wakes on worker_done/escalation/question via background check --wait | One local worker_done path proven. One wait covering Run AND terminal mailboxes remains TASK-10; no filtered-only coverage claim. |
+| 4 | Main wakes on worker_done/escalation/question via background check --wait | TASK-10 implements `fleet wait`: bound Run receives both Run- and bound-terminal-addressed mail; native replay/ack, timeout/error distinction, read-only legacy diagnostics. Project Alpha cutover remains open. |
 | 5 | Builders use async builds/CI; supervisor relays PR/review/queue/merge events | Implemented `fleet watch-pr`; send is enqueue only. PR initial DIRTY/failing/merged/closed diagnoses immediately. |
 | 6 | Per-project supervisor: health, PR watcher, Pad dispatcher, quota, snapshot | Health/watch/push/install implemented; explicit guarded launch exists. Automatic Pad scheduling is NOT implemented; TASK-12. |
 | 7 | Quota reserve, no silent builder fallback, fail-closed | New launches withheld with unknown/stale/reserve/cap/disk failure. Running-lane priority enforcement and saved-reset consent remain TASK-11. |
@@ -68,6 +68,13 @@ PLAN-2685. No product code or shared-runtime restart was performed.
   automatic behavior, priority and budget authority. Do not silently auto-dispatch.
 - **Review gates:** fresh independent read-only unadvised Sol medium review then
   final-head green CI. No fleet review bot; do not claim one or a second model review.
+- **TASK-10 native routing (Main-approved):** live discovery showed a bound
+  terminal address redirects into its Run; unbound terminal consuming checks have
+  no replayable delivery ID. Use one native Run wait, fail closed unless caller
+  owns the configured Run binding, and include read-only terminal history on every
+  return. No fabricated terminal Delivery/local ack, no independent-mailbox claim.
+  Pre-binding legacy mail needs separate reconciliation; any bound-path bypass
+  stops cutover pending upstream capability.
 
 ## Phase status and evidence
 
@@ -83,17 +90,34 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
-### TASK-10 — Main wake-up on BOTH mailboxes
+### TASK-10 — Main wake-up through BOTH address forms
 
-One `fleet` background wait must cover both the Run inbox and terminal-addressed
-messages. Current `check --wait` cannot cover both in one call; Project Alpha Main
-still uses polling-free script watcher `/var/tmp/project-alpha-scratch/TASK-2464/queue-report.sh`.
-Prove real arrivals independently to each mailbox wake the same waiting owner,
-all message types are handled, delivery acknowledgment/replay is correct, and
-reconnect/timeout loses no messages. Then coordinate Project Alpha cutover, retire
-queue-report.sh and `/var/tmp/project-alpha-scratch/shared/pr-wait.sh` in favor of fleet
-(the PR replacement already exists as `fleet watch-pr`). Do not retire scripts
-before replacement acceptance; no model-turn polling and no enqueue=wake claim.
+Implemented in [PR15](https://github.com/cswenor/fleet/pull/15) under Main's approved native-routing contract above.
+One background wait covers `run:RUN` and its **bound** terminal address because
+current Orca routes both into the same Run. It rejects unbound/wrong-Run callers
+before any wait/ack, returns all FIFO message types with native delivery IDs,
+never implicitly acknowledges, distinguishes timeout (exit 3) from failure
+(exit 2), and includes read-only terminal history diagnostics on every result.
+It does not consume/ack legacy history or multiplex independent mailboxes.
+
+Real scratch Run evidence (2026-11-06): Run-address status
+`msg_513e063d966a` woke background wait / `delivery_7ef7919990b3`;
+bound-terminal status `msg_c52376f1f397` woke the same command /
+`delivery_c5941d646f44`. Both replayed unchanged before ack. Ack preserved newer
+mixed status+question batch `delivery_66cee7d7c68c`; question
+`msg_2c010acbb20f` received in-thread reply `msg_f9fdee066674`.
+Timeout then later arrival, SIGKILL of the active wait and re-run, replay and ack
+all passed; final ack returned timeout without duplicate processing.
+Owned unbound/pre-binding shell proof retained old terminal mail unread in
+diagnostics after binding while new terminal-address mail routed to the Run.
+Unavailable CLI returned error, not timeout. All three owned probe terminals
+were closed; no shared runtime restart or production service changes.
+
+**Still open for Main:** coordinate Project Alpha cutover and retire
+`/var/tmp/project-alpha-scratch/TASK-2464/queue-report.sh` and
+`/var/tmp/project-alpha-scratch/shared/pr-wait.sh` (PR replacement is `fleet watch-pr`)
+only after replacement acceptance. Builder does not edit/retire these scripts.
+Send remains enqueue, not proof of wake. Shared-runtime restart remains TASK-13.
 
 ### TASK-11 — Quota governor enforcement
 

@@ -25,7 +25,7 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 | Fresh pinned task session | omp --model / --thinking, project roles/config, --config overlay | `fleet launch`: explicit Sol medium, fresh context, no fallback/auto-resume, 200K compaction. Guard quota/disk/cap/slot; private prompt and launch receipt. |
 | Supervised resource lifecycle | worker-start/list/show/read/stop/abandon/retain/release; Task/Dispatch; retry-request/request-show | **Not builder launch policy today**: preamble publication conflict and bare-Sol high. Preserve docs as capability, not permission. |
 | Identity | Worktree ID, Run/Task/Dispatch/request IDs; Pad-ref convention | Pad ref first in spec; configured slots reused, task branch/comment carries ref. Session/terminal disposable. Task/thread integration still open. |
-| Main event wait | orchestration check --wait, FIFO Delivery replay until ack | Proven local worker_done. One wait for both Run and terminal mailboxes still missing; roadmap TASK-10. |
+| Main event wait | orchestration check --wait, FIFO Delivery replay until ack | `fleet wait` requires caller bound to configured Run; current Orca routes both Run and bound-terminal addresses there. Read-only legacy history diagnostics; Project Alpha cutover remains TASK-10. |
 | Builder waiting | Async bash completion; Actions run_watch; terminal wait tui-idle/exit | `fleet watch-pr` covers reviews, initial failure/DIRTY, merge-group failures and merged/closed, not only Actions. |
 | Durable communication | send to run/dispatch/terminal; ask/reply; checkpoint check/ack | Send enqueues only, no guaranteed turn. Use in-thread replies; do not report terminal launch as supervised worker_done. |
 | Health/liveness | worker-list projection.liveness/attention/nextAction; PTY observation separately; terminal screen | Fleet collects terminal/worktree inventory, current model, provider/dialog/idle flags and strays. Unknown is not stopped. Never auto-destroy lanes. |
@@ -86,9 +86,13 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
   check uses caller terminal identity and bound Run. Process delivery then ack;
   unacked FIFO batches replay and can hide newer mail. Read all message types at
   checkpoints; filtering only worker_done/escalation/question misses fleet status.
-- Current API cannot cover Run and terminal-addressed inboxes with one wait.
-  Explicit --run selects that namespace; omitting a run on an unbound terminal
-  checks terminal mail. Do not infer multiplex coverage from local worker_done.
+- TASK-10 proved current Orca redirects a bound terminal address into its Run.
+  `fleet wait` uses that one native blocking path, requires the caller's own
+  configured Run binding, and includes read-only terminal history diagnostics.
+  Unbound terminal checks mark mail read without replayable delivery IDs;
+  pre-binding legacy mail is not another ackable batch and cannot wake the Run.
+  This is not independent mailbox multiplexing. Stop cutover if bound-terminal
+  mail bypasses the Run; shared-runtime restart remains unverified.
 - `send` is durable enqueue. Nudge/wake is best-effort; preamble explicitly says
   nothing interrupts the agent. Settled dispatch rejects late sends. Async command
   completion is the usable guaranteed owner wake mechanism in omp.

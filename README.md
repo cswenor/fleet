@@ -116,6 +116,49 @@ unresolved membership is explicit in the coordinator report rather than guessed.
 Every known member gets its owning-builder event and per-PR watcher wake,
 including non-leading PRs. Later membership recovery notifies newly resolved members.
 
+### Inbox wait
+
+Run `fleet wait --timeout 900` using the agent's **async background shell** from
+its own Orca terminal. The caller must already be bound to the configured
+`coordinator.run` (`orca orchestration run-use --id RUN` from that terminal).
+An unbound caller or different Run fails closed before any wait or acknowledgment.
+Caller identity comes from `ORCA_TERMINAL_HANDLE`; `--terminal HANDLE` is an
+explicit fallback only when that environment variable is absent, not permission
+to borrow another terminal's identity. The configured coordinator terminal is
+never used as the caller.
+
+Current Orca routes BOTH `send --to run:RUN` and `send --to BOUND_TERMINAL` into
+that Run. Fleet uses one native `check --wait`, with no type filter or polling
+loop. It does **not** multiplex two independent native mailboxes.
+One JSON document returns `event`, `runId`, `terminal`, `batches`, and
+`legacyTerminalInbox`. Each batch contains `source: "run"`, the native
+`deliveryId`, every message in that FIFO batch, and `replayed`.
+
+Process **all** message types, reply to questions in-thread with
+`orca orchestration reply --id MESSAGE_ID --body 'answer'`, then re-arm:
+
+```sh
+fleet wait --ack-run DELIVERY_ID --timeout 900
+```
+
+There is no implicit acknowledgment: unacked deliveries replay; an explicit ack
+applies only to that Run batch, not newer mail or terminal history.
+Exit **0** / `event: "messages"` means delivery; exit **3** /
+`event: "timeout"` is an empty checkpoint, not failure or worker death.
+Exit **2** / `event: "error"` is a binding, runtime, transport or diagnostic
+failure, never an empty checkpoint. Inspect any returned batches even on error;
+they remain replayable until explicitly acknowledged. Killing/re-running the
+wait does not acknowledge mail. Shared Orca runtime restart is not proven.
+
+Every result includes unfiltered, **read-only** terminal history diagnostics
+(requested limit 1000, subject to Orca's history cap), or an explicit diagnostic
+error. This is not another Delivery and has no `--ack-terminal` or local ack.
+Mail sent before binding can remain there unread; it does not wake the Run.
+Unbound terminal-only native checks mark mail read immediately, without
+replayable delivery IDs, and those mailboxes expire when the terminal closes.
+Inspect/reconcile pre-binding history separately; never silently consume it to
+simulate reliable delivery. Enqueue alone still does not prove owner wake.
+
 Launch checks fresh quota, free disk, active-session cap, and slot occupancy.
 A connected terminal at a verified shell prompt is not an active builder.
 An existing slot reuses its single ready shell terminal after a fresh readiness/
