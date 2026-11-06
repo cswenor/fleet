@@ -62,6 +62,8 @@ Keep that checkout at a stable path and install system PyYAML first. Service nam
 `fleet-owner-project.service`. Inspect with `systemctl --user status` and
 `journalctl --user -u fleet-owner-project.service`. To change a running unit,
 reinstall, then `systemctl --user restart fleet-owner-project.service`.
+Installation fails unless the user service is active; a successful unit-file
+write or `enable --now` alone is not startup proof.
 The service survives terminal exit; host reboot requires a user manager at boot
 (ask the host administrator to enable lingering if necessary).
 
@@ -81,6 +83,8 @@ inbox messages, **not terminal keystrokes**. The service uses the explicitly
 configured coordinator handle as message sender; its body identifies fleet.
 After an Orca restart, refresh the coordinator handle/run configuration.
 Builder handles are re-listed every cycle, never stored as durable identities.
+Terminal-only builder mailboxes expire when their terminal closes; the Run inbox
+is durable across terminal replacement. Fleet never promises replay into a new session.
 Inbox enqueue does not prove the agent woke or read it. `watch-pr` blocks on
 only the selected PR (plus project merge-group failures) and exits on changes,
 terminal PR state, timeout, or API failure, so an async shell completion can wake
