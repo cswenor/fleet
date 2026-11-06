@@ -99,5 +99,22 @@ class CentralTests(unittest.TestCase):
         self.assertFalse(central.recent(iso(self.now + 3600), self.now))
 
 
+class BindConfigTests(unittest.TestCase):
+    def test_wildcard_binding_requires_explicit_proxy_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'central.yml'
+            for host, proxy, allowed in (('127.0.0.1', False, True), ('100.64.0.1', False, True),
+                                         ('0.0.0.0', False, False), ('0.0.0.0', 'true', False),
+                                         ('0.0.0.0', True, True), ('198.51.100.1', True, False)):
+                with self.subTest(host=host, proxy=proxy):
+                    path.write_text(central.yaml.safe_dump({'version': 1, 'host': host,
+                        'behind_proxy': proxy, 'projects': {'owner/project': 'PROJECT_TOKEN'}}))
+                    if allowed:
+                        self.assertEqual(central.load(path, require_tokens=False)['host'], host)
+                    else:
+                        with self.assertRaises(ValueError):
+                            central.load(path, require_tokens=False)
+
+
 if __name__ == '__main__':
     unittest.main()

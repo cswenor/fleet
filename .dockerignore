@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!fleet/
+!fleet/**
+fleet/**/__pycache__/
+fleet/**/*.py[cod]

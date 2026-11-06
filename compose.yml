@@ -1,0 +1,23 @@
+services:
+  central:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${FLEET_CENTRAL_PORT:-8787}:8787"
+    environment:
+      FLEET_CENTRAL_CONFIG: "${FLEET_CENTRAL_CONFIG:?Set central YAML in runtime environment}"
+      FLEET_PROJECT_TOKEN: "${FLEET_PROJECT_TOKEN:?Set the project ingestion token}"
+      # Add one runtime variable here for each additional configured project.
+    volumes:
+      - snapshots:/data
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=1m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  snapshots:

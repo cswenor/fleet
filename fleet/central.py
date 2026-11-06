@@ -63,9 +63,10 @@ def load(path, require_tokens=True):
         raise ValueError('central config requires version: 1')
     host = c.get('host', '127.0.0.1')
     address = ipaddress.ip_address(host)
-    if not (address.is_loopback or address in ipaddress.ip_network('100.64.0.0/10') or
+    container_proxy = host == '0.0.0.0' and c.get('behind_proxy') is True
+    if not (container_proxy or address.is_loopback or address in ipaddress.ip_network('100.64.0.0/10') or
             address in ipaddress.ip_network('fd7a:115c:a1e0::/48')):
-        raise ValueError('central host must be loopback or a Tailscale address')
+        raise ValueError('central host must be loopback/Tailscale, or 0.0.0.0 with behind_proxy: true')
     if address.version != 4:
         raise ValueError('central host currently requires IPv4')
     c['host'] = host
