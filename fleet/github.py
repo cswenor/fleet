@@ -51,7 +51,7 @@ def collect(c, pr_number=None):
             comments += pages(c, f'repos/{repo}/issues/{number}/comments?per_page=100')
             reviews = pages(c, f'repos/{repo}/pulls/{number}/reviews?per_page=100')
         merged = p.get('merged_at')
-        result.append({'number': number, 'url': p['html_url'], 'branch': p['head']['ref'], 'head': p['head']['sha'],
+        result.append({'number': number, 'title': p['title'], 'url': p['html_url'], 'branch': p['head']['ref'], 'head': p['head']['sha'],
                        'state': 'merged' if merged else p['state'], 'created_at': p['created_at'],
                        'updated_at': p['updated_at'], 'merge_state': (p.get('mergeable_state') or 'unknown').upper(),
                        'closed_at': p['closed_at'], 'merged_at': merged,

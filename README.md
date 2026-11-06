@@ -30,8 +30,10 @@ have owners. Ambiguous mappings never select the first terminal.
 Status contains last-24h PR timestamps/time-to-merge, default-branch commits,
 merge queue/recent merge-group failures, builder models/state, quota, and disk.
 Unknown collectors are explicit errors, not zero activity. Model detection uses
-Orca provider projection when present, otherwise the latest OMP footer; it is not
-proof of thinking level or model pinning after a restart.
+Orca provider projection when present, otherwise the OMP footer from the current
+rendered screen, not capped output history. Unreadable current evidence stays
+unknown; launch configuration or last-restart history never proves the current
+model, thinking level, or model pinning after a restart.
 
 Quota aggregates selected-provider account capacity by shared window, excluding
 tier-specific limits. Each window must remain above the reserve percentage.
@@ -153,6 +155,11 @@ show last-24h PR counts/timestamps/time-to-merge, default-branch commits, queue,
 merge-group failures, builder task/PR/model/state, pooled quota and free disk.
 Missing collectors are unknown, not zero activity. Closed counts include merged
 PRs. Read-only pages refresh every 60 seconds; no launch/merge/control endpoints.
+PR links include feature titles as well as numbers; older supervisors must be
+upgraded before their next snapshot can supply titles. Merge durations use
+readable units such as `23m`, `2h 14m`, or `1d 3h`. Dates, snapshot times and
+history render in the viewing browser's timezone with a visible zone label;
+without JavaScript the page retains a readable UTC fallback.
 
 Copy `central.example.yml` to a private configuration directory. Map each repo to
 a distinct environment-variable name, **not a token**. Generate independent

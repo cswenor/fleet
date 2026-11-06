@@ -14,12 +14,13 @@ import re
 import sqlite3
 import time
 import yaml
+from .display import duration
 
 
 # Persist only the public snapshot contract, never arbitrary extra payload fields.
 TEXT = (str, type(None))
 NUMBER = (int, float)
-PR = {'number': int, 'url': str, 'branch': str, 'state': str, 'created_at': TEXT,
+PR = {'number': int, 'title': str, 'url': str, 'branch': str, 'state': str, 'created_at': TEXT,
       'closed_at': TEXT, 'merged_at': TEXT, 'time_to_merge_seconds': (int, type(None)),
       'merge_state': str, 'checks': [{'name': str, 'status': TEXT, 'conclusion': TEXT}]}
 SCHEMA = {'version': int, 'repo': str, 'generated_at': NUMBER, 'errors': [str],
@@ -153,12 +154,26 @@ def link(url, label):
     return f'<a href="{escape(url, quote=True)}" rel="noreferrer">{text(label)}</a>'
 
 
+def pr_link(p):
+    return link(p.get('url'), '#' + str(p.get('number', '?')) + ' — ' + (p.get('title') or 'title unavailable'))
+
+
 def table(headers, rows):
     return '<div class="scroll"><table><thead><tr>' + ''.join('<th>' + text(h) + '</th>' for h in headers) + '</tr></thead><tbody>' + ''.join('<tr>' + ''.join('<td>' + cell + '</td>' for cell in row) + '</tr>' for row in rows) + '</tbody></table></div>'
 
 
-def stamp(value):
-    return datetime.fromtimestamp(value, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+
+def timestamp(value):
+    if value is None:
+        return '—'
+    try:
+        date = (datetime.fromisoformat(value.replace('Z', '+00:00')) if isinstance(value, str)
+                else datetime.fromtimestamp(value, timezone.utc))
+        date = date.replace(tzinfo=date.tzinfo or timezone.utc).astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return text(value)
+    return f'<time datetime="{date.isoformat()}">{text(date.strftime("%b %d, %Y %H:%M UTC"))}</time>'
 
 
 def recent(value, now):
@@ -176,7 +191,7 @@ def render_project(c, store, repo, now, detail=False):
         return out + '<p class="warning">UNREACHABLE / NEVER RECEIVED — no snapshot</p></section>'
     age = max(0, now - s['generated_at'])
     stale = age > c['stale_seconds'] or now - received > c['stale_seconds']
-    out += f'<p class="{"warning" if stale else "fresh"}">{"STALE / UNREACHABLE" if stale else "LIVE"} — snapshot age {int(age)}s; received {text(stamp(received))}; collected {text(stamp(s["generated_at"]))}</p>'
+    out += f'<p class="{"warning" if stale else "fresh"}">{"STALE / UNREACHABLE" if stale else "LIVE"} — snapshot age {text(duration(age))}; received {timestamp(received)}; collected {timestamp(s["generated_at"])}</p>'
     errors = s.get('errors', []) + s.get('inventory', {}).get('errors', [])
     if errors:
         out += '<p class="warning">Collector errors: ' + text('; '.join(errors)) + '</p>'
@@ -189,18 +204,19 @@ def render_project(c, store, repo, now, detail=False):
         counts = [sum(recent(p.get(field), now) for p in prs) for field in ('created_at', 'merged_at', 'closed_at')]
         commits = [x for x in g.get('commits', []) if recent(x.get('date'), now)]
         out += table(['Last 24h: opened', 'Merged', 'Closed (includes merged)', 'Default-branch commits'], [[text(v) for v in counts + [len(commits)]]])
-        out += table(['PR', 'State', 'Opened', 'Merged / closed', 'Time to merge'],
-                     [[link(p.get('url'), '#' + str(p.get('number', '?'))), text(p.get('state')), text(p.get('created_at')),
-                       text(p.get('merged_at') or p.get('closed_at')), text(str(p['time_to_merge_seconds']) + 's' if p.get('time_to_merge_seconds') is not None else None)]
+        out += table(['PR / feature', 'State', 'Opened', 'Merged / closed', 'Time to merge'],
+                     [[pr_link(p), '<span style="white-space:nowrap">' + text(p.get('state')) + '</span>', timestamp(p.get('created_at')),
+                       timestamp(p.get('merged_at') or p.get('closed_at')), '<span style="white-space:nowrap">' + text(duration(p.get('time_to_merge_seconds'))) + '</span>']
                       for p in prs if p.get('state') == 'open' or any(recent(p.get(f), now) for f in ('created_at', 'merged_at', 'closed_at'))])
         out += '<h3>Merge queue</h3>'
         queue = g.get('merge_queue', [])
-        out += table(['PR', 'State'], [[text(x.get('pullRequest', {}).get('number')), text(x.get('state'))] for x in queue]) if queue else '<p>Queue empty</p>'
+        by_number = {p.get('number'): p for p in prs}
+        out += table(['PR / feature', 'State'], [[pr_link(by_number.get(x.get('pullRequest', {}).get('number'), x.get('pullRequest', {}))), text(x.get('state'))] for x in queue]) if queue else '<p>Queue empty</p>'
         failures = [x for x in g.get('merge_group_runs', []) if x.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')]
         out += '<h3>Recent merge-group failures (collector 24h window)</h3>'
-        out += table(['Run', 'Result', 'PRs'], [[link(x.get('url'), x.get('id')), text(x.get('conclusion')), text(', '.join(map(str, x.get('prs', []))) or 'membership unknown')] for x in failures]) if failures else '<p>No reported failures</p>'
+        out += table(['Run', 'Result', 'PRs / features'], [[link(x.get('url'), x.get('id')), text(x.get('conclusion')), ', '.join(pr_link(by_number.get(n, {'number': n})) for n in x.get('prs', [])) or 'membership unknown'] for x in failures]) if failures else '<p>No reported failures</p>'
         if detail:
-            out += '<h3>Default-branch commits (24h)</h3>' + table(['Commit', 'Time'], [[link(x.get('url'), x.get('sha', '')[:12]), text(x.get('date'))] for x in commits])
+            out += '<h3>Default-branch commits (24h)</h3>' + table(['Commit', 'Time'], [[link(x.get('url'), x.get('sha', '')[:12]), timestamp(x.get('date'))] for x in commits])
     out += '<h3>Builder sessions</h3>'
     inventory = s.get('inventory')
     if inventory is None:
@@ -209,7 +225,7 @@ def render_project(c, store, repo, now, detail=False):
         rows = []
         for b in inventory.get('builders', []):
             prs = [p for p in g.get('prs', []) if p.get('branch') == b.get('branch')]
-            rows.append([text(b.get('task') or b.get('title')), ', '.join(link(p.get('url'), '#' + str(p.get('number'))) for p in prs) or '—', text(b.get('model')), text(b.get('state')), text(', '.join(b.get('flags', [])))])
+            rows.append([text(b.get('task') or b.get('title')), ', '.join(pr_link(p) for p in prs) or '—', text(b.get('model')), text(b.get('state')), text(', '.join(b.get('flags', [])))])
         out += table(['Task', 'PR', 'Model', 'State', 'Flags'], rows) if rows else '<p>No builder sessions</p>'
         if inventory.get('stray_worktrees'):
             out += '<p class="warning">Stray worktrees: ' + text(', '.join(inventory['stray_worktrees'])) + '</p>'
@@ -217,14 +233,14 @@ def render_project(c, store, repo, now, detail=False):
     out += '<h3>Quota and disk</h3><p>' + text(q.get('provider')) + ': ' + text(q.get('reason')) + '; disk free ' + text(d.get('free_gb')) + ' GB / reserve ' + text(d.get('min_free_gb')) + ' GB' + (' — LOW' if d.get('low') else '') + '</p>'
     out += table(['Quota window', 'Accounts', 'Remaining', 'Reserve'], [[text(w.get('window')), text(w.get('accounts')), text(w.get('remaining_percent')) + '%', text(q.get('reserve_percent')) + '%'] for w in q.get('windows', [])])
     if detail:
-        out += '<h3>Recent snapshot history (up to 50)</h3>' + table(['Received', 'Collected'], [[text(stamp(r)), text(stamp(g))] for r, g in store.history(repo)])
+        out += '<h3>Recent snapshot history (up to 50)</h3>' + table(['Received', 'Collected'], [[timestamp(r), timestamp(g)] for r, g in store.history(repo)])
     return out + '</section>'
 
 
 def page(c, store, repo=None):
     now = time.time()
     body = ''.join(render_project(c, store, name, now, repo is not None) for name in ([repo] if repo else sorted(c['projects'])))
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>Fleet status</title><style>body{font:16px system-ui;margin:2rem auto;padding:0 1rem;max-width:1100px;color:#202124;background:#fafafa}a{color:#174ea6}section{border:1px solid #bbb;border-radius:8px;padding:1rem;margin:1rem 0}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:.5rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}.scroll{overflow-x:auto}.warning{color:#9b2316;font-weight:600}.fresh{color:#17612e}h3{margin-bottom:.5rem} @media(prefers-color-scheme:dark){body{background:#17191c;color:#eee}a{color:#9dc1ff}.warning{color:#ffad99}.fresh{color:#8ed6a0}th,td{border-color:#444}}</style><header><h1><a href="/">Fleet status</a></h1><p>Read-only · last 24 hours · refresh every 60s · ' + text(stamp(now)) + '</p></header><main>' + body + '</main></html>').encode()
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>Fleet status</title><script src="/status.js" defer></script><style>body{font:16px system-ui;margin:2rem auto;padding:0 1rem;max-width:1100px;color:#202124;background:#fafafa}a{color:#174ea6}section{border:1px solid #bbb;border-radius:8px;padding:1rem;margin:1rem 0}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:.5rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}.scroll{overflow-x:auto}.warning{color:#9b2316;font-weight:600}.fresh{color:#17612e}h3{margin-bottom:.5rem} @media(prefers-color-scheme:dark){body{background:#17191c;color:#eee}a{color:#9dc1ff}.warning{color:#ffad99}.fresh{color:#8ed6a0}th,td{border-color:#444}}</style><header><h1><a href="/">Fleet status</a></h1><p>Read-only · last 24 hours · refresh every 60s · timezone: <span id="timezone">UTC</span> · ' + timestamp(now) + '</p></header><main>' + body + '</main></html>').encode()
 
 
 class Server(ThreadingHTTPServer):
@@ -258,12 +274,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/status.js':
+            return self.respond(200, Path(__file__).with_name('status.js').read_bytes(), 'text/javascript; charset=utf-8')
         repo = unquote(path[len('/project/'):]) if path.startswith('/project/') else None
         if path != '/' and (repo is None or repo not in self.server.config['projects']):
             return self.respond(404)

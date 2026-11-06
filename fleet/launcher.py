@@ -79,7 +79,7 @@ An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet wat
         if existing and shells:
             handle = shells[0]['terminal']
             terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
-            latest = orca(c, 'terminal', 'read', '--terminal', handle)['terminal']
+            latest = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
             if (not terminal.get('connected') or terminal.get('orphaned') or
                     not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
                     not health.shell_ready('\n'.join(latest.get('tail', [])))):

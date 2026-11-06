@@ -76,7 +76,7 @@ class CentralTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/snapshots', self.snapshot(
             generated_at=self.now - 601, errors=['<script>alert(1)</script>'],
             api_token='should-not-persist', github={'prs': [{'number': 7, 'state': 'open',
-                'url': 'javascript:alert(1)', 'branch': 'work'}]},
+                'url': 'javascript:alert(1)', 'branch': 'work', 'title': '<b>Feature name</b>'}]},
             inventory={'builders': [{'task': '<img src=x>', 'branch': 'work', 'model': 'provider/model', 'state': 'active'}]}))[0], 204)
         _, html = self.request('GET', '/project/owner%2Ffirst')
         self.assertIn('STALE / UNREACHABLE', html)
@@ -84,6 +84,7 @@ class CentralTests(unittest.TestCase):
         self.assertIn('&lt;img src=x&gt;', html)
         self.assertNotIn('href="javascript:', html)
         self.assertIn('#7', html)
+        self.assertIn('&lt;b&gt;Feature name&lt;/b&gt;', html)
         self.assertNotIn('api_token', json.dumps(self.server.store.latest('owner/first')))
         self.assertNotIn('NEVER RECEIVED', html)
         self.assertEqual(self.request('GET', '/project/owner%2Funknown')[0], 404)

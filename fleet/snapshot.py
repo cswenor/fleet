@@ -3,6 +3,7 @@ import shutil
 import time
 from . import github, health, quota
 from .commands import json_run, CommandError
+from .display import duration
 
 
 def collect(c):
@@ -46,7 +47,7 @@ def render(s):
     lines.append('Last 24h: ' + ', '.join(f'{label}={sum(bool(p.get(field)) and p[field] >= since for p in prs)}' for label, field in [('opened', 'created_at'), ('merged', 'merged_at'), ('closed', 'closed_at')]) + f", main commits={len(g.get('commits', []))}")
     for p in prs:
         if p.get('merged_at') and p['merged_at'] >= since:
-            lines.append(f"  #{p['number']} merged in {p['time_to_merge_seconds']}s")
+            lines.append(f"  #{p['number']} {p.get('title') or 'title unavailable'} merged in {duration(p['time_to_merge_seconds'])}")
     lines.append('Merge queue: ' + ', '.join(f"#{x['pullRequest']['number']}:{x['state']}" for x in g.get('merge_queue', [])))
     for r in g.get('merge_group_runs', []):
         if r['conclusion'] in ('failure', 'cancelled', 'timed_out'):

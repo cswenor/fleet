@@ -1,5 +1,7 @@
 import time
 import unittest
+from unittest.mock import patch
+from fleet import health
 from fleet.health import branch, classify, owner
 from fleet.quota import evaluate
 from fleet.github import events
@@ -14,6 +16,22 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(idle, 100)
         _, flags, _ = classify(t, '◑ GPT-6.1 Sol > 🌳 project', 'openai-codex/gpt-6.1-sol', 600, 200)
         self.assertEqual(flags, [])
+
+    def test_current_screen_model_is_not_lost_in_capped_output_history(self):
+        c = {'root': '/slot', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},
+             'builder': {'slots': ['/slot'], 'resolved_model': 'openai-codex/gpt-6.1-sol', 'idle_seconds': 600}}
+        def orca(config, *args):
+            if args[:2] == ('worktree', 'list'):
+                return {'worktrees': [{'id': 'tree', 'repoId': 'repo', 'path': '/slot', 'branch': 'TASK-1'}]}
+            if args[:2] == ('terminal', 'list'):
+                return {'terminals': [{'handle': 'lane', 'worktreeId': 'tree', 'agentIdentity': 'omp',
+                                        'connected': True, 'lastOutputAt': 100_000}]}
+            return {'terminal': {'tail': ['◑ GPT-6.1 Sol >'] if '--screen' in args else ['busy output'] * 120}}
+        with patch.object(health, 'orca', side_effect=orca):
+            builder = health.collect(c, now=100)['builders'][0]
+        self.assertEqual(builder['model'], 'GPT-6.1 Sol')
+        self.assertEqual(builder['state'], 'active')
+        self.assertEqual(builder['flags'], [])
 
     def test_ambiguous_owner_never_gets_message(self):
         inv = {'worktrees': [{'id': 'w', 'branch': 'feature'}], 'builders': [{'worktree': 'w', 'connected': True, 'terminal': 'a'}]}

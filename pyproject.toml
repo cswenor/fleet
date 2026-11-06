@@ -14,3 +14,6 @@ fleet = "fleet.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["fleet*"]
+
+[tool.setuptools.package-data]
+fleet = ["*.js"]

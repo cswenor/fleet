@@ -78,7 +78,7 @@ def collect(c, now=None):
             continue
         text = ''
         try:
-            detail = orca(c, 'terminal', 'read', '--terminal', t['handle'])['terminal']
+            detail = orca(c, 'terminal', 'read', '--terminal', t['handle'], '--screen')['terminal']
             text = '\n'.join(detail.get('tail', []))
         except RuntimeError:
             errors.append('terminal read unavailable: ' + t['handle'])
