@@ -17,6 +17,10 @@ builder:
   footer: |
     Self-publish small PRs and resolve task-caused CI failures.
     Never poll with model turns; use fleet watch-pr as an async background command.
+    This session is already fresh for the assigned task. Do not signal FRESH-READY
+    for an inherited handoff or boundary. Only after publishing your next piece
+    of work, choose a different next task, write its handoff, report FRESH-READY
+    with that different task ref to the coordinator, and stop.
 quota:
   provider: openai-codex
   reserve_percent: 10

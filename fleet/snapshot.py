@@ -33,7 +33,7 @@ def may_start(c, s):
     inventory = s.get('inventory', {})
     if inventory.get('errors'):
         reasons.append('terminal health incomplete')
-    if len([b for b in inventory.get('builders', []) if b['connected']]) >= c['builder']['max']:
+    if len([b for b in inventory.get('builders', []) if health.active(b)]) >= c['builder']['max']:
         reasons.append('builder cap reached')
     return {'may_start': not reasons, 'reasons': reasons}
 

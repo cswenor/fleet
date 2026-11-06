@@ -25,6 +25,17 @@ def model_matches(actual, expected):
     return normalize(actual) == normalize(expected.split('/')[-1])
 
 
+def shell_ready(text):
+    """Conservative POSIX prompt receipt; unknown/custom prompts stay occupied."""
+    text = ANSI.sub('', re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', text))
+    lines = [line.strip() for line in text.replace('\r', '\n').splitlines() if line.strip()]
+    return bool(lines and re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', lines[-1]))
+
+
+def active(builder):
+    return builder['connected'] and not builder.get('shell_ready', False)
+
+
 def classify(terminal, text, expected, idle_seconds, now):
     text = ANSI.sub('', text)
     live = '\n'.join(text.splitlines()[-12:])
@@ -62,23 +73,27 @@ def collect(c, now=None):
     for t in terminals['terminals']:
         if t.get('worktreeId') not in by_id or t['handle'] == c['coordinator']['terminal']:
             continue
-        if t.get('agentIdentity') != 'omp':
-            continue
         w = by_id[t['worktreeId']]
         if w['path'] not in c['builder']['slots']:
             continue
-        text = t.get('preview', '')
+        text = ''
         try:
             detail = orca(c, 'terminal', 'read', '--terminal', t['handle'])['terminal']
-            text = text + '\n' + '\n'.join(detail.get('tail', []))
+            text = '\n'.join(detail.get('tail', []))
         except RuntimeError:
             errors.append('terminal read unavailable: ' + t['handle'])
+        ready = shell_ready(text)
+        if t.get('agentIdentity') != 'omp' and not ready:
+            continue
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
+        if ready:
+            model, flags, idle = None, [], None
         ref = REF.search(branch(w.get('branch'))) or REF.search(t.get('title', ''))
         builders.append({'terminal': t['handle'], 'worktree': w['id'], 'path': w['path'],
                          'branch': branch(w.get('branch')), 'task': ref[1].upper() if ref else None,
                          'title': t.get('title'), 'model': model, 'flags': flags,
-                         'idle_seconds': idle, 'state': flags[0] if flags else 'active',
+                         'idle_seconds': idle, 'state': 'shell' if ready else (flags[0] if flags else 'active'),
+                         'shell_ready': ready,
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]
@@ -90,5 +105,5 @@ def owner(inventory, head):
     trees = [w for w in inventory['worktrees'] if w['branch'] == branch(head)]
     if len(trees) != 1:
         return None
-    candidates = [b for b in inventory['builders'] if b['worktree'] == trees[0]['id'] and b['connected']]
+    candidates = [b for b in inventory['builders'] if b['worktree'] == trees[0]['id'] and active(b)]
     return candidates[0]['terminal'] if len(candidates) == 1 else None

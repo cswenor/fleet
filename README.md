@@ -101,14 +101,22 @@ unresolved membership is explicit in the coordinator report rather than guessed.
 Every known member gets its owning-builder event and per-PR watcher wake,
 including non-leading PRs. Later membership recovery notifies newly resolved members.
 
-Launch checks fresh quota, free disk, builder cap, and slot occupancy. It starts
-a **new terminal**; it never types `/exit` or resumes another session. An existing
-connected omp terminal makes a slot occupied, even if idle. Finish and close it
-explicitly first. If a configured slot is absent, Orca creates a top-level
+Launch checks fresh quota, free disk, active-session cap, and slot occupancy.
+A connected terminal at a verified shell prompt is not an active builder.
+An existing slot reuses its single ready shell terminal after a fresh readiness/
+identity check; no `/exit` is sent and no old context is resumed. Live, unknown,
+and ambiguous sessions remain blocked. Prompt detection supports standard
+`user@host:path$` / `bash-version$` POSIX prompts; custom prompts fail closed.
+Without a ready shell it starts a **new terminal**. If a configured slot is absent,
+Orca creates a top-level
 worktree with that basename and validates the resulting path. Repo setup hooks
 run only on creation. A private prompt includes the Pad ref/handoff instruction,
 rules file and configured footer. Private prompt/overlay files remain for the
 session lifetime; remove them after the owning terminal exits.
+The default/example footer identifies the current task as already fresh.
+`FRESH-READY` is for a **different next task**, only after publishing the new
+session's next piece of work, never for the inherited handoff. Keep project-local
+footer overrides consistent with this boundary to avoid restart loops.
 
 The launch overlay disables auto-resume, extended context, and model fallback;
 sets reserve policy fail-closed and an empty pinned-model fallback chain; and

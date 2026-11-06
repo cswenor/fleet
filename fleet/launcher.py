@@ -1,4 +1,4 @@
-"""Explicit, guarded launch; never stops or types into an existing terminal."""
+"""Explicit guarded fresh launches; reuse only a terminal at a verified shell prompt."""
 from pathlib import Path
 import re
 import shlex
@@ -20,19 +20,22 @@ def launch(c, ref, slot=None):
         orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
         run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', ref, '--format', 'json'], c['root'])
         inventory = s['inventory']
-        occupied = {b['path'] for b in inventory['builders'] if b['connected']}
+        occupied = {b['path'] for b in inventory['builders'] if health.active(b)}
         slots = c['builder']['slots']
         chosen = str(Path(slot).expanduser().resolve()) if slot else next((p for p in slots if p not in occupied and Path(p).is_dir()), None)
         if chosen and chosen not in slots:
             raise ValueError('requested slot is not in builder.slots')
         if chosen in occupied:
-            raise ValueError('slot has a connected omp terminal; finish and close it explicitly first')
+            raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         existing = chosen is not None and Path(chosen).is_dir()
         if existing:
             matches = [w for w in inventory['worktrees'] if w['path'] == chosen]
             if len(matches) != 1:
                 raise ValueError('slot must map to exactly one Orca worktree')
             w = matches[0]
+            shells = [b for b in inventory['builders'] if b['path'] == chosen and b['connected'] and b.get('shell_ready')]
+            if len(shells) > 1:
+                raise ValueError('slot has multiple ready shells; refusing ambiguous terminal reuse')
         else:
             # Creation only when an explicitly configured slot path is absent. Name must match.
             missing = chosen or next((p for p in slots if not Path(p).exists()), None)
@@ -72,8 +75,18 @@ An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet wat
                       'fallbackChains': {b['resolved_model']: []}},
             'compaction': {'modelThresholds': {b['resolved_model']: 'f200000'}}}))
         overlay.chmod(0o600)
-        command = shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '@' + str(prompt_path)])
-        result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
+        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '@' + str(prompt_path)])
+        if existing and shells:
+            handle = shells[0]['terminal']
+            terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
+            latest = orca(c, 'terminal', 'read', '--terminal', handle)['terminal']
+            if (not terminal.get('connected') or terminal.get('orphaned') or
+                    not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
+                    not health.shell_ready('\n'.join(latest.get('tail', [])))):
+                raise ValueError('slot terminal is no longer a ready shell; launch withheld')
+            result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')
+        else:
+            result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
         state.write(c, 'last-launch', {'ref': ref, 'worktree': w, 'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)})
         orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
