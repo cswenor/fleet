@@ -160,7 +160,7 @@ preserve configured `fleet.yml` and require inspecting local customizations.
 No new installer, public registry publication, lifecycle replacement or rollout.
 The skill covers Main/builder authority, full onboarding, native Run wait/ack,
 Pad briefs/threads, explicit next/launch, review + CI, merge/deployment, guarded
-retirement/reconciliation, PARK/resets and owner-operated runtime restart.
+retirement/reconciliation, PARK/resets and owner-authorized runtime restart.
 It retains the TASK-31/32 audited wrappers and TASK-34 branch-preparation caveat.
 
 2026-11-06 real command evidence: omp 18.17.0 / Orca 1.4.242. Repeated documented
@@ -416,57 +416,123 @@ production service rollout were used. Publication receipts retained on TASK-22.
 
 ### TASK-13 — Orca restart semantics (Phase 0 d)
 
-Phase A implements the read-only `python3 -m fleet.orca_capture` tool and
-[restart runbook](orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised).
-Owner's TASK-13 decision supersedes isolated-only verification: one real shared
-restart at a coordinated safe point, **not by the builder**, with final owner
-go immediately beforehand and external capture. Orca 1.4.242 has no documented
-isolated profile startup recipe or quit command; current host reports
-`unsupported-headless-serve`. Owner must document/perform actual stop/start.
-Project Alpha requires 60 minutes' notice, explicit all-eight-lane safe confirmation,
-TASK-22 deployed, both supervisors kept running, and fresh Main handoffs/startup.
+The latest TASK-13 owner direction permits **one unattended shared restart**
+of the stock system unit `orca-serve.service` through an external conductor,
+not an owner-present manual stop/start. Planned time: **2026-11-07 14:00 UTC**;
+Main's cross-project notice is due by **13:00 UTC**. This implementation is
+**rehearsal only**: no builder shared restart, production scheduling or rollout.
+Main released the announcement merge hold at 21:11Z (`msg_96e2c57e8824`);
+final-head independent review and CI remain required. Merge is not deployment.
 
-Main approved title hashes + Pad refs, message metadata only, no consuming
-capture/ack and an explicit missing-native-Delivery-ID limitation. Main saves
-its already-observed Delivery/message receipt privately before quiescing.
-Real no-restart `systemd-run --user` BEFORE capture: unit
-`fleet-task13-before-dry2-1793985794`, invocation
-`241a262c21144a8e8f23059be75f63cb`; 13 terminals, 14 OMP processes,
-both supervisors active/running with NRestarts=0, output 0700/0600.
-Partial exit 1 reports `proc_scan_incomplete`; missing session evidence stays
-unknown. Tool/runbook are phase A preparation, **not Phase 0 d GO**.
+The [single operator runbook](orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
+owns the schema, dry-run blockers, exact stock-unit sudo exception, external
+systemd timer/service recipe, private journal/resume and manual reconciliation.
+CLI: `fleet orca-restart --plan PATH [--dry-run]`. Approved private plan location:
+`/home/dev/.local/state/fleet/orca-restart/plan.yml`; actual missing inputs
+(including Project Alpha Main command/handoff) must come from Main. No launch/env
+schema or invented operational commands. Final ruling `msg_dc4d07132417`
+approves existing stock systemd SIGKILL policy and bounded recovery; record
+`allow_systemd_sigkill: true`, actual stop timeout/duration/SIGKILL outcome and
+PTY scopes outside the unit, with no unit edits. Default false remains a gate.
+Read-only preflight validates all model-bearing session bindings and positive
+idle/shell evidence; incomplete owned OMP always blocks. No name exclusions.
+Manually started Mains may use the approved explicit process/session-file
+record instead of a launch receipt; builders retain strict launch bindings.
+Restored/remapped Main handles always require manual reconciliation, even
+when incarnation and Run match; automatic remapping is refused.
 
-Completeness follow-up: all same-user OMP processes (not only configured cwd),
-safe argv shape, explicit internal-worker non-session status, per-entry proc
-diagnostics, and live deleted-executable link handling. External BEFORE unit
-`fleet-task13-complete-before2-1793985794`, invocation
-`52acd8c64d8c48e4916805cc976acd66`, exits 0: 17 processes (9 complete agents,
-7 daemon brokers, 1 text-predict worker), no process errors. Remaining per-entry
-exclusions are foreign owners, known non-OMP OS services and zombie Orca; exact
-PIDs/fields/errno recorded in the runbook/private snapshot. Both supervisors
-active/running, NRestarts=0. No shared restart; phase B remains unverified.
-Review correction: use kernel status UIDs, not proc directory ownership;
-unknown credentials remain incomplete. Historical credential-based BEFORE
-capture `fleet-task13-statusuid-final-1793985794`, invocation
-`08ba668f56624b74b80eb212daff4abc`, exits 0 with 17 processes/no errors.
-143 tests pass, including credential mismatch and exit-race boundaries.
-Final independent review removed mutable-name-based non-OMP exclusions; earlier
-exit-0 classifications are superseded. Strict final external unit
-`fleet-task13-strict-final-1793985794` exits 1 with explicit incompleteness:
-19 OMP, one agent without an open session log (PID 2523586), plus same-user
-executable EACCES at PIDs 1248/1249/3582181. 143 tests pass. Main ruling
-`msg_88fdc4be4ae4`: partial alone is not failure, but every model-bearing
-builder/Main session must be complete and every incomplete entry listed.
-No fleet privilege escalation; no builder sudo without Main approval.
-Before final owner go, require launch-recorded session-directory/ID bindings and
-complete model/thinking evidence. Unverifiable legacy sessions block scheduling;
-project Mains coordinate safe retirement or fresh admitted launches first.
+The conductor must preserve metadata-only BEFORE/AFTER evidence, prove process
+survival before deciding whether a fresh Main is needed, never duplicate a
+survivor, and reconcile each project's Run/config/supervisor separately.
+Project Beta now has an owner-started Main (2026-11-06 22:05Z); all three
+projects use Main mode. Main `msg_1bd7a113d407` relayed Email's T-15 private
+handoff path and approved `fleet_idle` attesting both fleet and Email Main/lane
+safe-idle, without schema or native/process gate changes. Stop timeout cannot authorize blind
+relaunch; bounded recovery requires positive old-process exit and inactive/
+failed stock unit MainPID=0. Ambiguous terminal intent requires manual
+reconciliation, never a new plan ID/state reset to force retry.
 
-Phase B remains UNVERIFIED/NO-GO pending the coordinated owner-operated restart.
-Capture actual model/thinking, process survival/resume, replacement handles,
-coordinator Run rebinding and pending replay/ack before any GO verdict.
-Re-list handles; no dual-send. Reconcile `restored_unconfirmed` and possible live
-attempts before a fresh explicitly pinned retry; restart is not proof of exit.
+Historical BEFORE-only capture receipts and the superseded exit-0 process-name
+classifications remain in the runbook; the final strict capture honestly
+reported unreadable same-user entries and one missing agent session. They are
+not restart GO. The conductor is implemented and source-bound rehearsed:
+external dry-run invocation `ace6add5d06c4ecdb767925bf591ce12` identified the
+exact service/runtime and 16 handles, printed every conditional action and
+refused execution (exit 2) on real missing prerequisites. The private operator
+draft contains the supplied exact Project Alpha command/handoff and manual Main
+record. Approved fresh session directories stay under each project's state;
+T-30 handoff freshness and dual-Run handle/session-dir announcements are enforced.
+Idle confirmations and legacy lane mappings remain operator blockers. Main's
+21:11Z receipt supersedes the stale Fleet Main identity; refresh it at T-15.
+Main ruling `msg_65510e97c8bc` approves strictly validated canonical discovery
+from live argv for FD-less fresh sessions, never resumed/legacy logs. The exact
+process/argv/private directory/session is revalidated before every mutation.
+The replacement Main's actual argv/native/Run proof refreshed its private record;
+private fixture cutover accepted valid evidence and refused expected-argv drift.
+New external capture `a936ebd269804bad92f7c3b054ca2fea`
+observed 27 OMP processes, including the previously omitted self-updated
+Project Alpha Main's deleted backup executable (strict pattern plus argv0 proof).
+Actual model/thinking and exact process/session/handle matching were retained;
+unreadable same-user diagnostics still prevent any blanket capture GO claim.
+Owned scratch sleep service PID 2410269 exited/relaunched as 2410278; resuming
+the journal did not repeat the restart. A command/read/close round trip proved
+real scratch terminal creation in the existing lane. No shared restart or
+Main launch was exercised. Full limitations/receipts are in the runbook;
+242 regression tests pass; eighteen independent-review findings are resolved:
+duplication, routing/reporting/config gaps, recorded
+Main resume, supervisor continuity, expiry, nested helpers, private argv leaks,
+stale survivor metadata, unverified failure-report senders, stale recovery idle
+authorization, competing survivors, foreign-user census false blockers and
+created-Main acceptance amid competing/incomplete or wrong-terminal evidence,
+and dropped supervisor EnvironmentFile bindings.
+Reinstall now preserves the effective single EnvironmentFile and optional flag;
+ambiguous bindings refuse before intent. An owned scratch user service stayed
+active but lost its synthetic marker before the fix; a new PID retained it after.
+The real stock installer/systemd proof used only a private fixture consumer/config,
+not a real supervisor/credential; its unit and throwaways were removed.
+Fixed with shared validation, receipt-only recovery,
+per-attempt confirmation checks, current session/terminal/sender checks and
+digest-only evidence; argv stays in the private plan. Main `msg_e654aa00fe74`
+approved model-free complete current census as an additional down-runtime retry
+gate; survivors or unknowns require manual reconciliation, not filesystem-only
+idle proof. Runtime fault-adapter smoke retained attempts with zero privileged
+calls for expired confirmations and real surviving-agent census.
+Positively foreign-user processes are outside the owned census; unknown ownership
+still blocks. A scratch proc-directory view of real `/proc/1` proved that distinction.
+Created-Main acceptance waits boundedly for complete startup metadata and
+requires a sole root model plus shared process/native terminal binding before
+cutover. Real read-only created-receipt fixtures retained `created` for partial
+census, adapted competing rows and a mismatched handle. Actual Email process
+environment/cgroup and native reads accepted its matching handle under an
+explicit one-row complete-census adapter; no live state changed.
+Email Main PID 751081/start 124254263/session
+`01a1b2e5-903f-72b8-91ec-7908dcad7687` passed actual canonical argv/model/
+thinking/native Run binding checks. Private plan/manual record remain 0600.
+Updated external three-Main dry run returned exit 2 with twelve blockers and
+zero known private-prompt matches, creating no execution journal or live changes.
+Three owned old dry-run artifacts were sanitized; scoped journal inspection
+found no exact known private-prompt matches. Real current-census refusal and reserved-shell
+Run ownership were exercised without Main creation. Partial census/missing or
+unknown old terminal blocks automatic fresh Main; manual reconciliation remains
+required. External stock reporting first failed without sender identity, then
+explicit own-builder sender/run context enqueued `msg_64a5b634e1b5` from
+invocation `bb883caf3cba491db4ef3d367739d1be`. This incorrectly targeted the live
+Main Run; future probes must use scratch Runs. Main approved the production
+sender convention in `msg_96e2c57e8824`: verified project handle/Run, status-only
+automated/non-authority text, no retry on failed/ambiguous enqueue.
+Earlier source preserved the existing Main's handle and refused a simulated
+disconnection. Final-source survivor/cached reconciliation additionally requires a
+complete current census and exactly one same-root model candidate. Real partial
+census with two root agents refused; an adapter presenting the two complete real
+rows also refused the collision. No new Main, config or native mutation.
+PR35 final publication receipts remain on Pad/PR.
+
+**Phase B remains UNVERIFIED/NO-GO per dimension:** actual model/thinking,
+process survival versus fresh context, replacement handles/incarnations,
+coordinator Run rebinding, outstanding native Delivery replay/whole-batch ack
+and supervisor continuity. Preserve pre/post mail metadata privately; native
+unacked Delivery identity cannot be reconstructed from read-only inbox status.
+Only dated real before/after receipts can change these verdicts.
 
 ### TASK-14 — Generic decision-rights/policy template
 

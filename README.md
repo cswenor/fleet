@@ -348,16 +348,37 @@ the deployed native runtime supports the selected wake types and background
 wake/replay/ack behavior has been proved. Shared-checkout updates can deploy
 immediately; merge alone is not rollout approval. Builders remain unbound to Runs.
 
-Shared-runtime restart preparation uses the read-only
-`python3 -m fleet.orca_capture --config /private/fleet.yml --out /new/private-dir`
-tool, executed via an external `systemd-run --user` service before and after.
-It never starts/stops Orca, binds Runs or consumes/acks inbox mail. Titles are
-hashed; message content, argv and environments are excluded. Output is private
-(0700 directory / 0600 file); partial evidence remains explicitly unknown.
-See the [owner-coordinated restart runbook](docs/orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
-for prerequisites, external command, native Delivery-ID limitation and recovery.
-This is distinct from `fleet restart`, which retires one proven finished builder,
-and is **not** proof that Orca runtime restart/replay works.
+Shared-runtime restart uses `fleet orca-restart --plan PATH [--dry-run]`, not
+`fleet restart` (which retires one proven finished builder). The latest owner
+authorization allows one unattended stock **system** `orca-serve.service`
+restart via an external transient systemd service, scheduled **2026-11-07
+14:00 UTC**, with cross-project notice by **13:00 UTC**. Builders only rehearse;
+Main released the announcement merge hold; final-head review and CI remain
+required. Source-bound dry-run and scratch service/terminal rehearsals are
+recorded in the runbook; shared-restart acceptance remains pending.
+
+Main supplies `/home/dev/.local/state/fleet/orca-restart/plan.yml`; start with
+`fleet --config /home/dev/.config/fleet/fleet.yml orca-restart --plan
+/home/dev/.local/state/fleet/orca-restart/plan.yml --dry-run` externally.
+Dry run is strictly read-only and reports all blockers, including timing,
+fresh idle confirmations, exact process/unit identity, launch/session/model
+bindings and unreadable evidence. It does not schedule, write a journal or
+bypass gates. See the single [unattended restart runbook](docs/orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
+for the full private schema, approved stock-unit command, SIGKILL policy gate,
+external timer/service template, survival-first Main reconciliation and
+project-local config/service updates for the fleet, Project Alpha and Project Beta Mains.
+
+The conductor retains BEFORE/AFTER read-only capture and resumable journal
+privately (0700 directories / 0600 files). No secrets, transcript text or mail bodies;
+preserve native Delivery/message/read/ack metadata separately before quiescing
+and after replay. `fleet.orca_capture` itself never mutates Orca or consumes/
+acks mail. Stop/launch timeout is not permission to retry: positive exit is
+required, recovery is bounded, and ambiguous terminal creation requires manual
+reconciliation. Every stock restart attempt revalidates idle confirmations;
+down-runtime retries also require a complete current owned-OMP census with no
+surviving model-bearing agents. Survivors or unknown evidence require manual
+reconciliation. Never delete state or blindly rerun. A surviving Main must not
+be duplicated. Neither preparation nor a fresh launch proves restart/replay.
 
 Every result includes unfiltered, **read-only** terminal history diagnostics
 (requested limit 1000, subject to Orca's history cap), or an explicit diagnostic

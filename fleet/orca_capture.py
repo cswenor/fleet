@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
+import time
 import sys
 from .commands import CommandError, orca, run
 from .config import load
@@ -17,6 +19,13 @@ TERMINAL_FIELDS = ('handle', 'incarnationId', 'worktreeId', 'worktreePath',
 MESSAGE_FIELDS = ('id', 'run_id', 'delivery_contract', 'from_handle', 'to_handle',
                   'type', 'read', 'sequence', 'created_at', 'delivered_at')
 RUN_FIELDS = ('id', 'coordinator_handle', 'consumer_generation', 'legacy')
+OMP_BACKUP = re.compile(r'omp\.[0-9]+\.[0-9]+\.[0-9]+\.bak \(deleted\)')
+
+
+def _omp_executable(executable, argv0):
+    name = Path(executable).name
+    return (name.removesuffix(' (deleted)') == 'omp' or
+            bool(OMP_BACKUP.fullmatch(name) and Path(argv0).name == 'omp'))
 
 
 def _pick(value, fields):
@@ -34,6 +43,7 @@ def _session(path):
     """Stream only allowlisted event metadata; never copy transcript contents."""
     result = {'path': str(path), 'model': None, 'thinking': None}
     malformed = False
+    headers = 0
     with path.open() as stream:
         for line in stream:
             try:
@@ -43,14 +53,106 @@ def _session(path):
                 continue
             kind = event.get('type')
             if kind == 'session':
+                headers += 1
+                if 'timestamp' in event:
+                    result['started_at'] = event['timestamp']
                 result.update(_pick(event, ('id', 'cwd')))
             elif kind == 'model_change':
                 result['model'] = _pick(event, ('model', 'resolvedModelIsFallback', 'timestamp', 'id'))
             elif kind == 'thinking_level_change':
                 result['thinking'] = _pick(event, ('thinkingLevel', 'timestamp', 'id'))
-    result['complete'] = bool(result.get('id') and result['model'] and result['model'].get('model')
+    result['complete'] = bool(headers == 1 and result.get('id') and result['model'] and result['model'].get('model')
                               and result['thinking'] and result['thinking'].get('thinkingLevel') and not malformed)
     return result
+
+def _argv_session(proc, expected_id=None):
+    """Prove a fresh canonical log from one exact live argv, never default paths."""
+    command = (proc / 'cmdline').read_bytes()
+    arguments = command.split(b'\0')
+    if arguments[-1] == b'':
+        arguments.pop()
+    argv = [os.fsdecode(arg) for arg in arguments]
+    options = argv[:argv.index('--')] if '--' in argv else argv
+    if any(arg == flag or arg.startswith(flag + '=')
+           for arg in options for flag in ('--resume', '--continue', '--restore')):
+        return None
+    directories = []
+    for index, arg in enumerate(options):
+        if arg == '--session-dir':
+            if index + 1 >= len(options):
+                raise ValueError('session directory argument missing')
+            directories.append(options[index + 1])
+        elif arg.startswith('--session-dir='):
+            directories.append(arg.split('=', 1)[1])
+    if not directories:
+        return None
+    if len(directories) != 1:
+        raise ValueError('session directory ambiguous')
+    before = _stat(proc)
+    executable = (proc / 'exe').readlink()
+    if not argv or not _omp_executable(executable, argv[0]):
+        raise ValueError('not the recorded model executable')
+    boot = (PROC / 'sys/kernel/random/boot_id').read_text().strip()
+    cwd = str((proc / 'cwd').resolve(strict=True))
+    uid_rows = [line.split()[1:] for line in (proc / 'status').read_text().splitlines()
+                if line.startswith('Uid:')]
+    if len(uid_rows) != 1 or len(uid_rows[0]) != 4:
+        raise ValueError('process owner unproven')
+    real_uid = int(uid_rows[0][0])
+    directory = Path(directories[0])
+    if not directory.is_absolute() or '..' in directory.parts:
+        raise ValueError('session directory is not absolute')
+    for part in (directory, *directory.parents):
+        if part.is_symlink():
+            raise ValueError('session directory traverses a symlink')
+    info = directory.stat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != real_uid or info.st_mode & 0o022:
+        raise ValueError('unsafe session directory ownership or permissions')
+    logs = list(directory.glob('*.jsonl'))
+    if len(logs) != 1 or logs[0].is_symlink() or not logs[0].is_file():
+        raise ValueError('canonical session log ambiguous or unsafe')
+    log_info = logs[0].stat()
+    if log_info.st_uid != real_uid or log_info.st_mode & 0o022:
+        raise ValueError('unsafe canonical log ownership or permissions')
+    try:
+        session = _session(logs[0])
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError('canonical session metadata invalid') from None
+    if (not session['complete'] or not isinstance(session.get('id'), str) or session.get('cwd') != cwd or
+            expected_id is not None and session['id'] != expected_id):
+        raise ValueError('canonical session identity mismatch')
+    if not isinstance(session.get('started_at'), str):
+        raise ValueError('canonical session start time missing')
+    started = datetime.fromisoformat(session['started_at'])
+    boot_clock = time.clock_gettime(time.CLOCK_BOOTTIME)
+    now = time.time()
+    # start_ticks is truncated to clock ticks. Require a timestamp after its
+    # conservative upper bound, rather than accepting a possibly older log.
+    process_started = now - boot_clock + (before['start_ticks'] + 1) / os.sysconf('SC_CLK_TCK')
+    if started.tzinfo is None or not process_started <= started.timestamp() <= now:
+        raise ValueError('canonical log predates process or is future dated')
+    after_directory, after_log = directory.stat(), logs[0].stat()
+    after_uid_rows = [line.split()[1:] for line in (proc / 'status').read_text().splitlines()
+                      if line.startswith('Uid:')]
+    if (_stat(proc)['start_ticks'] != before['start_ticks'] or
+            (proc / 'cmdline').read_bytes() != command or
+            (proc / 'exe').readlink() != executable or
+            str((proc / 'cwd').resolve(strict=True)) != cwd or
+            (PROC / 'sys/kernel/random/boot_id').read_text().strip() != boot or
+            after_uid_rows != uid_rows or logs[0].is_symlink() or
+            any(part.is_symlink() for part in (directory, *directory.parents)) or
+            any(getattr(after_directory, key) != getattr(info, key)
+                for key in ('st_dev', 'st_ino', 'st_uid', 'st_mode')) or
+            any(getattr(after_log, key) != getattr(log_info, key)
+                for key in ('st_dev', 'st_ino', 'st_uid', 'st_mode'))):
+        raise ValueError('argv session evidence changed')
+    proof = {'pid': before['pid'], 'start_ticks': before['start_ticks'], 'boot_id': boot,
+             'argv_sha256': hashlib.sha256(command).hexdigest(), 'cwd': cwd,
+             'directory': str(directory), 'directory_device': info.st_dev,
+             'directory_inode': info.st_ino, 'session_path': str(logs[0]),
+             'session_id': session['id'], 'log_device': log_info.st_dev, 'log_inode': log_info.st_ino}
+    return proof, session
+
 
 
 def _processes(paths):
@@ -75,10 +177,14 @@ def _processes(paths):
             field = 'stat'
             before = _stat(proc)
             field = 'exe'
-            if (proc / 'exe').readlink().name.removesuffix(' (deleted)') != 'omp':
+            executable = (proc / 'exe').readlink()
+            if executable.name.removesuffix(' (deleted)') != 'omp' and not OMP_BACKUP.fullmatch(executable.name):
                 continue
             field = 'cmdline'
-            argv = (proc / 'cmdline').read_bytes().split(b'\0')
+            command = (proc / 'cmdline').read_bytes()
+            argv = command.split(b'\0')
+            if not _omp_executable(executable, os.fsdecode(argv[0])):
+                continue
             helper = next((kind for kind in ('daemon_broker', 'text_predict', 'js_eval_process')
                            if argv[1:2] == [('__omp_worker_' + kind).encode()]), None)
             flags = ('--model', '--thinking', '--session-dir', '--resume', '--restore',
@@ -87,8 +193,9 @@ def _processes(paths):
                 arg == flag.encode() or arg.startswith((flag + '=').encode()) for arg in argv)]
             field = 'cwd'
             cwd = str((proc / 'cwd').resolve(strict=True))
-            row = {**before, 'cwd': cwd, 'configured_cwd': cwd in paths,
+            row = {**before, 'exe': str(executable), 'cwd': cwd, 'configured_cwd': cwd in paths,
                    'kind': helper or 'agent', 'argv_shape': shape,
+                   'argv_sha256': hashlib.sha256(command).hexdigest(),
                    'sessions': [], 'errors': []}
             logs = set()
             field = 'fd'
@@ -103,6 +210,19 @@ def _processes(paths):
                     diagnostics.append({'pid': int(proc.name), 'field': 'fd_readlink',
                                         'errno': exc.errno, 'reason': 'fd_changed_or_unreadable'})
                     row['errors'].append('fd_scan_incomplete')
+            argv_session = None
+            if not helper and not logs:
+                try:
+                    argv_session = _argv_session(proc)
+                    if argv_session:
+                        binding, session = argv_session
+                        if (binding['start_ticks'] != before['start_ticks'] or
+                                binding['argv_sha256'] != row['argv_sha256'] or binding['cwd'] != cwd):
+                            raise ValueError('argv session process changed')
+                        row['argv_session'] = binding
+                        row['sessions'].append(session)
+                except (OSError, ValueError, KeyError, TypeError):
+                    row['errors'].append('argv_session_unproven')
             for path in sorted(logs):
                 try:
                     row['sessions'].append(_session(path))
@@ -111,7 +231,8 @@ def _processes(paths):
             field = 'stat_after'
             after = _stat(proc)
             row['identity_stable'] = (before['start_ticks'] == after['start_ticks']
-                                      and (proc / 'exe').readlink().name.removesuffix(' (deleted)') == 'omp'
+                                      and (proc / 'exe').readlink() == executable
+                                      and (proc / 'cmdline').read_bytes() == command
                                       and str((proc / 'cwd').resolve(strict=True)) == cwd)
             row['foreground'] = before['tty'] != 0 and before['pgrp'] == before['foreground_pgrp']
             if not row['identity_stable']:

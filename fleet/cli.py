@@ -24,6 +24,9 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot')
     p.add_argument('--drill-usage-file', help='test-only additional launch withhold, never bypasses real quota')
+    p = sub.add_parser('orca-restart', help='external journaled Orca service restart')
+    p.add_argument('--plan', required=True)
+    p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('restart')
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
@@ -75,6 +78,12 @@ def main():
                 print(json.dumps(install_central(c, args.environment_file)))
             return 0
         c = load(args.config)
+        if args.command == 'orca-restart':
+            from .orca_restart import conduct
+            result = conduct(c, args.plan, args.dry_run)
+            print(json.dumps(result, indent=2))
+            return 0 if result['event'] == 'complete' or (
+                result['event'] == 'dry-run' and not result['blockers']) else 2
         if getattr(args, 'drill_usage_file', None):
             c['_drill_usage_file'] = args.drill_usage_file
         if args.command == 'thread':
