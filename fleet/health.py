@@ -98,7 +98,7 @@ def collect(c, now=None):
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]
-    return {'builders': builders, 'worktrees': [{'id': w['id'], 'path': w['path'], 'branch': branch(w.get('branch'))} for w in trees],
+    return {'builders': builders, 'worktrees': [{'id': w['id'], 'path': w['path'], 'branch': branch(w.get('branch')), 'comment': w.get('comment')} for w in trees],
             'stray_worktrees': stray, 'errors': errors}
 
 

@@ -63,9 +63,22 @@ reconcile WIP/Pad handoff and confirm a fresh session before resuming parked wor
 
 ## Brief and launch builders
 
-Use fleet Pad ready queue (`pad project ready`; discover installed command help
-if schema differs). Pick an eligible roadmap task within owner-approved scope.
-Write the durable task brief/comment first; launcher tells builder to read it.
+Run `fleet --config ~/.config/fleet/fleet.yml next --json` for a read-only
+Main-confirmed proposal. Owner decided **no automatic starts** on TASK-12.
+The query uses open tasks in active plans, incoming blockers done/cancelled,
+Pad priority then oldest creation, and verified free shells; it lists exclusions
+for task status, dependencies, lane/receipt claims, occupancy and admission.
+Pad `project ready` currently returns in-progress work instead of the open queue.
+Main applies scope/budget/not-before constraints (including prose-only dates),
+chooses the task, and writes its durable brief/comment before explicit launch.
+The proposal reserves nothing. `launch` rechecks eligibility, duplicates and
+admission under its lock; `restart` retains its separate retirement requirements.
+Unresolved receipts withhold the entire slot, including different-task launches.
+Use exact shell/incarnation evidence or `restart`'s durable shell verification.
+Only for positively observed manual retirement, Main may run
+`fleet reconcile --slot PATH --launch EXACT_ID --evidence 'non-secret exit proof'`
+from its configured terminal; live/unknown/incomplete health refuses. This
+records evidence, never infers exit from missing terminals or stops processes.
 
 ```text
 Pad-Ref: TASK-N

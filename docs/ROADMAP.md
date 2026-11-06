@@ -20,7 +20,7 @@ statuses are `open`, `in-progress`, `done`, `cancelled`, not elsewhere's `todo`.
 | 3 | One Run/project; ask/reply/send/check/worker_done; Pad durable | Fleet has its own Run. Terminal builders report status/questions through durable inboxes, not keystrokes or fake worker_done. One-thread-per-task remains TASK-15. |
 | 4 | Main wakes on worker_done/escalation/question via background check --wait | TASK-10 implements `fleet wait`: bound Run receives both Run- and bound-terminal-addressed mail; native replay/ack, timeout/error distinction, read-only legacy diagnostics. Project Alpha cutover remains open. |
 | 5 | Builders use async builds/CI; supervisor relays PR/review/queue/merge events | Implemented `fleet watch-pr`; send is enqueue only. PR initial DIRTY/failing/merged/closed diagnoses immediately. |
-| 6 | Per-project supervisor: health, PR watcher, Pad dispatcher, quota, snapshot | Health/watch/push/install implemented; explicit guarded launch exists. Automatic Pad scheduling is NOT implemented; TASK-12. |
+| 6 | Per-project supervisor: health, PR watcher, Pad dispatcher, quota, snapshot | Health/watch/push/install implemented. TASK-12 adds read-only `fleet next` proposals; owner chose Main-confirmed explicit launch, never automatic starts. |
 | 7 | Quota reserve, no silent builder fallback, fail-closed | New launches withheld with unknown/stale/reserve/cap/disk failure; TASK-11 adds known-reserve cooperative priority parking, recovery reporting and explicit saved-reset consent policy (no spending command). |
 | 8 | Fresh task context; Sol compaction fixed ~200K; extended context off | `fleet launch` overlay enforces `f200000`, no auto-resume, extendedContext false. Repo config also fixes threshold; native Main/helper fallback policy mirrors Project Alpha, builder overlay overrides it. |
 | 9 | Read-only central with 24h PRs/commits/queue/builders/model/quota/disk; outage independent | Implemented the central host/the PaaS central, per-project systemd supervisors. Distinct project tokens; tailnet-only view, no controls. |
@@ -64,8 +64,10 @@ PLAN-2685. No product code or shared-runtime restart was performed.
   material; hidden is not redacted. Runtime-only token variables, redaction on,
   auto-deploy off on affected releases; sanitize only this app's sensitive command
   fields after manual rollout, rotate any exposed deploy key before sharing logs.
-- **Dispatch mode:** Main-confirmed explicit `fleet launch` until owner chooses
-  automatic behavior, priority and budget authority. Do not silently auto-dispatch.
+- **Dispatch mode (owner decision on TASK-12):** Main-confirmed only; no automatic
+  starts. `fleet next` proposes, Main applies scope/budget constraints and confirms
+  each explicit `fleet launch`. Main approved task-list/dependency queries because
+  Pad's current `project ready` returns in-progress work, omitting open backlog.
 - **Review gates:** fresh independent read-only unadvised Sol medium review then
   final-head green CI. No fleet review bot; do not claim one or a second model review.
 - **TASK-10 native routing (Main-approved):** live discovery showed a bound
@@ -162,12 +164,26 @@ See the PR and Pad for final-head independent review/CI gate receipts.
 
 ### TASK-12 — Pad ready queue to a free slot
 
-Current behavior: **Main-confirmed**, explicit launch; no automatic dispatcher.
-Ask owner whether automatic starts are wanted and which priorities, tie-breaks,
-confirmation/scope/cost boundaries apply. Acceptance: recorded decision, ready
-and dependency eligibility, cap/reserve/occupancy checks, duplicate-task/slot
-protection, and one real queued task launched on a reused slot as fresh Sol medium
-with Pad/Orca identity. Automation may not bypass owner budget authority.
+Implemented `fleet next [--json]`: read-only proposal from configured Pad workspace,
+open tasks in active plans, incoming blockers done/cancelled (unknown fails closed),
+priority then oldest creation/ref; every task/slot includes exclusion reasons.
+Actual Git branches, card comments, active builders and unresolved receipts block
+duplicate ownership. Proposals require a verified free shell and current
+quota/disk/cap/health admission. Explicit `launch` rechecks task/dependencies,
+ownership, admission and slot identity under the launcher lock; no auto-dispatch.
+Confirmed in-progress continuation retains fresh-handoff/restart semantics.
+Review correction: unresolved receipts now withhold whole slots, not only their
+original task. Exact matching shell, matching TASK-20 shell-verification receipt,
+or explicit Main-terminal `fleet reconcile` receipt resolves one launch; absence
+never proves exit. Main approved the minimal reconciliation CLI on TASK-12.
+Automatic slot selection also now applies branch/card exemptions after selection.
+
+2026-11-06 live CLI: TASK-13 first eligible; TASK-25 excluded by in-progress
+TASK-24; in-progress/finished tasks and both live lanes excluded. Real duplicate
+TASK-12 launch refused with active-builder/receipt and occupied-slot reasons.
+Main owns final queued TASK-13 launch into reused lane2 after this builder's
+publication/handoff, including resolved Sol medium and Pad/Orca identity receipts.
+Until that receipt is recorded, end-to-end queued-launch acceptance remains open.
 
 ### TASK-13 — Orca restart semantics (Phase 0 d)
 

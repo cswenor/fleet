@@ -111,6 +111,7 @@ fleet serve --once --no-deliver  # collect/baseline without inbox delivery
 fleet serve                    # foreground, durable inbox relay enabled
 fleet install-service          # starts user service, delivery OFF
 fleet install-service --deliver
+fleet next --json              # proposal only; Main confirms every launch
 fleet launch TASK-123 --slot /path/to/slot-a
 fleet restart TASK-124 --slot /path/to/slot-a --finished-ref TASK-123
 fleet watch-pr 42               # run with the agent's async shell facility
@@ -204,12 +205,55 @@ replayable delivery IDs, and those mailboxes expire when the terminal closes.
 Inspect/reconcile pre-binding history separately; never silently consume it to
 simulate reliable delivery. Enqueue alone still does not prove owner wake.
 
+`next` proposes one open task in an active Pad plan, ordered by priority
+(`critical`, `high`, `medium`, `low`, unset) then oldest creation time and ref.
+It queries the configured workspace's task list and dependency edges: Pad's
+`project ready` currently favors in-progress work and is not an open-task queue.
+Every task and configured slot includes exclusion reasons. Incoming blockers must
+be done/cancelled; unknown/unreadable dependency state excludes the task.
+Actual lane Git branches, Orca card comments, active builders and unresolved
+launch receipts prevent duplicate-task proposals. Only one connected, verified
+shell with no other live/unknown terminal makes a proposed slot free. Quota,
+disk, cap and incomplete health can withhold all proposals. Exit 0 means a
+proposal, 1 means none, 2 means collection/command failure; `--json` is structured.
+Not-before fields are shown when present; Main applies scheduling/scope/budget
+constraints, including dates expressed only in prose.
+
+There are **no automatic starts**. Main inspects `next`, writes the Pad brief,
+prepares the task branch, and explicitly runs `launch REF --slot PATH`.
+Launch re-reads Pad state/dependencies and ownership under the shared launcher
+lock, rechecks admission and terminal identity after preparation hooks, and
+refuses duplicate live/unresolved task attempts or occupied slots. An explicit
+in-progress continuation is allowed only after the previous attempt's exit is
+positively reconciled; stale receipts or missing terminals never prove exit.
+Branches/card comments in the selected slot may name the task being confirmed;
+the same claim in another slot blocks it. `next` never reserves or mutates Pad,
+Git, or Orca state; its proposal can become stale before confirmation.
+
+An unresolved launch receipt withholds its **whole slot**, even for a different
+next task. Exit proof is an exact terminal/incarnation at a verified shell, a
+matching `restart` retirement receipt that reached shell verification, or an
+explicit Main reconciliation. Never infer exit from an absent/replaced terminal.
+From the configured Main terminal only:
+
+```sh
+fleet reconcile --slot /path/to/slot-a --launch EXACT_LAUNCH_ID \
+  --evidence 'final stop observed; shell verified before terminal was closed'
+```
+
+This records launch ID, slot, actor, time and supplied evidence in private
+`reconciliations.json`; it does not stop a process or launch anything. Live,
+unknown/disconnected or incomplete slot health refuses reconciliation. Supply
+only observed, non-secret evidence. Wrong/stale IDs cannot clear another attempt.
+
 Launch checks fresh quota, free disk, active-session cap, and slot occupancy.
 A connected terminal at a verified shell prompt is not an active builder.
 An existing slot reuses its single ready shell terminal after a fresh readiness/
 identity check; no `/exit` is sent and no old context is resumed. Live, unknown,
 and ambiguous sessions remain blocked. Prompt detection supports standard
 `user@host:path$` / `bash-version$` POSIX prompts; custom prompts fail closed.
+Shell reuse requires a nonempty terminal incarnation, unchanged in the
+post-preparation inventory and final `terminal show` immediately before input.
 Disconnected/orphaned sessions and unknown terminal identities still occupy their
 configured slot and count toward admission until positively reconciled. A stale
 shell screen is not a connected, writable shell receipt. Disconnected terminals

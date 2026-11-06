@@ -5,7 +5,7 @@ import re
 import shlex
 import time
 import yaml
-from . import health, snapshot, state
+from . import dispatcher, health, snapshot, state
 from .commands import orca, run
 
 
@@ -14,20 +14,31 @@ def launch(c, ref, slot=None, *, _locked=False):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     with nullcontext() if _locked else state.lock(c, 'launcher'):
         s = snapshot.collect(c)
+        inventory = s.get('inventory', {})
+        occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
+        slots = c['builder']['slots']
+        chosen = str(Path(slot).expanduser().resolve()) if slot else next(
+            (p for p in slots if p not in occupied and Path(p).is_dir()
+             and not dispatcher.receipt_reasons(c, inventory, p)), None)
+        if chosen and chosen not in slots:
+            raise ValueError('requested slot is not in builder.slots')
         admission = snapshot.may_start(c, s)
+        if s.get('inventory') and not s['inventory'].get('errors'):
+            requested = chosen
+            admission['reasons'].extend(dispatcher.duplicate_reasons(
+                ref, dispatcher.assignments(c, s['inventory']), requested))
+            if requested in c['builder']['slots']:
+                if any(b['path'] == requested and health.active(b) for b in s['inventory']['builders']):
+                    admission['reasons'].append('slot has a live or unconfirmed omp session; finish it first')
+                admission['reasons'].extend(dispatcher.receipt_reasons(c, inventory, requested))
+            admission['may_start'] = not admission['reasons']
         if not admission['may_start']:
             raise ValueError('launch withheld: ' + '; '.join(admission['reasons']))
         orca(c, 'terminal', 'show', '--terminal', c['coordinator']['terminal'])
         orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
-        run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', ref, '--format', 'json'], c['root'])
-        inventory = s['inventory']
-        occupied = {b['path'] for b in inventory['builders'] if health.active(b)}
-        slots = c['builder']['slots']
-        chosen = str(Path(slot).expanduser().resolve()) if slot else next((p for p in slots if p not in occupied and Path(p).is_dir()), None)
-        if chosen and chosen not in slots:
-            raise ValueError('requested slot is not in builder.slots')
         if chosen in occupied:
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
+        dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
         if existing:
             matches = [w for w in inventory['worktrees'] if w['path'] == chosen]
@@ -51,6 +62,19 @@ def launch(c, ref, slot=None, *, _locked=False):
                 raise ValueError('Orca created a different slot path; inspect it before retrying')
         if existing and c['hooks'].get('before_launch'):
             run(c['hooks']['before_launch'], w['path'])
+        fresh = snapshot.collect(c)
+        admission = snapshot.may_start(c, fresh)
+        if not admission['may_start']:
+            raise ValueError('launch withheld after preparation: ' + '; '.join(admission['reasons']))
+        if any(b['path'] == w['path'] and health.active(b) for b in fresh['inventory']['builders']):
+            raise ValueError('slot has a live or unconfirmed omp session; launch withheld')
+        if any(not b.get('incarnation_id') for b in fresh['inventory']['builders'] if b['path'] == w['path']):
+            raise ValueError('slot terminal incarnation is unknown; launch withheld')
+        before = sorted((b['terminal'], str(b.get('incarnation_id'))) for b in inventory['builders'] if b['path'] == w['path'])
+        after = sorted((b['terminal'], str(b.get('incarnation_id'))) for b in fresh['inventory']['builders'] if b['path'] == w['path'])
+        if before != after:
+            raise ValueError('slot terminal identity changed during preparation; launch withheld')
+        dispatcher.check_launch(c, ref, fresh['inventory'], w['path'])
         b = c['builder']
         rules = Path(w['path']) / b['rules_file']
         if not rules.is_file():
@@ -86,6 +110,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
             latest = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
             if (not terminal.get('connected') or terminal.get('orphaned') or
                     not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
+                    not shells[0].get('incarnation_id') or terminal.get('incarnationId') != shells[0]['incarnation_id'] or
                     not health.shell_ready('\n'.join(latest.get('tail', [])))):
                 raise ValueError('slot terminal is no longer a ready shell; launch withheld')
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')

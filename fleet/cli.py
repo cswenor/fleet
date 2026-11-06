@@ -18,6 +18,8 @@ def main():
     p.add_argument('--once', action='store_true')
     p.add_argument('--no-deliver', action='store_true')
     p.add_argument('--drill-usage-file', help='test-only quota fixture; disables central push')
+    p = sub.add_parser('next', help='propose a ready task and verified slot; never launches')
+    p.add_argument('--json', action='store_true')
     p = sub.add_parser('launch')
     p.add_argument('ref')
     p.add_argument('--slot')
@@ -26,6 +28,10 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
     p.add_argument('--finished-ref', required=True)
+    p = sub.add_parser('reconcile', help='Main records positive exit evidence for an exact launch')
+    p.add_argument('--slot', required=True)
+    p.add_argument('--launch', required=True, dest='launch_id')
+    p.add_argument('--evidence', required=True, help='non-secret positive exit evidence; absence is not exit')
     p = sub.add_parser('watch-pr')
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
@@ -61,6 +67,15 @@ def main():
         if args.command == 'serve':
             from .supervisor import serve
             serve(c, not args.no_deliver, args.once)
+            return 0
+        if args.command == 'next':
+            from .dispatcher import propose, render
+            result = propose(c)
+            print(json.dumps(result, indent=2) if args.json else render(result))
+            return 0 if result['proposal'] else 1
+        if args.command == 'reconcile':
+            from .dispatcher import reconcile
+            print(json.dumps(reconcile(c, args.slot, args.launch_id, args.evidence), indent=2))
             return 0
         if args.command == 'launch':
             from .launcher import launch
