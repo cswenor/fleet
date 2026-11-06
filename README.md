@@ -658,6 +658,9 @@ migration, preserve the old SQLite database with its backup API, verify producti
 ingestion/read access, then retire only the old central service/frontend. Do not
 stop or move the per-project supervisors.
 
+Project Beta's completed Linux onboarding and exact production acceptance
+receipts are recorded in the [TASK-17 roadmap section](docs/ROADMAP.md#task-17--phase-4-install-elsewhere).
+
 ### Optional standalone central: systemd
 
 Copy `central.example.yml` to a private configuration directory. Map each repo to

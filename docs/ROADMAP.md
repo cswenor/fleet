@@ -105,7 +105,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | 2 central | Delivered, owner-corrected placement | fleet [#7](https://github.com/cswenor/fleet/pull/7), [#8](https://github.com/cswenor/fleet/pull/8), [#9](https://github.com/cswenor/fleet/pull/9), [#10](https://github.com/cswenor/fleet/pull/10), [#11](https://github.com/cswenor/fleet/pull/11). TASK-2690: the central host the PaaS app yktqfo8prpciui09gm2i4763, healthy deployment rrl3jc2y3ngx3elsa8pck3ml at b501e23; live Project Alpha ingestion 8 builders/31 PRs, no collector errors; consistent history migration, 46 rows/integrity ok. |
 | Self-host/handover | Delivered and installed 2026-11-06 | [#12](https://github.com/cswenor/fleet/pull/12) setup + fail-closed unknown/disconnected occupancy; [#13](https://github.com/cswenor/fleet/pull/13) complete knowledge. Fresh independent unadvised read-only Sol review PASS, CI [42240339663](https://github.com/cswenor/fleet/actions/runs/42240339663) / [42240526182](https://github.com/cswenor/fleet/actions/runs/42240526182) green. Fleet PLAN-9/DOC-19, two reusable slots and own active supervisor; real CLI status/live-slot refusal and the central host **both projects LIVE** verified. Run run_ca3dd4d80c5a reserved; **Main not started by builder**. Installation receipt in docs/MAIN.md. |
 | 3 generic process + Project Alpha process | Partial | TASK-14 generic policy and TASK-15 threads implemented; publication receipts on assigned Pad tasks. TASK-16 Project Alpha coordination remains. |
-| 4 additional projects | Open, owner chooses | Fleet TASK-17; candidates below, no implied permission to install all. |
+| 4 additional projects | Project Beta accepted; further rollout owner-gated | TASK-17 receipts below: merged project policy, real launch/thread/event/retirement and three-project the central host proof. Other candidates remain unapproved. |
 | Usage outcome | Baseline recorded; after measurement open | Fleet TASK-18. Do not label the workflow a measured saving yet. |
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
@@ -575,12 +575,12 @@ to Project Alpha builder terminals or implements Project Alpha repo changes itse
 
 Owner approved **Project Beta only** on TASK-17 (2026-11-06). House of Voi,
 Tolkien, Elsewhere, coqui and whatsapp-rag were not selected. Project Beta starts
-with one reusable lane; its own Main is reserved, not started by the installer.
+with one reusable lane; the installer reserved its own Main Run/shell but did not start Main.
 Use the README onboarding checklist and preserve project policy and bot gates.
 
 | Project | Installation acceptance |
 |---|---|
-| `example-org/project-beta` | Linux preparation approved after owner migration decision (2026-11-06 18:47Z). One reusable lane, own reserved Run/shell (Main not started), private config/env 0600 and active supervisor; real CLI, skill-discovery and reserved-Run event wake proved below. Email PR merge, real builder launch and the PaaS deployment remain gated on Main's confirmation of Mac wind-down. |
+| `example-org/project-beta` | Accepted on Linux: project policy merged through all three gates; own Pad/Run, one reusable lane, private runtime-only token and active supervisor; real pinned launch, durable thread/result, supervisor merge-event wake, clean retirement and fresh the central host card. Fleet Main reports Email Main started at 22:05Z; not started by the installer. |
 
 Per-project acceptance remains repo-local config/instructions, own Pad/Run/slots,
 pinned builder model policy, systemd supervisor, distinct private the PaaS token,
@@ -588,13 +588,12 @@ fresh the central host card, actual launch/event/PR-wait proof and clean logs. A
 one project does not authorize changing another project's runtime or policy.
 
 Owner's Linux migration ruling supersedes upstream `3c859e0b`'s owner-Mac
-instruction; Main recorded it on TASK-17 and reply `msg_65e059fe3888`. Local
-Project Beta checkout/lane fast-forwarded without resets to `77249a60`.
-Reserved project Run `run_c018565b177d` belongs to idle coordinator shell
-`term_585ef494-543b-4a24-b1c3-b886aa1c7a42`; no Main started. One configured
+instruction; Main recorded it on TASK-17 and reply `msg_65e059fe3888`.
+Installer reserved project Run `run_c018565b177d` with coordinator shell
+`term_585ef494-543b-4a24-b1c3-b886aa1c7a42` but did not start Main. One configured
 lane `/home/dev/orca/workspaces/project-beta/task-17-fleet-lane`, no extra lanes.
-Owner's other rollout candidates remain unselected; seven Mac tasks/branches
-are untouched pending owner-coordinated handoffs.
+Owner's other rollout candidates remain unselected. Main confirmed the Mac Main
+reached a safe idle point before release; none of its seven product tasks was started.
 
 Real `fleet --config ~/.config/fleet/project-beta.yml status --json` returned no
 collector errors, one unbound ready-shell lane and no strays; `may-start --json`
@@ -602,7 +601,10 @@ returned true. Project supervisor active/running, `NRestarts=0`; private config
 and distinct token EnvironmentFile mode 0600, local snapshot present, service
 log token-match count zero. Reserved-shell `fleet wait` woke on transport smoke
 `msg_10583047ad63` / `delivery_815be85da53d`, then actual supervisor PR434 event
-`msg_6f577362779c` / `delivery_d3a5fa943250`; latter retained unacknowledged.
+`msg_6f577362779c` / `delivery_d3a5fa943250`. The installer processed and acknowledged
+the inherited deliveries before arming a fresh wait. Actual PR511 merge relay
+`msg_efed3a2f1f0a` / `delivery_96fd6bfc30e9` returned the background wait on the
+reserved Email Run; durable enqueue alone was not counted as wake evidence.
 
 Fresh project read-only session `01a1b247-f613-74d1-bf5d-531f4952c1b3` actually
 read `skill://fleet`, answered durable question/wait and all three project merge
@@ -610,8 +612,57 @@ gates correctly, and recorded Sol medium/no fallback. Copied skill/review overla
 remain byte-identical; target formatter excludes only these upstream files.
 Project Beta lint/typecheck and four launcher/scratch tests passed. Compose CLI
 smoke with dummy tokens proved distinct Email token mapping, loopback exposure
-and unchanged snapshots volume. These are preparation receipts, not completed
-central ingestion/deployment, PR publication or builder-launch acceptance.
+and unchanged snapshots volume.
+
+Completion receipts (2026-11-06): [Project Beta PR511](https://github.com/example-org/project-beta/pull/511)
+merged by the project bot at 21:47:07Z as `1a4e23a9f6f7d3856d81052878c6646b274250f6`.
+The bot refreshed its head to `f6032e21954f4bbc3d79b1ea6dec4c8a7fde081c`; a new
+stock-overlay independent reviewer session `01a1b2d1-3308-77c4-8794-c7f84a46306d`
+passed, with actual Sol medium/no-fallback events and read/grep/glob-only tools.
+[Full CI42298910753](https://github.com/example-org/project-beta/actions/runs/42298910753)
+and bot approval were green on that head. Main removed its temporary hold only
+after verifying those receipts; [merge-gate42299433765](https://github.com/example-org/project-beta/actions/runs/42299433765)
+then passed. No hand merge or gate waiver.
+
+Main parented the read-only smoke TASK-164 under active Email PLAN-183 after
+the launch correctly refused its missing PLAN ancestry. Actual `fleet launch`
+receipt `1794001814541243846` reused the unbound configured lane on branch
+`cswenor/task-164-fleet-smoke`. Fresh session `01a1b2d7-48e7-7755-83cf-32f79835ffe1`
+read `skill://fleet`, opened its durable task thread, recorded its result and
+returned `SMOKE-COMPLETE`; actual events prove Sol medium, no fallback or later
+routing change. No repository edits or product work. Under Main's explicit
+read-only-smoke retirement ruling, the installer journaled final-stop/empty-idle
+composer, exact foreground PID/starttime/session/incarnation and no child jobs,
+then sent one `/exit`. The old PID disappeared and the same-incarnation bash
+became foreground; actual `fleet status` showed `shell_ready: true`, no Run
+binding, no collector errors or strays. TASK-164 is done; no next task launched.
+
+Main's exact-head central GO `msg_8c0c0ffc60ac` followed the announced Project Alpha
+window. Stock the PaaS REST pinned and deployed `e73838fd3b01abdfff0f305c746353894bb569dc`;
+deployment `v78dtlr05uudw98dcr51xvnc` finished at 22:15:32Z. Actual container image
+matched that commit, was healthy with read-only root, and retained the original
+`yktqfo8prpciui09gm2i4763_snapshots:/data` volume. Auto/preview deployment stayed off;
+no supervisor, shared checkout or other application was changed.
+
+Email's distinct token and the three-project allowlist were registered runtime-only
+through REST. Actual container inspection proved three nonempty, distinct runtime
+tokens; no Fleet token variables were baked into image configuration. Only two
+sensitive encoded-key `command` fields among this deployment's 71 stored log rows
+were sanitized. Raw/base64/decoded deployment-log token-match count was zero.
+The exposed read-only deploy key was rotated through GitHub/the PaaS, actual
+replacement-key repository access passed, and the predecessor was revoked.
+The temporary team-bound API token was revoked under Main's narrow UI-equivalent
+exception (no stock personal-token revoke endpoint); its former authenticated GET
+returned HTTP 401. Temporary credential/private-key files were removed.
+
+Real Chromium overview at 22:18Z showed **Project Beta, Project Alpha and fleet LIVE**
+(snapshot ages 44s/35s/14s); Email's drill-down worked and browser errors were empty.
+Post-deploy Email supervisor logs had zero token matches, tracebacks or failed
+pushes; the service remained active and private config/env remained mode 0600.
+Central's retained stdout/stderr contained no entries; runtime token presence and
+fresh ingestion were independently verified rather than inferred from quiet logs.
+Fleet Main accepted the rollout in `msg_fba53cfb806a` and reported that
+Email Main had started at 22:05Z; no installer terminal input was sent after that start.
 
 ### TASK-18 — Success metric: Codex usage per merged PR
 
