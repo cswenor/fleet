@@ -17,6 +17,18 @@ fresh independent read-only unadvised Sol review then CI are the two PR gates.
 The committed host binding has no credentials; private supervisor config is
 `~/.config/fleet/fleet.yml`, token in a mode-0600 EnvironmentFile.
 
+## Adopting fleet in a project
+
+Copy [fleet.example.yml](fleet.example.yml) and adopt
+[the decision-rights template](templates/AGENTS.decision-rights.md) in the project's
+AGENTS instructions. Fill its project, Main Run, approval-record, reviewer, CI and
+dispatch bindings; fleet's filled example is not another project's configuration.
+Point `builder.rules_file` at those instructions. Keep project-specific policy in
+AGENTS/config, not fleet code. Builders own task-internal implementation, Main
+owns scope/public contracts, and the owner retains budget/reset/rollout authority.
+Record owner approval before saved-reset spend; self-merge only after independent
+review and green final-head CI. No review bot or automatic dispatch is assumed.
+
 ## Install and inspect
 
 ```sh

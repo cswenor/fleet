@@ -12,6 +12,7 @@ builder:
   slots:
     - /path/to/slot-a
     - /path/to/slot-b
+  # Adopt templates/AGENTS.decision-rights.md here; fill project/Main/review bindings.
   rules_file: AGENTS.md
   idle_seconds: 2700
   footer: |

@@ -14,6 +14,29 @@ and DOC-2181 are in `elsewhere` (use explicit `--workspace elsewhere`).
 status, remaining work and acceptance. Update it when work lands; Pad carries
 durable task evidence, not competing roadmap text.
 
+## Decision rights
+
+Fleet adopts `templates/AGENTS.decision-rights.md`; its filled fleet bindings
+apply here. Record approvals in the assigned fleet Pad task comments.
+- Builder decides internal implementation within the briefed Target/Change,
+  tests, task-local refactors and small PR splitting.
+- Main decides scope additions, public CLI/API/config contracts, security posture,
+  cost/quota-affecting behavior, gate-waiver requests and cross-project coordination.
+  Main confirms launches via `fleet launch`; no auto-dispatch. Main cannot waive
+  owner-only approvals or the two publication gates below; other waivers must be
+  explicit and recorded.
+- Owner decides budgets, saved-reset spend (approval recorded BEFORE spending),
+  rollout projects/order, production/shared-runtime restarts and dispatcher
+  automation mode. Main's cost decisions do not grant budget/reset permission.
+- Escalate builder -> Main via a durable question/message to
+  `run:run_ca3dd4d80c5a`, with Pad ref, proposal, risk and decision needed. Reply
+  in-thread and record the ruling on Pad; Main escalates owner-only decisions
+  to the owner. Enqueue is not approval or proof of wake. Pending a decision,
+  proceed only with unaffected in-scope work.
+- Unknown is not permission: unknown quota blocks starts, unknown liveness
+  forbids stop/retry, ambiguous launch receipts forbid duplicate launches.
+  Preserve user work while reconciling uncertainty.
+
 ## Builder boundaries
 
 - Main briefs Target / Change / Constraints / Ownership / Observable acceptance,
@@ -42,10 +65,9 @@ Small PRs to `cswenor/fleet`, with Pad ref and real runtime evidence. Every PR h
    second gate, not a claimed second human/model review.
 
 Builders self-merge only after both gates; never hand-merge a failing head. CI
-failures caused by the task are the builder's responsibility. Scope additions,
-public behavior/security/cost changes go to Main; owner alone approves saved
-reset spending and rollout choices. Generic project policy lives in `fleet.yml`,
-AGENTS or templates, never hardcoded project names/rules in Python.
+failures caused by the task are the builder's responsibility. Project-specific
+policy lives in `fleet.yml`, AGENTS or templates, never hardcoded project rules
+in Python.
 Verify changes on the real CLI/service/browser surface; tests alone do not prove
 installation or wake delivery. Retain evidence as source-bound where appropriate.
 
@@ -56,9 +78,9 @@ Orca send means durable enqueue, not guaranteed wake. Check mail at natural
 checkpoints without hiding status/replies behind type filters. Process a Delivery
 before acknowledging it. Reply to questions in their original inbox thread with
 `orchestration reply --id`, from the terminal owning the identity.
-Main waits on events; today one `check --wait` cannot cover both Run and
-terminal mailboxes. Follow the honest interim procedure in `docs/MAIN.md` until
-fleet TASK-10 supplies and proves a combined wait; never silently claim coverage.
+Main uses the bound-Run `fleet wait` procedure in `docs/MAIN.md`: current Orca
+routes Run and bound-terminal mail to one native Delivery path, not independent
+mailbox multiplexing. Reconcile pre-binding legacy history separately.
 Terminal builders have no supervised Dispatch: do not manufacture worker_done.
 
 ## Secrets and production
