@@ -476,13 +476,45 @@ to Project Alpha builder terminals or implements Project Alpha repo changes itse
 
 ### TASK-17 — Phase 4 install elsewhere
 
-Ask owner **which projects, in what order**. Candidates from Pad workspace list:
-Project Beta (`project-beta`), House of Voi (`house-of-voi`), Tolkien (`tolkien`),
-Elsewhere (`elsewhere`), coqui (`coqui`), whatsapp-rag (`whatsapp-rag`). For each
-approved project: repo-local config/instructions, own Pad/Run/slots, pinned builder
-model policy, systemd supervisor, distinct private token registered in the PaaS,
-fresh the central host card, actual launch/event/PR-wait proof, clean logs. Record individual
-acceptance and owner-declined candidates; candidate list is not rollout approval.
+Owner approved **Project Beta only** on TASK-17 (2026-11-06). House of Voi,
+Tolkien, Elsewhere, coqui and whatsapp-rag were not selected. Project Beta starts
+with one reusable lane; its own Main is reserved, not started by the installer.
+Use the README onboarding checklist and preserve project policy and bot gates.
+
+| Project | Installation acceptance |
+|---|---|
+| `example-org/project-beta` | Linux preparation approved after owner migration decision (2026-11-06 18:47Z). One reusable lane, own reserved Run/shell (Main not started), private config/env 0600 and active supervisor; real CLI, skill-discovery and reserved-Run event wake proved below. Email PR merge, real builder launch and the PaaS deployment remain gated on Main's confirmation of Mac wind-down. |
+
+Per-project acceptance remains repo-local config/instructions, own Pad/Run/slots,
+pinned builder model policy, systemd supervisor, distinct private the PaaS token,
+fresh the central host card, actual launch/event/PR-wait proof and clean logs. Approval of
+one project does not authorize changing another project's runtime or policy.
+
+Owner's Linux migration ruling supersedes upstream `3c859e0b`'s owner-Mac
+instruction; Main recorded it on TASK-17 and reply `msg_65e059fe3888`. Local
+Project Beta checkout/lane fast-forwarded without resets to `77249a60`.
+Reserved project Run `run_c018565b177d` belongs to idle coordinator shell
+`term_585ef494-543b-4a24-b1c3-b886aa1c7a42`; no Main started. One configured
+lane `/home/dev/orca/workspaces/project-beta/task-17-fleet-lane`, no extra lanes.
+Owner's other rollout candidates remain unselected; seven Mac tasks/branches
+are untouched pending owner-coordinated handoffs.
+
+Real `fleet --config ~/.config/fleet/project-beta.yml status --json` returned no
+collector errors, one unbound ready-shell lane and no strays; `may-start --json`
+returned true. Project supervisor active/running, `NRestarts=0`; private config
+and distinct token EnvironmentFile mode 0600, local snapshot present, service
+log token-match count zero. Reserved-shell `fleet wait` woke on transport smoke
+`msg_10583047ad63` / `delivery_815be85da53d`, then actual supervisor PR434 event
+`msg_6f577362779c` / `delivery_d3a5fa943250`; latter retained unacknowledged.
+
+Fresh project read-only session `01a1b247-f613-74d1-bf5d-531f4952c1b3` actually
+read `skill://fleet`, answered durable question/wait and all three project merge
+gates correctly, and recorded Sol medium/no fallback. Copied skill/review overlay
+remain byte-identical; target formatter excludes only these upstream files.
+Project Beta lint/typecheck and four launcher/scratch tests passed. Compose CLI
+smoke with dummy tokens proved distinct Email token mapping, loopback exposure
+and unchanged snapshots volume. These are preparation receipts, not completed
+central ingestion/deployment, PR publication or builder-launch acceptance.
 
 ### TASK-18 — Success metric: Codex usage per merged PR
 

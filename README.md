@@ -63,6 +63,9 @@ no moving symlinks, installer code or public skill registry are required.
 `orca skills install/update` manages bundled Orca skills; none is needed for this
 plain project-local skill plus separate config overlay. Do not publish to a
 registry without owner approval.
+Keep the copied skill and overlay byte-identical. If the target formatter would
+rewrite them, exclude just these vendored files using its existing vendor-ignore
+convention; continue checking all project-authored policy and configuration.
 
 Prove stock discovery with a **fresh** omp session inside the target checkout:
 ask how a Fleet builder requests a decision and publishes safely, without naming
@@ -521,7 +524,11 @@ Set runtime-only variables in the PaaS (never build arguments):
 - `FLEET_PROJECT_TOKEN`: the private token shared with the first supervisor.
 - `FLEET_SELF_TOKEN`: optional second-project token for fleet's own supervisor;
   required when `cswenor/fleet: FLEET_SELF_TOKEN` is in the central allowlist.
-- `FLEET_CENTRAL_CONFIG`: multiline/literal YAML, for example:
+- `FLEET_PROJECT_BETA_TOKEN`: distinct Project Beta ingestion token; required
+  when `example-org/project-beta: FLEET_PROJECT_BETA_TOKEN` is in the allowlist.
+- `FLEET_CENTRAL_CONFIG`: multiline/literal YAML. The approved three-project
+  allowlist below requires all three runtime tokens; apply Project Beta's entry
+  only after coordinated deployment GO:
 
 ```yaml
 version: 1
@@ -530,7 +537,9 @@ behind_proxy: true
 port: 8787
 database: /data/snapshots.sqlite3
 projects:
-  owner/project: FLEET_PROJECT_TOKEN
+  example-org/project-alpha: FLEET_PROJECT_TOKEN
+  cswenor/fleet: FLEET_SELF_TOKEN
+  example-org/project-beta: FLEET_PROJECT_BETA_TOKEN
 ```
 
 For more projects, add distinct token environment names to this mapping, and add

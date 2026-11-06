@@ -9,6 +9,7 @@ services:
       FLEET_CENTRAL_CONFIG: "${FLEET_CENTRAL_CONFIG:?Set central YAML in runtime environment}"
       FLEET_PROJECT_TOKEN: "${FLEET_PROJECT_TOKEN:?Set the project ingestion token}"
       FLEET_SELF_TOKEN: "${FLEET_SELF_TOKEN:-}"
+      FLEET_PROJECT_BETA_TOKEN: "${FLEET_PROJECT_BETA_TOKEN:-}"
     volumes:
       - snapshots:/data
     read_only: true
