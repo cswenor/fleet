@@ -213,13 +213,31 @@ production service rollout were used. Publication receipts retained on TASK-22.
 
 ### TASK-13 — Orca restart semantics (Phase 0 d)
 
-Use documented isolated runtime or owner-approved maintenance window, never a
-surprise shared restart. Capture actual model/thinking before and after, whether
-process survived/resumed, replacement handle mapping, coordinator Run rebinding,
-and pending delivery replay/ack. Re-list handles; no dual-send. Reconcile
-restored_unconfirmed before any retry. A retry re-pins explicit placement/model;
-a runtime restart alone does not prove old attempt stopped. Publish evidence and
-GO/NO-GO, not an inference from requested launch settings.
+Phase A implements the read-only `python3 -m fleet.orca_capture` tool and
+[restart runbook](orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised).
+Owner's TASK-13 decision supersedes isolated-only verification: one real shared
+restart at a coordinated safe point, **not by the builder**, with final owner
+go immediately beforehand and external capture. Orca 1.4.242 has no documented
+isolated profile startup recipe or quit command; current host reports
+`unsupported-headless-serve`. Owner must document/perform actual stop/start.
+Project Alpha requires 60 minutes' notice, explicit all-eight-lane safe confirmation,
+TASK-22 deployed, both supervisors kept running, and fresh Main handoffs/startup.
+
+Main approved title hashes + Pad refs, message metadata only, no consuming
+capture/ack and an explicit missing-native-Delivery-ID limitation. Main saves
+its already-observed Delivery/message receipt privately before quiescing.
+Real no-restart `systemd-run --user` BEFORE capture: unit
+`fleet-task13-before-dry2-1793985794`, invocation
+`241a262c21144a8e8f23059be75f63cb`; 13 terminals, 14 OMP processes,
+both supervisors active/running with NRestarts=0, output 0700/0600.
+Partial exit 1 reports `proc_scan_incomplete`; missing session evidence stays
+unknown. Tool/runbook are phase A preparation, **not Phase 0 d GO**.
+
+Phase B remains UNVERIFIED/NO-GO pending the coordinated owner-operated restart.
+Capture actual model/thinking, process survival/resume, replacement handles,
+coordinator Run rebinding and pending replay/ack before any GO verdict.
+Re-list handles; no dual-send. Reconcile `restored_unconfirmed` and possible live
+attempts before a fresh explicitly pinned retry; restart is not proof of exit.
 
 ### TASK-14 — Generic decision-rights/policy template
 

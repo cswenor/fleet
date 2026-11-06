@@ -218,6 +218,17 @@ failure, never an empty checkpoint. Inspect any returned batches even on error;
 they remain replayable until explicitly acknowledged. Killing/re-running the
 wait does not acknowledge mail. Shared Orca runtime restart is not proven.
 
+Shared-runtime restart preparation uses the read-only
+`python3 -m fleet.orca_capture --config /private/fleet.yml --out /new/private-dir`
+tool, executed via an external `systemd-run --user` service before and after.
+It never starts/stops Orca, binds Runs or consumes/acks inbox mail. Titles are
+hashed; message content, argv and environments are excluded. Output is private
+(0700 directory / 0600 file); partial evidence remains explicitly unknown.
+See the [owner-coordinated restart runbook](docs/orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
+for prerequisites, external command, native Delivery-ID limitation and recovery.
+This is distinct from `fleet restart`, which retires one proven finished builder,
+and is **not** proof that Orca runtime restart/replay works.
+
 Every result includes unfiltered, **read-only** terminal history diagnostics
 (requested limit 1000, subject to Orca's history cap), or an explicit diagnostic
 error. This is not another Delivery and has no `--ack-terminal` or local ack.

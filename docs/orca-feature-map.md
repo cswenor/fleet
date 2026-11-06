@@ -84,6 +84,121 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
   reconcile possible live workers. Actual restart/model/handle/Run replay semantics
   remain **unverified**, not solved by fresh launch evidence.
 
+#### TASK-13 restart runbook (phase A; phase B not exercised)
+
+Owner decision on TASK-13 (2026-11-06) supersedes isolated-only verification:
+**one real shared Orca restart**, only at a Main-coordinated safe point with
+the owner's final go immediately beforehand. Builders do not restart Orca.
+Orca 1.4.242 documents no isolated profile startup recipe; `serve --data-root`
+belongs only to stale-lock reclamation, not runtime isolation.
+
+Discovery: `orca --help` has no quit command; `open --help` documents startup,
+and `serve --help` documents foreground operation / Ctrl+C. Current `status`
+reports `remoteUpdateSupport.installMode=unsupported-headless-serve`. This is
+not permission to kill a process, automate a GUI, reclaim a lock or launch a
+second server. **Owner documents and performs the actual host's stop/start.**
+Until that exact external operator procedure is recorded, phase B is NO-GO.
+Do not assume `open` restarts this headless deployment.
+
+**Before scheduling**
+
+1. Main gives Project Alpha Main at least **60 minutes' notice**. Project Alpha Main
+   prevents new build/cohort/CG jobs, finishes or safely stops current work,
+   persists Pad handoffs, and explicitly confirms all eight lanes are safe/idle.
+   Fleet Main does the same for fleet lanes. No interrupt injection; unknown
+   liveness is not idle. Keep both project systemd supervisors running.
+2. TASK-22 freshness fix must be deployed with both Mains informed (the shared
+   stable fleet checkout affects both projects). Both Mains write durable
+   handoff documents with their startup instructions, Run IDs, task/PR/WIP
+   evidence and unresolved attempts. Owner starts **fresh** Mains afterward;
+   do not restore old task context or automatically relaunch builders.
+3. Fleet Main saves its last observed `fleet wait` receipt as a **metadata-only
+   projection**, mode 0600: native `deliveryId`, message IDs and read/ack state.
+   Do not save raw message bodies/subjects/payloads. Record explicitly whether
+   there was no outstanding Delivery. Keep a known delivered-unacked batch and
+   known pending message IDs for the later replay scenario, without discarding
+   or prematurely acknowledging real work. The capture never consumes mail.
+   Native unacked Delivery identity is **unavailable on Orca 1.4.242's read-only
+   API**; inbox `read` is not proof of batch acknowledgement.
+4. Identify an external operator shell that survives Orca exit and a live
+   systemd user manager. Pin the reviewed fleet checkout throughout the drill.
+   Record the owner's stop/start procedure and obtain the immediate final go.
+   If any prerequisite fails, retain evidence and defer; never improvise.
+
+**External capture, before and after**
+
+Run from that external shell, using distinct new output directories and unit
+names for each capture. Example for this host (substitute `after` only after
+the owner-performed restart; no restart command is embedded):
+
+```sh
+systemd-run --user --unit=fleet-orca-before --wait --pipe \
+  --property=UMask=0077 \
+  --working-directory=/home/dev/orca/workspaces/fleet/fleet-phase1 \
+  /usr/bin/python3 -m fleet.orca_capture \
+  --config /home/dev/.config/fleet/fleet.yml \
+  --out /var/tmp/fleet-orca-before \
+  --service fleet-example-org-project-alpha.service
+```
+
+The transient **service**, not an Orca terminal process/scope, performs capture.
+No provider credentials or Orca terminal identity need to be exported into it.
+`--out` must have an existing parent and must not already exist; directory 0700,
+`snapshot.json` 0600. Exit 0 means no top-level collection errors, **not** safe
+to restart; exit 1 retains partial evidence with errors, exit 2 means capture
+failed. Per-process `errors` and session `complete` must also be inspected.
+Transient service exit after capture is expected; preserve its invocation ID
+and result. Never commit the full host snapshot; share only reviewed projections.
+
+Capture includes runtime/version, handles/incarnations/worktree paths, title
+SHA256 + extracted Pad refs, read-only per-terminal Run bindings, local OMP
+PID/start ticks/boot ID/foreground state, open session logs' latest actual
+model/thinking events, Run metadata, inbox message metadata and supervisor
+state. No raw titles, transcript text, previews, argv, environments or message
+contents. Process/session mappings are observational (cwd/open descriptors),
+not terminal ownership or idle proof; missing logs/processes stay unknown.
+Collection is sequential; a changed runtime ID invalidates a cross-restart
+capture. Inbox/terminal caps and missing host coverage are reported incomplete.
+
+**After the owner restarts once**
+
+1. Run the `after` capture externally **before** rebind/relaunch. Compare runtime
+   ID/version and handles against `before`, preserving both originals.
+2. Owner starts fresh fleet/Project Alpha Mains with their handoff documents. Each
+   Main re-lists terminals; matches worktree/incarnation/session/process evidence,
+   not title alone; and binds its own replacement terminal using
+   `orchestration run-use --id RUN`. Builders never bind the coordinator Run.
+   Update private `coordinator.terminal` and lane handles as required; reinstall
+   each affected project's supervisor only after its Main reconciles config.
+   Never dual-send to old and replacement handles.
+3. Reconcile every possible surviving attempt, including `restored_unconfirmed`.
+   Same boot + PID + start ticks is survival evidence; a changed/missing PID is
+   not proof no other/restored attempt exists. Read actual model/thinking events
+   and positive liveness/session evidence. No blind retry, stop or auto-resume.
+   Only a positively reconciled eligible retry may use a fresh explicit
+   placement/model/thinking pin and retry-of where applicable.
+4. From Main's rebound terminal, exercise normal `fleet wait` replay. Compare
+   native Delivery/message IDs to the saved receipt, process all types, reply
+   in-thread, then explicitly ack the whole batch once. Verify pending newer
+   messages remain deliverable. Capture receipt metadata privately; no message
+   payloads in public evidence. Re-arm the async wait; enqueue alone is not wake.
+5. Publish a dated before/after table with actual commands/receipt IDs and
+   GO/NO-GO **per dimension**: model/thinking, process survival vs fresh resume,
+   replacement handle mapping, Run rebinding, outstanding replay/ack and
+   supervisor continuity. Missing evidence is UNVERIFIED/NO-GO, not inferred GO.
+   A lost or duplicated message, ambiguous live attempt, wrong model/thinking,
+   failed rebind or changed runtime during capture blocks rollout/retries.
+
+Phase A dry run: external unit `fleet-task13-before-dry2-1793985794.service`,
+invocation `241a262c21144a8e8f23059be75f63cb`, captured Orca 1.4.242 /
+runtime `0bce356b-d517-4353-bfb0-4ffbd1ddda22`, 13 terminals and 14 local OMP
+processes. Both project supervisors active/running, NRestarts=0; private output
+permissions 0700/0600. Exit 1 honestly reports `proc_scan_incomplete`; some
+processes lack open session metadata and remain unknown. Actual builder session
+`01a1b1e2-d572-70bb-9107-50f73ade72fa` recorded Sol medium, no fallback.
+No restart, handle replacement, post-restart rebind or replay was exercised.
+
+
 ### Inbox and wake
 
 - `check --wait` blocks without model polling, keepalives on stderr; consuming
