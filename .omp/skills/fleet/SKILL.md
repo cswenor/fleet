@@ -69,7 +69,7 @@ its skill read plus answer. File existence alone is not discovery proof.
    scratch terminals, Run, config and state, closed afterward.
 4. Keep private config and token EnvironmentFiles mode 0600, outside Git. Never
    embed token values in config/argv/images/Pad. Configure the service's private
-   EnvironmentFile using the Fleet README's systemd instructions if central is used.
+   EnvironmentFile using the Fleet README's host-specific instructions if central is used.
 5. Inspect effective `omp config get codexResets.autoRedeem --json` and
    `omp config get claudeResets.autoRedeem --json`. Both must be `no`; arrange
    authorized global/project configuration changes before starting sessions.
@@ -82,6 +82,46 @@ its skill read plus answer. File existence alone is not discovery proof.
    receiving wait is proven. This restarts that supervisor, not Orca/builders;
    obtain required project approval. Optional central ingestion/browser proof is
    separate; central outage must not stop local supervision.
+
+### macOS onboarding boundary
+
+TASK-36 phase A adds a LaunchAgent backend and macOS CI, not actual Mac runtime
+acceptance. Obtain owner-approved host access for phase B; never borrow a Mac
+merely because SSH discovery lists it. Linux still uses systemd unchanged.
+On macOS, install Python >=3.11/PyYAML, omp, gh, pad and Orca's CLI, authenticate
+the tools, and use actual Mac project/lane paths. Explicit `orca:` or
+`ORCA_CLI_COMMAND` wins; default discovery uses macOS `orca`, Linux `orca-ide`
+(never Linux bare `orca`). The installing PATH must resolve the required tools.
+Reusable zsh lanes need a supported explicit prompt such as
+`PROMPT='%n@%m:%~%% '`; unknown prompts stay occupied.
+
+Use `fleet ... install-service --environment-file /absolute/private/project.env`
+(delivery off until Main wait proof). Only PATH enters the plist; tokens are read
+at process startup from the private file. Strict literal `KEY=value`, optional
+matching outer quotes, full-line comments/blank lines; no escaping, shell
+expansion/execution or multiline values. File must be owned, regular, exactly
+0600 and not a final symlink; checks repeat on startup. Do not print token values.
+The same literal subset works in Linux systemd files. Central also uses this
+loader on macOS, plus its existing HTTP readiness.
+
+Plist: `~/Library/LaunchAgents/fleet-owner-project.plist`; label is the Linux unit
+without `.service`. Installer uses `launchctl bootstrap gui/UID`, bootouts only
+that existing label on reinstall, and requires running state + positive PID.
+No sudo/system daemon/domain fallback. Inspect `launchctl print gui/UID/LABEL`
+privately (raw output may contain secrets). `launchctl bootout gui/UID/LABEL`
+stops only the approved supervisor; no builder/Orca restart. Login is required;
+state stays under XDG_STATE_HOME / ~/.local/state.
+
+macOS automatic `fleet restart` explicitly refuses unsupported exact foreground/
+argv/cwd/routing proof. Do not weaken it to ps/lsof/idle-only evidence. Main must
+verify manual retirement positively and reconcile the exact receipt.
+`python3 -m fleet.orca_capture` retains private Orca + allowlisted launchd metadata
+but returns explicit partial process/boot evidence, null boot ID, exit 1;
+missing procfs is not a crash, an empty inventory is never exit proof.
+Phase B: real Mac service active/reinstall, status/may-start, fresh Sol-medium
+launch events, restart refusal/reconciliation, partial capture and actual wake
+delivery. Runner CI alone does not satisfy these runtime checks.
+
 
 ## Main startup and waiting
 

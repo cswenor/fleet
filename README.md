@@ -173,6 +173,63 @@ write or `enable --now` alone is not startup proof.
 The service survives terminal exit; host reboot requires a user manager at boot
 (ask the host administrator to enable lingering if necessary).
 
+### macOS host (TASK-36)
+
+Phase A implements macOS installation and CI; actual Mac/Orca runtime acceptance
+is pending owner-approved phase B. Do not treat runner tests as rollout approval.
+See the [platform audit](docs/macos-audit.md). Linux keeps its systemd backend.
+
+Use Python >=3.11, PyYAML, `omp`, authenticated `gh`/`pad`, and the installed
+Orca CLI. Set an absolute `orca:` config path or `ORCA_CLI_COMMAND` when it is
+not on PATH. Automatic discovery uses `orca` on macOS, `orca-ide` on Linux
+(never Linux's bare `orca` screen reader). Preserve these executables in the
+installing shell's PATH; launchd inherits only that PATH, not caller tokens.
+Use actual Mac checkout/lane paths, not the committed Linux host binding.
+Set reusable zsh lanes to a supported explicit prompt, e.g.
+`PROMPT='%n@%m:%~%% '`; unknown/custom prompts remain occupied, never guessed idle.
+
+```sh
+fleet --config /absolute/project/fleet.yml install-service \
+  --environment-file /absolute/private/project.env
+# Add --deliver only after Main's real receiving wait is proven.
+launchctl print gui/$(id -u)/fleet-owner-project
+# Stop only this approved supervisor (not Orca or any builders):
+launchctl bootout gui/$(id -u)/fleet-owner-project
+```
+
+Installation writes `~/Library/LaunchAgents/fleet-owner-project.plist`, uses
+stock `launchctl bootstrap`, and requires `state = running` plus a positive PID.
+Reinstall bootouts/replaces only that label; no system daemon, sudo, or login
+domain fallback. A logged-in GUI user domain is required. The LaunchAgent starts
+at user login, not before login. `launchctl print` may disclose environment
+values: inspect privately, never paste its raw output. `central-install-service`
+uses `fleet-central` and additionally retains HTTP readiness.
+
+The optional supervisor `--environment-file` and required central file contain
+literal `KEY=value` lines, blank lines or full-line `#` comments. Matching outer
+single/double quotes are removed; no escaping, inline comments, multiline values,
+shell expansion or execution. Unquoted values cannot contain whitespace/quotes.
+For example, `$HOME` remains literal. The macOS loader checks an owned regular
+file, mode **exactly 0600**, with no final symlink at install and every startup;
+malformed lines report only their number. Plists contain the file path, never
+token values. Use the same literal subset in Linux systemd EnvironmentFiles;
+existing Linux units/drop-ins and default installation output are unchanged.
+Keep token files outside Git. State still uses `XDG_STATE_HOME` / `~/.local/state`;
+no implicit migration to Library paths.
+
+Automatic `fleet restart` on macOS **refuses**: stock ps/lsof metadata has not
+proved equivalent exact argv/foreground/terminal-routing ownership. Main must
+positively verify manual retirement and reconcile the exact receipt; no forced
+exit or retry. `python3 -m fleet.orca_capture` saves a private **partial** snapshot
+with native Orca metadata and allowlisted LaunchAgent state, null boot ID and
+explicit process/boot evidence errors (exit 1). It neither crashes on missing
+procfs nor claims absent processes exited. It is not a Mac restart GO.
+
+Phase B requires owner-approved actual Mac proof: service active/reinstall,
+status/may-start, fresh launch with actual Sol-medium events, safe restart
+refusal/manual reconciliation, partial capture and real wait delivery.
+
+
 One service per project, private state under
 `$XDG_STATE_HOME/fleet/owner--project` (default `~/.local/state`). Atomic snapshots,
 pending events and successful per-recipient delivery receipts survive process

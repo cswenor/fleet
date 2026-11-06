@@ -12,9 +12,12 @@ from fleet.commands import CommandError
 
 class RetirementTests(unittest.TestCase):
     def setUp(self):
+        platform_patch = patch.object(restart.sys, 'platform', 'linux')
+        platform_patch.start()
+        self.addCleanup(platform_patch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name)
+        root = Path(self.temp.name).resolve()
         self.slot = str(root)
         self.c = {'root': self.slot, '_state': str(root / 'state'), 'repo': 'owner/repo',
                   'pad_workspace': 'project', 'builder': {'slots': [self.slot], 'max': 1,

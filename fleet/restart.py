@@ -19,7 +19,8 @@ PROC = Path('/proc')
 def _foreground(c, record, slot, handle):
     """Bind the one private launch directory to a live foreground Linux OMP."""
     if not sys.platform.startswith('linux') or not PROC.is_dir():
-        raise ValueError('restart requires local Linux /proc foreground ownership proof; unavailable here')
+        raise ValueError('automatic restart unsupported on this platform: requires local Linux /proc '
+                         'exact foreground argv/cwd/terminal-routing ownership proof; retirement withheld')
     if not all(record.get(key) for key in ('overlay', 'session_dir', 'prompt')):
         raise ValueError('launch lacks foreground process binding')
     expected = ['--model', c['builder']['model'], '--thinking', c['builder']['thinking'],

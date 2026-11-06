@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 import re
 import shutil
+import sys
 import yaml
 
 STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
@@ -94,7 +95,8 @@ def load(path):
     for name, argv in c['hooks'].items():
         if name not in ('before_launch', 'after_launch', 'event') or not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError('hooks must be argv lists: before_launch, after_launch, event')
-    c['orca'] = c.get('orca') or os.environ.get('ORCA_CLI_COMMAND') or shutil.which('orca-ide')
+    c['orca'] = (c.get('orca') or os.environ.get('ORCA_CLI_COMMAND') or
+                 shutil.which('orca' if sys.platform == 'darwin' else 'orca-ide'))
     if not c['orca']:
         raise ValueError('set orca to the absolute Orca CLI path')
     c['_path'] = str(path)

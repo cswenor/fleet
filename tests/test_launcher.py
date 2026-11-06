@@ -12,7 +12,7 @@ class RestartTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        root = Path(self.directory.name)
+        root = Path(self.directory.name).resolve()
         self.slot = str(root / 'slot')
         Path(self.slot).mkdir()
         (Path(self.slot) / 'RULES.md').write_text('rules')
@@ -209,7 +209,7 @@ class RestartTests(unittest.TestCase):
         self.assertIsNone(state.read(self.c, 'launches'))
 
     def test_created_worktree_is_retained_on_post_preparation_refusal(self):
-        missing = str(Path(self.directory.name) / 'new-slot')
+        missing = str(Path(self.directory.name).resolve() / 'new-slot')
         self.c['builder']['slots'] = [missing]
         initial = deepcopy(self.s)
         initial['inventory']['builders'] = []

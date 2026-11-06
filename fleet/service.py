@@ -7,17 +7,22 @@ import shutil
 import sys
 import time
 from .commands import run
+from . import launchd
 
 
-def install(c, deliver=False):
+def install(c, deliver=False, environment_file=None):
     name = 'fleet-' + re.sub(r'[^a-zA-Z0-9_.-]', '-', c['repo']) + '.service'
     result = _install(name, ['--config', c['_path'], 'serve'] + ([] if deliver else ['--no-deliver']),
-                      c['root'], 'Agent fleet supervisor (' + c['repo'] + ')')
+                      c['root'], 'Agent fleet supervisor (' + c['repo'] + ')', environment_file)
     return {**result, 'delivery_enabled': deliver, 'config': c['_path']}
 
 
 def install_central(c, environment_file):
-    environment_file = Path(environment_file).expanduser().resolve()
+    if sys.platform == 'darwin':
+        from .service_env import read_environment
+        read_environment(environment_file)
+    environment_file = Path(environment_file).expanduser()
+    environment_file = environment_file.absolute() if sys.platform == 'darwin' else environment_file.resolve()
     if not environment_file.is_file() or environment_file.stat().st_mode & 0o077:
         raise ValueError('central EnvironmentFile must exist and be private (chmod 600)')
     result = _install('fleet-central.service', ['--config', c['_path'], 'central-serve'],
@@ -38,6 +43,10 @@ def install_central(c, environment_file):
 
 
 def _install(unit_name, arguments, directory, description, environment_file=None):
+    if sys.platform == 'darwin':
+        return launchd.install(unit_name, arguments, directory, environment_file)
+    if not sys.platform.startswith('linux'):
+        raise ValueError('service installation unsupported on this platform')
     config_home = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
     units = config_home / 'systemd/user'
     units.mkdir(parents=True, exist_ok=True)

@@ -57,9 +57,10 @@ def main():
     t.add_argument('--body', required=True)
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
+    p.add_argument('--environment-file', help='private service token file (macOS: literal KEY=value)')
     sub.add_parser('central-serve')
     p = sub.add_parser('central-install-service')
-    p.add_argument('--environment-file', required=True, help='private systemd EnvironmentFile with project tokens')
+    p.add_argument('--environment-file', required=True, help='private service token file (macOS: literal KEY=value)')
     args = parser.parse_args()
     try:
         if args.command in ('central-serve', 'central-install-service'):
@@ -120,7 +121,7 @@ def main():
             return 0
         if args.command == 'install-service':
             from .service import install
-            print(json.dumps(install(c, args.deliver)))
+            print(json.dumps(install(c, args.deliver, args.environment_file)))
             return 0
         s = snapshot.collect(c)
         if args.command == 'may-start':

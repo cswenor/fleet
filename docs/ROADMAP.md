@@ -111,6 +111,46 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-36 — macOS host support
+
+Phase A: [source-bound audit](macos-audit.md) merged in
+[PR31](https://github.com/cswenor/fleet/pull/31), independent stock-overlay Sol
+medium review PASS (session `01a1b245-769c-76a1-9da3-29194f827ab1`, head
+`e448e039e078195329f51b486c319e008b77c492`), green
+[CI42277352305](https://github.com/cswenor/fleet/actions/runs/42277352305).
+Main ruling `msg_f64e0177b905` approves per-user LaunchAgents, strict private
+literal env startup loading for supervisor/central, unchanged Linux units/state,
+explicit unsupported macOS automatic retirement and partial capture.
+
+Platform implementation adds stock launchctl bootstrap/bootout/print with
+running+PID readiness; optional supervisor token file and central startup loader
+require owned regular mode-0600 nonsymlink files without shell execution.
+Only PATH and the token file path enter plists, never token values.
+Orca discovery honors config/env overrides, then macOS `orca` / Linux
+`orca-ide`; existing XDG/default receipt/database paths are retained.
+macOS restart never sends input without the unavailable equivalent exact proof;
+capture returns explicit partial process/boot evidence rather than a procfs crash.
+CI runs the full unit suite and CLI smoke on Ubuntu and macOS.
+
+Linux CLI proof: status observed both live lanes; may-start withheld at builder
+cap; launch refused duplicate TASK-36/live slot/unresolved receipt; restart
+refused absent exact finished-task binding without input. Real private capture
+saved mode-0600 metadata for 15 terminals/20 OMP processes, boot ID present,
+exit 1 with explicit `proc_scan_incomplete` (not a completeness claim).
+Private-env subprocess proved literal execution and rejected bad permissions/
+malformed input without secret output. All 166 local unit tests and CLI help
+smokes passed. Publication gate receipts are retained on TASK-36 and its PR.
+macOS CI exposed `/var` versus `/private/var` aliases in hand-built test configs;
+fixtures now use canonical paths, matching `config.load`, without relaxing
+production slot checks. The complete 166-test suite also passes with symlinked
+TMPDIR on Linux; capture's fake-secret marker no longer collides with `/private`.
+Phase B remains **open**: no owner Mac access is authorized. Actual Mac
+LaunchAgent active/reinstall, Orca status/admission/fresh Sol-medium launch,
+safe restart refusal/manual reconciliation, partial capture and real wake
+delivery still require owner-approved host access. macOS runner CI is not this
+runtime evidence. Shared-checkout rollout requires Main's announced window;
+merge alone is not deployment or permission to restart services.
+
 ### TASK-33 — Project workflow skill and onboarding
 
 Implemented the generic [Fleet skill](../.omp/skills/fleet/SKILL.md), adopted by

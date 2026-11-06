@@ -9,7 +9,7 @@ from fleet import state, threads
 
 class ThreadTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir()))
         self.addCleanup(self.temp.cleanup)
         self.c = {'_state': self.temp.name, 'root': self.temp.name, 'pad_workspace': 'scratch',
                   'builder': {'slots': [self.temp.name]},

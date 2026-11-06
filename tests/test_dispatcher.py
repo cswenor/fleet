@@ -10,7 +10,7 @@ class DispatcherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.path = self.temp.name
+        self.path = str(Path(self.temp.name).resolve())
         self.c = {'root': self.path, '_state': self.path + '/state',
                   'builder': {'slots': [self.path], 'max': 2}}
         self.builder = {'path': self.path, 'terminal': 'term', 'connected': True,

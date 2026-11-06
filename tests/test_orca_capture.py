@@ -7,6 +7,11 @@ from fleet import orca_capture as capture
 
 
 class CaptureTests(unittest.TestCase):
+    def setUp(self):
+        platform_patch = patch.object(capture.sys, 'platform', 'linux')
+        platform_patch.start()
+        self.addCleanup(platform_patch.stop)
+
     def test_latest_resolved_events_and_partial_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'session.jsonl'
@@ -77,7 +82,7 @@ class CaptureTests(unittest.TestCase):
             exe.touch()
             cwd = root / 'outside-slots'
             cwd.mkdir()
-            for pid, command in ((101, b'omp\0--model\0private\0'), (102, b'omp\0__omp_worker_js_eval_process\0')):
+            for pid, command in ((101, b'omp\0--model\0capture-sensitive-argv-value\0'), (102, b'omp\0__omp_worker_js_eval_process\0')):
                 proc = root / str(pid)
                 proc.mkdir()
                 (proc / 'status').write_text('Uid: 1234 1234 1234 1234\n')
@@ -100,7 +105,7 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(by_pid[102]['errors'], [])
             self.assertEqual(errors, ['owned_omp_incomplete'])
             self.assertEqual(diagnostics, [])
-            self.assertNotIn('private', json.dumps(rows))
+            self.assertNotIn('capture-sensitive-argv-value', json.dumps(rows))
 
     def test_unknown_credentials_are_incomplete_not_foreign(self):
         with tempfile.TemporaryDirectory() as tmp:

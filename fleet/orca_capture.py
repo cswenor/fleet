@@ -178,6 +178,12 @@ def collect(c, services):
     states = []
     for service in services:
         try:
+            if sys.platform == 'darwin':
+                from .launchd import status as launchd_status
+                states.append(launchd_status(service))
+                continue
+            if not sys.platform.startswith('linux'):
+                raise CommandError('service capture unsupported on this platform')
             text = run(['systemctl', '--user', 'show', service,
                         '--property=LoadState,ActiveState,SubState,MainPID,NRestarts'])
             states.append({'unit': service, **dict(line.split('=', 1) for line in text.splitlines() if '=' in line)})
@@ -187,8 +193,16 @@ def collect(c, services):
     final = query('final_status', 'status').get('runtime', {})
     if not runtime.get('runtimeId') or final.get('runtimeId') != runtime.get('runtimeId'):
         errors.append('runtime_identity_unstable')
+    boot_id = None
+    if sys.platform.startswith('linux'):
+        try:
+            boot_id = (PROC / 'sys/kernel/random/boot_id').read_text().strip()
+        except OSError:
+            errors.append('boot_identity_unavailable')
+    else:
+        errors.append('boot_identity_unavailable')
     return {'schema': 1, 'started_at': started, 'finished_at': datetime.now(timezone.utc).isoformat(),
-            'capture_pid': os.getpid(), 'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip(),
+            'capture_pid': os.getpid(), 'boot_id': boot_id,
             'clock_ticks_per_second': os.sysconf('SC_CLK_TCK'),
             'runtime': _pick(runtime, ('runtimeId', 'appVersion', 'state', 'reachable')),
             'runtime_process': _pick(status.get('app', {}), ('pid', 'running')),
