@@ -27,6 +27,47 @@ class InitialStateTests(unittest.TestCase):
                 self.assertEqual(result['pr'], 7)
                 self.assertIn(diagnostic, result['events'][0]['body'])
 
+    def test_watch_initial_group_failures_are_scoped_to_known_membership(self):
+        failed = {'id': 5, 'conclusion': 'failure', 'url': 'https://example/run/5',
+                  'prs': [8], 'membership_complete': True}
+        scenarios = [
+            ('unrelated', [8], True, False),
+            ('own', [7], True, True),
+            ('secondary member', [8, 7], True, True),
+            ('known partial member', [7], False, True),
+            ('unknown members', [], False, False),
+            ('other partial members', [8], False, False),
+        ]
+        for label, members, complete, relevant in scenarios:
+            with self.subTest(label=label):
+                current = history(pull(), runs=[{**failed, 'prs': members,
+                                                 'membership_complete': complete}])
+                with patch.object(github, 'collect', return_value=current):
+                    result = watcher.watch({}, 7, timeout=0)
+                if relevant:
+                    self.assertEqual([(e['pr'], e['subject']) for e in result['events']],
+                                     [(7, 'Merge group 5 failure')])
+                else:
+                    self.assertEqual(result, {'pr': 7, 'event': 'timeout', 'seconds': 0})
+
+    def test_watch_initial_dirty_excludes_unrelated_group_failure(self):
+        failed = {'id': 5, 'conclusion': 'failure', 'url': 'https://example/run/5',
+                  'prs': [8], 'membership_complete': True}
+        with patch.object(github, 'collect', return_value=history(pull(merge_state='DIRTY'), runs=[failed])):
+            result = watcher.watch({}, 7)
+        self.assertEqual([e['pr'] for e in result['events']], [7])
+        self.assertIn('DIRTY', result['events'][0]['body'])
+
+    def test_watch_continues_past_initial_unrelated_group_failure(self):
+        failed = {'id': 5, 'conclusion': 'failure', 'url': 'https://example/run/5',
+                  'prs': [8], 'membership_complete': True}
+        before = history(pull(), runs=[failed])
+        after = history(pull(merge_state='DIRTY'), runs=[failed])
+        with patch.object(github, 'collect', side_effect=[before, after]), patch.object(watcher.time, 'sleep'):
+            result = watcher.watch({}, 7)
+        self.assertEqual([e['pr'] for e in result['events']], [7])
+        self.assertIn('DIRTY', result['events'][0]['body'])
+
     def test_daemon_first_sighting_and_new_unhealthy_pr_notify_once(self):
         current = history(pull(merge_state='DIRTY'))
         initial = github.events({}, current)

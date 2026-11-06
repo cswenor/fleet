@@ -7,7 +7,7 @@ def watch(c, number, timeout=14400, interval=60):
     def view():
         return github.collect(c, number)
     before = view()
-    initial = github.events({}, before)
+    initial = [e for e in github.events({}, before) if e.get('pr') == number]
     if initial:
         return {'pr': number, 'events': initial}
     deadline = time.monotonic() + timeout

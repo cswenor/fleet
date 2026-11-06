@@ -231,6 +231,24 @@ Main reports deployment to the stable shared checkout at 21:12 UTC and Fleet's
 supervisor reinstall; Project Alpha's supervisor reinstall remains pending its Main.
 Main coordinates the Project Alpha switch and TASK-10 script retirement.
 
+### TASK-44 — Scope initial watcher events to the selected PR
+
+Initial `watch-pr` events now use the same exact-PR filter as subsequent
+snapshots. Unrelated historical merge-group failures cannot terminate a watch
+or contaminate its own DIRTY/failing/merged/closed diagnostics. Known primary
+and secondary members still receive immediate failures, including known members
+of partially resolved groups. Unknown membership (`pr: null`) remains an explicit
+coordinator diagnostic, never guessed as membership of the selected PR.
+Supervisor initial failure/urgent emission is unchanged.
+
+2026-11-06 evidence: new regression cases failed before the one-line filter fix
+(six failures), then all 182 unit tests passed. Real source CLI against live
+Project Alpha PR2376 reached its three-second timeout with no unrelated event;
+the repository still had failed merge-group run 42261967575 for PR2373.
+The smoke used isolated scratch config/state and no inbox delivery or services.
+Publication requires independent final-head Sol-medium review, green CI and
+Main's explicit shared-behavior merge GO; merge is not deployment approval.
+
 ### TASK-10 — Main wake-up through BOTH address forms
 
 Implemented in [PR15](https://github.com/cswenor/fleet/pull/15) under Main's approved native-routing contract above.

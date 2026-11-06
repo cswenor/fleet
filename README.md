@@ -270,7 +270,7 @@ Terminal-only builder mailboxes expire when their terminal closes; the Run inbox
 is durable across terminal replacement. Fleet never promises replay into a new session.
 Inbox enqueue does not prove the agent woke or read it. `watch-pr` first reports
 an already-DIRTY, failing, merged or closed PR immediately. Otherwise it blocks
-on only the selected PR (plus relevant project merge-group failures) and exits
+on only the selected PR (including merge-group failures naming it) and exits
 on changes, timeout, or API failure, so async shell completion can wake a builder
 without polling model turns.
 
@@ -280,6 +280,10 @@ Side-branch commits are not group members. Proven immutable membership is cached
 unresolved membership is explicit in the coordinator report rather than guessed.
 Every known member gets its owning-builder event and per-PR watcher wake,
 including non-leading PRs. Later membership recovery notifies newly resolved members.
+Initial and subsequent watcher events use the same exact-PR filter. Unknown
+membership (`pr: null`) remains a coordinator diagnostic, not a per-PR wake;
+partially resolved groups wake only their known members. An unrelated historical
+failure cannot end a watch or accompany its selected PR's initial diagnostic.
 
 ### Inbox wait
 
