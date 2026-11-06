@@ -75,6 +75,11 @@ PLAN-2685. No product code or shared-runtime restart was performed.
   return. No fabricated terminal Delivery/local ack, no independent-mailbox claim.
   Pre-binding legacy mail needs separate reconciliation; any bound-path bypass
   stops cutover pending upstream capability.
+- **TASK-20 retirement (Main-approved):** `fleet restart NEXT --slot PATH
+  --finished-ref OLD` replaces manual `/exit` only with exact launch/session
+  binding, positive idle evidence and publication/handoff proof. Never interrupt
+  a working/unknown session; journal before one exit, verify same-incarnation
+  shell, then normal guarded launch. No forced mode or shared-runtime restart.
 
 ## Phase status and evidence
 
@@ -87,6 +92,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | 3 generic process + Project Alpha process | Partial | TASK-14 generic policy adopted; TASK-15 threads and TASK-16 coordination remain. Project Alpha standing policy/tier-e must land in Project Alpha via its Main/lanes. |
 | 4 additional projects | Open, owner chooses | Fleet TASK-17; candidates below, no implied permission to install all. |
 | Usage outcome | Baseline recorded; after measurement open | Fleet TASK-18. Do not label the workflow a measured saving yet. |
+| Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
 
@@ -196,6 +202,33 @@ applicable, across disposable sessions. Terminal launcher currently has no
 supervised Dispatch: never fabricate lifecycle completion. Prove a real question,
 in-thread reply and result with durable Pad outcome, no lost status under type
 filters and no reply on a settled attempt. Fresh session each new task.
+
+### TASK-20 — Guarded finished-session retirement
+
+`fleet restart NEXT --slot PATH --finished-ref OLD` requires a merged PR carrying
+OLD, plus Pad OLD done or a post-publication handoff on NEXT, with OLD != NEXT.
+Canonical slot-keyed `launches.json` binds the exact terminal/incarnation and
+private session directory. Single connected writable terminal, exact-pane
+idle/done, current empty idle composer, live session lease, local Linux foreground
+OMP process binding and final assistant stop are required. Unavailable `/proc`
+or unsupported hosts refuse. Only `credential_pin` / `title_change` may follow; unknown or later
+work refuses. Stale working screens, background jobs, dialogs, disconnected or
+ambiguous targets and missing legacy binding all fail closed.
+
+The launcher lock covers rechecks, journal-before-one-`/exit`, bounded wait for a
+same-incarnation POSIX shell and normal admission/fresh launch. Partial receipts
+block repeat retirement of that launch ID; no Esc, interrupt or forced mode.
+No Orca restart, quota parking, dispatcher or Project Alpha edits are included.
+
+Real CLI scratch proof (2026-11-06), restricted to fleet-phase1/private state:
+dialog and async sleep35/wait refused with exit2; finished TASK-14/merged PR16
+retired launch `1793980873022128830`, verified its shell and fresh-launched
+`1793981033926533680`. New session `01a1b19a-325e-7798-8a45-3f9803897828`
+recorded Sol model + medium thinking events. Unpublished TASK-20 and absent
+target refused with exit2. Owned scratch terminal closed after shell proof;
+no other lane/runtime touched. Disconnected/orphaned, races and partial-failure
+no-retry boundaries have unit coverage. Full publication receipts remain on
+TASK-20 and its PR.
 
 ### TASK-16 — Phase 3 coordination contract with Project Alpha
 

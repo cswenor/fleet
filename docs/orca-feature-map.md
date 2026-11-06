@@ -59,8 +59,12 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 - `dispatch --inject` leaves an operator-owned process unsupervised. Dry-run
   `--return-preamble` creates no attempt. Tracking rows alone do not supervise.
 - `fleet launch` validates ready shell identity immediately before reuse; no /exit
-  injection. Live/unknown/ambiguous session blocks. Missing configured slot may
-  create one Orca top-level worktree; no ad hoc side worktrees allowed.
+  injection. `fleet restart NEXT --slot PATH --finished-ref OLD` separately
+  retires only a published/handed-off, exactly bound idle session: one journaled
+  /exit, same-incarnation verified shell, then normal launch under one lock.
+  Unknown/working/dialog/disconnected evidence refuses; no forced interrupt.
+  Missing configured slot may create one Orca top-level worktree; no ad hoc
+  side worktrees allowed.
 
 ### Lifecycle and recovery
 

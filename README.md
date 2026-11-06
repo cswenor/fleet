@@ -112,6 +112,7 @@ fleet serve                    # foreground, durable inbox relay enabled
 fleet install-service          # starts user service, delivery OFF
 fleet install-service --deliver
 fleet launch TASK-123 --slot /path/to/slot-a
+fleet restart TASK-124 --slot /path/to/slot-a --finished-ref TASK-123
 fleet watch-pr 42               # run with the agent's async shell facility
 ```
 
@@ -232,6 +233,47 @@ not a scaled window; see the
 The launch receipt is saved before later hooks/metadata updates: an error after
 terminal creation is **not** permission to launch again. Inspect `last-launch.json`.
 No automatic retries, auto-dispatch from Pad, merge actions, or worktree cleanup.
+
+`restart NEXT --slot PATH --finished-ref OLD` is the guarded replacement for
+manually exiting a finished builder. Main still confirms the next task/launch.
+OLD must differ from NEXT and have a merged PR in this repository whose title
+or body contains its exact Pad ref, plus either Pad status `done` or a
+post-publication handoff comment on NEXT referencing OLD. Publication ordering
+uses timezone-aware timestamps; missing, malformed or timezone-less evidence refuses.
+
+Retirement requires one connected writable OMP terminal (no extra terminals in
+the slot), bound to OLD by `launches.json`'s exact slot/handle/incarnation record.
+Each launch gets a private `sessions-<id>` directory. Its single session log must
+belong to the slot, still have a live OMP session lease, and end with an assistant
+`stopReason=stop`. Only `credential_pin` and `title_change` metadata may follow;
+unknown events refuse. The exact pane must report idle/done, with a current idle,
+**empty** OMP composer and no dialog/background-job indicator. Single/multiline
+drafts (including draft text resembling UI borders) refuse without clearing or
+submitting them. A stale working screen after a completed turn still refuses;
+silence, titles and elapsed time never prove readiness. Older launches without
+this binding require manual reconciliation.
+
+Restart currently requires **local Linux `/proc`** evidence: one non-stopped
+foreground OMP process with the exact launch argv (including private session
+directory, overlay and prompt), slot cwd and matching terminal routing key.
+PID/start identity is rechecked before input. Only `ORCA_TERMINAL_HANDLE`
+equality is inspected in memory; no environment contents are logged or retained.
+Missing/inaccessible `/proc`, non-Linux hosts, changed argv/config, absent routing
+keys and ambiguous process ownership refuse. Restart is unavailable there;
+manual retirement requires independent reconciliation, never a force bypass.
+
+Under the launcher lock, restart rechecks evidence and admission, journals
+`exit-attempted` in the slot-keyed `retirements.json` **before** sending `/exit`
+once, then waits up to 15 seconds between bounded Orca calls for a standard
+POSIX shell prompt in the same terminal incarnation. Only then does it invoke
+normal guarded launch, including fresh quota/disk/cap/occupancy checks.
+Receipts record exit acceptance, shell verification and the next launch ID.
+No Esc, interrupt, force mode or automatic retries exist. Unknown/disconnected,
+ambiguous, unfinished, changed evidence, dialog and timeout states fail closed.
+Any attempted retirement blocks another restart of that launch ID; inspect
+`retirements.json`, `launches.json` and `last-launch.json` and reconcile the
+actual terminal before any manual recovery. A failed fresh launch leaves the
+verified shell and receipts intact; it is not permission to repeat retirement.
 
 Optional hooks `before_launch`, `after_launch`, and `event` are argv lists, run
 without a shell in the project checkout (launch hooks use the slot when known).

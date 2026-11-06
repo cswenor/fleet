@@ -78,13 +78,17 @@ independent read-only unadvised Sol review then final-head green CI, small PR.
 ```
 
 Check slot state and preserve user work. Launcher does not switch/reset branches:
-prepare a task branch in the **existing lane** only after the old session exits
-and checkout ownership/cleanliness is known. Fast-forward to actual main without
-resetting user work. Never create a third lane, stash or inject /exit into a live
-builder. At most two active builders. Launch only:
+prepare a task branch in the **existing lane** only after checkout ownership and
+cleanliness are known. Fast-forward to actual main without resetting user work.
+For a finished idle builder, prefer guarded `fleet restart` below over manual
+`/exit`: it verifies publication, exact session binding and idle evidence before
+one exit, then verifies the shell before fresh launch. Unknown/working/dialog
+states refuse, including stale working screens; never inject Esc or /exit into
+a live builder. No third lane or stash. At most two active builders.
 
 ```sh
 fleet --config ~/.config/fleet/fleet.yml launch TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2
+fleet --config ~/.config/fleet/fleet.yml restart TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2 --finished-ref TASK-OLD
 ```
 
 On withheld/error: inspect reasons, state and `~/.local/state/fleet/cswenor--fleet/last-launch.json`.
@@ -98,6 +102,18 @@ PR; record reviewer/session/final-head findings. Fleet has no review bot: final
 head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
 only green+reviewed small PRs. Keep reusable lanes after merge; retire session,
 not slot. Update Pad result and roadmap evidence when acceptance is actually met.
+
+`restart` requires OLD != NEXT, a merged PR carrying OLD, and Pad OLD done or a
+post-publication handoff on NEXT. Its launch must have a canonical `launches.json`
+binding, dedicated session log and live lease. Local Linux `/proc` must bind
+that exact argv/session directory to the terminal's live foreground OMP process;
+unsupported/unreadable evidence refuses. Exact-pane idle/done and a current empty
+idle composer are required; only credential/title metadata may follow the final
+assistant stop. It journals before `/exit`, verifies the same-incarnation
+shell, then runs normal admission/launch under one lock. Inspect `retirements.json`
+and launch receipts on any partial error; never retry retirement blindly.
+Pre-binding/legacy sessions without proof remain manual reconciliation, not
+permission for forced retirement. This does not restart Orca or the supervisor.
 
 ## Waiting and inboxes
 

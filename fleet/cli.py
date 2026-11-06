@@ -22,6 +22,10 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot')
     p.add_argument('--drill-usage-file', help='test-only additional launch withhold, never bypasses real quota')
+    p = sub.add_parser('restart')
+    p.add_argument('ref')
+    p.add_argument('--slot', required=True)
+    p.add_argument('--finished-ref', required=True)
     p = sub.add_parser('watch-pr')
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
@@ -61,6 +65,10 @@ def main():
         if args.command == 'launch':
             from .launcher import launch
             print(json.dumps(launch(c, args.ref, args.slot), indent=2))
+            return 0
+        if args.command == 'restart':
+            from .restart import restart
+            print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref), indent=2))
             return 0
         if args.command == 'watch-pr':
             if args.timeout < 1 or args.interval < 1 or args.number < 1:

@@ -1,4 +1,5 @@
 """Explicit guarded fresh launches; reuse only a terminal at a verified shell prompt."""
+from contextlib import nullcontext
 from pathlib import Path
 import re
 import shlex
@@ -8,10 +9,10 @@ from . import health, snapshot, state
 from .commands import orca, run
 
 
-def launch(c, ref, slot=None):
+def launch(c, ref, slot=None, *, _locked=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
-    with state.lock(c, 'launcher'):
+    with nullcontext() if _locked else state.lock(c, 'launcher'):
         s = snapshot.collect(c)
         admission = snapshot.may_start(c, s)
         if not admission['may_start']:
