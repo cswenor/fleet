@@ -1,10 +1,10 @@
-"""One native, replayable Run wait; terminal history is read-only diagnostics."""
+"""One native Run wait; preserve native acknowledgment and recovery semantics."""
 import json
 import math
 import os
 import re
 import subprocess
-from .commands import CommandError
+from .commands import CommandError, orchestration_args
 
 
 class MailboxError(CommandError):
@@ -12,6 +12,10 @@ class MailboxError(CommandError):
 
 
 def request(c, *args, timeout=60):
+    try:
+        args = orchestration_args(c['orca'], args)
+    except CommandError as e:
+        raise MailboxError('orca_capabilities_unavailable') from e
     try:
         p = subprocess.run([c['orca'], 'orchestration', *args, '--json'],
                            cwd=c['root'], stdout=subprocess.PIPE,
@@ -35,7 +39,7 @@ def request(c, *args, timeout=60):
 
 
 def delivery(result, run):
-    """Reject non-replayable/ambiguous responses rather than calling them empty."""
+    """Reject ambiguous responses; never infer delivery fields from concise JSON."""
     if result.get('connectionLost'):
         raise MailboxError('connection_lost')
     if result.get('cancelled'):
@@ -46,12 +50,21 @@ def delivery(result, run):
             or not all(isinstance(m, dict) and isinstance(m.get('id'), str) for m in messages)
             or not isinstance(result.get('timedOut'), bool)):
         raise MailboxError('invalid_delivery')
+    if 'deliveryAcknowledged' in result and not isinstance(result['deliveryAcknowledged'], bool):
+        raise MailboxError('invalid_delivery')
     delivery_id = result.get('deliveryId')
     if messages:
         if not isinstance(delivery_id, str) or not delivery_id or result['timedOut']:
             raise MailboxError('invalid_delivery')
-        return {'source': 'run', 'deliveryId': delivery_id, 'messages': messages,
-                'replayed': bool(result.get('replayed'))}
+        batch = {'source': 'run', 'deliveryId': delivery_id, 'messages': messages,
+                 'replayed': bool(result.get('replayed'))}
+        if 'deliveryAcknowledged' in result:
+            batch.update(deliveryAcknowledged=result['deliveryAcknowledged'],
+                         nativeAutoAck=result['deliveryAcknowledged'])
+            mutation = result.get('mutation')
+            if isinstance(mutation, dict) and isinstance(mutation.get('requestId'), str):
+                batch['nativeRequestId'] = mutation['requestId']
+        return batch
     if delivery_id is not None or not result['timedOut']:
         raise MailboxError('invalid_delivery')
     return None
@@ -137,6 +150,10 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
             for kind in CLASSES:
                 result['counts'][kind] += batch['counts'][kind]
             result['batches'].append(batch)
+            if 'nativeAutoAck' in batch:
+                result['nativeAutoAck'] = batch['nativeAutoAck']
+                if batch['nativeAutoAck']:
+                    result['acknowledgmentStatus'] = 'already acknowledged natively'
         result.update(event='messages' if batch else 'timeout',
                       acknowledged=received.get('acknowledged'))
     except MailboxError as e:

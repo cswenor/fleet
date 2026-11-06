@@ -157,10 +157,18 @@ mechanism. Urgent rows carry `replyExpected: false` and
 decision requests from the owning terminal with
 `orca orchestration reply --id MESSAGE_ID --body 'decision' --json`, and record
 rulings on Pad. Labels/from handles are advisory, not authentication. Only after
-processing **all** rows, re-arm asynchronously with
+processing **all** rows, re-arm asynchronously. On explicit-ack runtimes use
 `fleet ... wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900`.
-Whole-batch native ack only; never fabricate terminal delivery IDs or silently
-consume legacy mail.
+On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
+mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
+is a native echo only. Retain `nativeRequestId` privately; stock
+`orchestration request-show --request ID --full --json` and the original native
+check plus exact `--retry-request ID` recover its recorded outcome, not newer
+mail. A crash losing that ID after auto-ack can lose access to the batch.
+Fleet has no local replay store; never fabricate terminal delivery IDs or consume
+legacy history to simulate reliable delivery. Full orchestration records are
+requested only when per-verb stock help advertises `--full` (in-memory cache);
+older Linux Orca keeps its explicit-ack output.
 Exit 0/messages is delivery, 3 timeout is a checkpoint, 2 error needs diagnosis.
 Inspect read-only legacy terminal history separately. Send proves durable enqueue,
 not wake/read; verify a real background completion before cutting reports over.

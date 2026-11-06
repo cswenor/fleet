@@ -170,6 +170,27 @@ records plus explicit native auto-ack semantics. Main approved a separate
 transport-compatibility PR and retained its publication hold. No credentials,
 existing Mac product sessions, shared checkout or Linux services changed.
 
+Separate transport compatibility (Main ruling `msg_6f78f58ccaad`, corrected
+capability premise `msg_0bcec581eee4`): stock per-verb help discovery chooses
+`--full` only where advertised, cached per process. Linux Orca 1.4.242 rejects
+that flag; real isolated Run wait retained the legacy batch schema and replayed
+`delivery_12bc80650748` before explicit ack, then timed out after ack.
+Mac Orca 1.4.251 full records restore binding/history/delivery evidence, but
+consuming checks auto-handle mail. Real scratch `fleet wait` returned
+`delivery_2aea63f04ea6` / `msg_640a76005df7`, `nativeAutoAck: true`,
+native request ID and explicit already-acknowledged status. Native
+`request-show` reported completed and exact `--retry-request` replayed earlier
+`delivery_959f2d92ff92` after native acknowledgment. Fleet keeps no local replay
+store: losing that request ID after native auto-ack can lose recovery access.
+Legacy `acknowledged` remains only a native echo; no version-based assumptions.
+Separate transport PR requires Main's exact-head merge GO and coordinated rollout;
+no live Linux Run or other project's Mac session was used for these drills.
+Independent review caught a P1 in the initial help-error fallback: a concise
+auto-handled check could consume mail before schema rejection. Main corrected
+that condition (`msg_08dfdcc24b24`): failed, timed-out or ambiguous help now
+refuses before any consuming check/mutation; only successful complete help
+establishes unsupported `--full`. Regression retains pending mail on uncertainty.
+
 ### TASK-33 — Project workflow skill and onboarding
 
 Implemented the generic [Fleet skill](../.omp/skills/fleet/SKILL.md), adopted by

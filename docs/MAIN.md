@@ -210,8 +210,8 @@ to avoid routine-status wakes. `urgent` aliases native `question`, waking for
 all questions, not just supervisor relays. `escalation` remains selectable for
 supervised worker escalations; ordinary senders cannot emit that type. Selection gates native blocking
 wake on pending types only: every row remains unfiltered in FIFO delivery order.
-An existing unacked delivery still replays whole, potentially before the newer
-wake trigger. Selection does not hide reports or acknowledge anything.
+On explicit-ack runtimes, an existing unacked delivery still replays whole before
+a newer wake trigger. Wake selection itself never hides reports or changes ack.
 
 Urgent supervisor relays use native type `question` and subject prefix
 `[urgent] `; native `urgent` is unsupported. `urgent.events` defaults to stalled,
@@ -251,16 +251,25 @@ Classification is advisory, not authority/authentication: local callers can
 supply Orca `--from`. Never use a label to grant authority, suppress, auto-ack
 or downgrade a message. Retain and inspect every payload.
 Decision requests MUST use `--type question` to `run:<coordinator.run>`;
-`status` is only for reports. Then explicitly acknowledge and re-arm:
+`status` is only for reports. On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
 fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
 ```
+On newer native auto-handled checks, `nativeAutoAck: true` means the batch was
+already acknowledged natively: process it and re-arm **without** `--ack-run`.
+Fleet preserves native `deliveryAcknowledged` and `nativeRequestId` when present;
+`acknowledged` is a native echo only, not proof Fleet performed an ack.
+Stock `request-show` / exact `--retry-request` recover recorded native outcomes;
+losing the request ID during a crash can lose access to the handled batch.
+No local replay store or version sniffing. Fleet discovers `--full` per verb from
+stock help (cached in memory); Linux 1.4.242 lacks the flag and keeps its output.
+See [native acknowledgment and recovery](../README.md#inbox-wait) for details.
 
 Exit 0 / `messages` is delivery; exit 3 / `timeout` is a checkpoint, not worker
 death; exit 2 / `error` is a distinct binding/runtime/diagnostic failure. On error
-inspect any returned batches; no implicit ack occurs. Read-only legacy history
-is never locally acknowledged or claimed as a native terminal Delivery.
+inspect any returned batches, including native auto-handled ones. Read-only
+legacy history is never locally acknowledged or claimed as a native terminal Delivery.
 Pre-binding mail can remain there unread and cannot wake the Run; reconcile it
 separately before unattended waiting. An unbound terminal's native consuming
 check marks mail read without a replayable delivery ID. If terminal-addressed

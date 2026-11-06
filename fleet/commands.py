@@ -1,4 +1,5 @@
 """Bounded subprocess calls. Never include stderr/argv in errors: they can contain secrets."""
+from functools import lru_cache
 import json
 import re
 import subprocess
@@ -31,8 +32,29 @@ def json_run(argv, cwd=None):
     except json.JSONDecodeError as e:
         raise CommandError('invalid command JSON') from e
 
+@lru_cache(maxsize=64)
+def _orchestration_full(executable, verb):
+    # Discover before sending any mutation: retrying after a concise response
+    # could send twice. Older Orca rejects --full even with --json.
+    help_text = run([executable, 'orchestration', verb, '--help'])
+    _, separator, options = help_text.partition('\nOptions:\n')
+    full = re.findall(r'(?m)^\s+--full(?:\s|$)', options)
+    if (not separator or f'Usage: orca orchestration {verb}' not in help_text
+            or len(full) > 1 or ('--full' in help_text and not full)):
+        raise CommandError('ambiguous Orca orchestration capabilities')
+    return bool(full)
+
+
+def orchestration_args(executable, args):
+    if args and '--full' not in args and _orchestration_full(executable, args[0]):
+        return (*args, '--full')
+    return args
+
+
 
 def orca(c, *args):
+    if args[:1] == ('orchestration',):
+        args = ('orchestration', *orchestration_args(c['orca'], args[1:]))
     p = _execute([c['orca'], *args, '--json'], c['root'])
     try:
         data = json.loads(p.stdout)

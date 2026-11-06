@@ -307,8 +307,8 @@ two independent native mailboxes. `--wake-on KINDS` accepts comma-separated
 `urgent` aliases native `question`, so selecting it wakes for **all** questions,
 not just supervisor relays. `escalation` remains selectable for supervised worker
 escalations; ordinary senders cannot emit that type. Selection gates **blocking wake only**
-on pending message types, never delivery contents. Existing unacked deliveries
-still replay whole, even before the newer message that triggered wake. Every
+on pending message types, never delivery contents. On explicit-ack runtimes,
+existing unacked deliveries replay whole, even before a newer wake trigger. Every
 pending row remains in FIFO native delivery order without type filtering;
 decision-first display ordering does not change batch membership. Main uses
 `question,escalation,urgent` to avoid routine-status wakes, but processes the full
@@ -324,27 +324,51 @@ never builder decisions: they carry `replyExpected: false` and
 `triageNote: "no reply expected"`. Decisions sort first, urgent relays next,
 stably; per-source and aggregate `counts` cover every displayed row and bucket,
 including legacy history. These are presentation changes, not filtered
-consumption: acknowledge the original **whole** delivery after processing every row.
+consumption: process every row; acknowledgment semantics come from native Orca.
 Classification is advisory triage, **not authentication or authority**: Orca
 allows local callers to supply `--from`. Labels never grant authority, suppress,
 auto-ack or downgrade a message; inspect every original payload.
 
 Process **all** message types. Reply to actual decision requests in-thread with
 `orca orchestration reply --id MESSAGE_ID --body 'answer'`; urgent supervisor
-questions do not request replies. Then re-arm:
+questions do not request replies. On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
 fleet wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
 ```
 
-There is no implicit acknowledgment: unacked deliveries replay; an explicit ack
-applies only to that Run batch, not newer mail or terminal history.
+Fleet discovers stock `--full` support from each orchestration verb's `--help`,
+cached in memory. It requests full records when advertised. Failed or ambiguous
+help refuses before any consuming check or mutation; only complete successful
+help establishes that the flag is unsupported. It never retries a mutation to
+probe flags and still rejects incomplete delivery schemas.
+Orca 1.4.242 keeps explicit whole-batch acknowledgment and unchanged output:
+unacked deliveries replay; an explicit ack applies only to that Run batch.
+
+Orca 1.4.251 auto-handles consuming checks. When native `deliveryAcknowledged`
+is present, Fleet preserves it and emits `nativeAutoAck` (true/false) in the batch
+and result. True adds `acknowledgmentStatus: "already acknowledged natively"`;
+re-arm **without** `--ack-run`. This flag comes from native evidence, not version
+sniffing. `acknowledged` is only the native echo, not proof Fleet performed an ack;
+an empty timeout may omit auto-ack metadata. Use `--ack-run` for legacy unacked
+batches only. Fleet does not add a local acknowledgment/replay store.
+
+Auto-handled batches retain `nativeRequestId` when native mutation metadata is
+available. On 1.4.251, `orca orchestration request-show --request ID --full --json`
+returns the recorded outcome; replay the **original** native check command with
+the same arguments plus `--retry-request ID --full --json` to recover the same
+delivery, not newer mail. Real Mac replay preserved its delivery/message IDs.
+Retain that request ID privately before processing. If a crash loses it between
+native auto-ack and recording/processing, Fleet cannot guarantee recovery;
+starting another wait does not replay that handled batch. Native absent/pruned
+request evidence is not proof the check never consumed mail.
 Exit **0** / `event: "messages"` means delivery; exit **3** /
 `event: "timeout"` is an empty checkpoint, not failure or worker death.
 Exit **2** / `event: "error"` is a binding, runtime, transport or diagnostic
 failure, never an empty checkpoint. Inspect any returned batches even on error;
-they remain replayable until explicitly acknowledged. Killing/re-running the
-wait does not acknowledge mail. Shared Orca runtime restart is not proven.
+auto-handled batches may already be acknowledged despite a later diagnostic error.
+Only explicit-ack runtimes replay until acknowledgment. Shared Orca runtime
+restart is not proven.
 
 Switch Main's receiving wait only in the coordinated deployment window after
 the deployed native runtime supports the selected wake types and background
