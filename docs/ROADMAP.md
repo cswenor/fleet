@@ -111,6 +111,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-33 — Project workflow skill and onboarding
+
+Implemented the generic [Fleet skill](../.omp/skills/fleet/SKILL.md), adopted by
+Fleet itself through stock project discovery. README onboarding installs a
+version-pinned copy plus the unchanged `.omp/unadvised-review.yml`; updates
+preserve configured `fleet.yml` and require inspecting local customizations.
+No new installer, public registry publication, lifecycle replacement or rollout.
+The skill covers Main/builder authority, full onboarding, native Run wait/ack,
+Pad briefs/threads, explicit next/launch, review + CI, merge/deployment, guarded
+retirement/reconciliation, PARK/resets and owner-operated runtime restart.
+It retains the TASK-31/32 audited wrappers and TASK-34 branch-preparation caveat.
+
+2026-11-06 real command evidence: omp 18.17.0 / Orca 1.4.242. Repeated documented
+copy/update into a temporary project preserved its configured `fleet.yml`;
+skill and review overlay remained byte-identical. `omp skill list --json`
+reported `fleet`, `source=native:project`, from the target `.omp/skills/fleet`.
+Fresh session `01a1b228-0b1b-72a8-82ee-56366b74142a` actually read `skill://fleet`
+without the prompt naming it, then answered the blocking-decision/publication
+question correctly: unique task question + async same wait, final-head independent
+review + green CI, no builder Run binding or automatic reset spending.
+Session events recorded Sol medium, no fallback. No services/other projects
+changed; publication gate receipts are retained on TASK-33 and its PR.
+
 ### TASK-10 — Main wake-up through BOTH address forms
 
 Implemented in [PR15](https://github.com/cswenor/fleet/pull/15) under Main's approved native-routing contract above.

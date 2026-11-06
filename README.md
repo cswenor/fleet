@@ -29,12 +29,21 @@ owns scope/public contracts, and the owner retains budget/reset/rollout authorit
 Record owner approval before saved-reset spend; self-merge only after independent
 review and green final-head CI. No review bot or automatic dispatch is assumed.
 
+Install the generic [Fleet workflow skill](.omp/skills/fleet/SKILL.md) and stock
+review overlay into each adopted project. The skill contains the complete
+onboarding checklist, Main/builder workflow, publication gates, deployment policy
+and restart recovery; it uses project bindings rather than fleet's host names.
+
 ## Install and inspect
 
 ```sh
 pipx install .
-cp fleet.example.yml /path/to/project/fleet.yml
-# Fill in the checkout, Orca repo id, coordinator run/terminal, and lane slots.
+# Inspect existing target files first; preserve project-local customization.
+mkdir -p /path/to/project/.omp/skills/fleet
+cp .omp/skills/fleet/SKILL.md /path/to/project/.omp/skills/fleet/SKILL.md
+cp .omp/unadvised-review.yml /path/to/project/.omp/unadvised-review.yml
+cp -n fleet.example.yml /path/to/project/fleet.yml
+# Fill project policy, private config/env, Pad workspace, Run and configured slots.
 cd /path/to/project
 fleet status
 fleet status --json
@@ -44,6 +53,25 @@ fleet may-start --json
 Without pipx, use a virtual environment and `pip install .`. On Debian install
 `python3-venv` first. To run from source with system PyYAML:
 `python3 -m fleet.cli --config /absolute/path/fleet.yml status`.
+
+Run the copies from the reviewed Fleet source checkout. On update, repeat only
+the skill/overlay copies after inspecting local differences; never overwrite
+configured `fleet.yml`, project instructions or private settings. Commit both
+copied files in the target project. Copies pin policy to the adopted version;
+no moving symlinks, installer code or public skill registry are required.
+`omp skill` manages registry packages, `omp plugin` manages plugins, and
+`orca skills install/update` manages bundled Orca skills; none is needed for this
+plain project-local skill plus separate config overlay. Do not publish to a
+registry without owner approval.
+
+Prove stock discovery with a **fresh** omp session inside the target checkout:
+ask how a Fleet builder requests a decision and publishes safely, without naming
+the skill. Retain the discovered skill read and answer. Configure effective reset
+auto-redemption to `no` for both providers before sessions start (see the skill);
+existing running sessions may retain old settings. Then complete the private
+config, Run binding, supervisor and actual delivery checks in the skill.
+Installing policy files does not start services, bind a builder Run, authorize
+rollout, or prove central ingestion.
 
 `fleet.yml` version 1 is illustrated in `fleet.example.yml`. `builder.model` is
 the launch selector, including `@role` if desired; `resolved_model` is the exact

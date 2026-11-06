@@ -139,7 +139,9 @@ for this reviewer; do not add write/eval/bash/task tools to satisfy a review.
 If required evidence is unreachable with these tools, report that limit to Main.
 The overlay binds Sol medium, disables advisors/fallback/auto-resume/prewalk and
 automatic saved-reset spending; do not pass continue/resume/restore/advisor or
-later overlays overriding it. TASK-33 copies this overlay with the project skill.
+later overlays overriding it. Project adoption copies this overlay unchanged with
+the [Fleet workflow skill](../.omp/skills/fleet/SKILL.md); use the README onboarding
+checklist and retain fresh project-local discovery evidence.
 
 Before accepting the verdict, inspect that new directory's session JSONL locally:
 `model_change` must name `openai-codex/gpt-6.1-sol` with no fallback, and
