@@ -588,6 +588,36 @@ class RetirementTests(unittest.TestCase):
         fields = [status, '1', '123', '1', '456', foreground] + ['0'] * 13 + ['1000']
         (self.process / 'stat').write_text('123 (omp) ' + ' '.join(fields))
 
+    def test_deleted_updater_backup_allows_exact_retirement(self):
+        link = self.process / 'exe'
+        link.unlink()
+        link.symlink_to('/opt/omp.1793967975370.308783.0.bak (deleted)')
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(result['retirement']['session']['process']['pid'], 123)
+        self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
+        self.assertEqual(len(self.sent), 1)
+        self.launch.assert_called_once()
+
+    def test_backup_near_misses_and_wrong_argv_never_receive_exit(self):
+        for executable, argv0 in (
+                ('omp.1.2.3.bak', 'omp'),
+                ('omp.1.2.bak (deleted)', 'omp'),
+                ('omp.192.0.2.1.bak (deleted)', 'omp'),
+                ('omp.1.x.3.bak (deleted)', 'omp'),
+                ('omp.١.2.3.bak (deleted)', 'omp'),
+                ('prefixomp.1.2.3.bak (deleted)', 'omp'),
+                ('omp.1.2.3.bak (deleted).extra', 'omp'),
+                ('other (deleted)', 'omp'),
+                ('omp.1.2.3.bak (deleted)', 'python')):
+            with self.subTest(executable=executable, argv0=argv0):
+                link = self.process / 'exe'
+                link.unlink()
+                link.symlink_to('/opt/' + executable)
+                argv = [argv0, *self.argv[1:]]
+                (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
+                self.refused('no unique matching foreground')
+
     def test_held_old_lease_with_different_foreground_process_never_receives_exit(self):
         # Lease, old completed log, and exact pane idle remain positive.
         self.write_stat(foreground='999')

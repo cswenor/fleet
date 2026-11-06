@@ -11,6 +11,7 @@ import yaml
 
 from . import config, health, orca_capture, restart
 from .commands import CommandError, json_run, orca, run
+from .process_identity import omp_executable
 
 PROC = Path('/proc')
 # This is the sole privileged operation granted by the operator, not a generic
@@ -334,7 +335,7 @@ def _match_process(row, records, terminals):
         raise ValueError('model-bearing session incomplete')
     observed = _process(row['pid'])
     if (observed['start_ticks'] != row['start_ticks'] or observed['cwd'] != row['cwd'] or
-            not orca_capture._omp_executable(observed['exe'], observed['argv'][0]) or
+            not omp_executable(observed['exe'], observed['argv'][0]) or
             row.get('exe', observed['exe']) != observed['exe']):
         raise ValueError('captured session changed')
     manual = [r for r in records if 'session_dir' not in r and r['pid'] == row['pid']

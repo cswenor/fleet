@@ -8,6 +8,7 @@ import sys
 import time
 from . import dispatcher, health, launcher, snapshot, state
 from .commands import CommandError, gh, json_run, orca
+from .process_identity import omp_executable
 
 # Exact omp 18.17.0 (type, customType) encodings; never allow arbitrary custom events.
 POST_TURN_METADATA = frozenset({
@@ -41,7 +42,7 @@ def _foreground(c, record, slot, handle):
             # background group, can own the terminal input we are about to send.
             if before[0] not in ('R', 'S') or before[2] != before[5] or int(before[4]) == 0 or int(before[5]) <= 0:
                 continue
-            if (proc / 'exe').resolve().name != 'omp' or str((proc / 'cwd').resolve()) != slot:
+            if not omp_executable((proc / 'exe').readlink(), argv[0]) or str((proc / 'cwd').resolve()) != slot:
                 continue
             # Inspect only equality of this routing key; never log environments.
             if ('ORCA_TERMINAL_HANDLE=' + handle).encode() not in (proc / 'environ').read_bytes().split(b'\0'):

@@ -271,6 +271,25 @@ Main reports deployment to the stable shared checkout at 21:12 UTC and Fleet's
 supervisor reinstall; Project Alpha's supervisor reinstall remains pending its Main.
 Main coordinates the Project Alpha switch and TASK-10 script retirement.
 
+### TASK-39 — Deleted OMP updater executable identity
+
+Restart, private capture and shared-runtime preflight reuse one executable-link
+validator. The updater exception accepts only the full ASCII-digit basename
+`omp.<digits>.<digits>.<digits>.bak (deleted)` with argv0 basename `omp`.
+Non-deleted backups, near-misses, other executable names and wrong argv0 remain
+refused. PID/start ticks, exact session/argv, foreground group, cwd, routing and
+terminal incarnation checks are unchanged; mutable process names prove nothing.
+
+2026-11-06 regression failed before the fix and passed afterward; all 256 local
+tests passed. An owned compiled waiting-process fixture exercised real Linux
+`/proc` and a real foreground PTY: normal executable accepted, renamed non-deleted
+backup refused, then unlinked backup accepted with identical PID/start/tty/pgrp/
+boot proof. The fixture exited and was reaped. This is faithful kernel-link proof,
+not an actual pre-update OMP session or a live builder retirement; no live Runs,
+services or other projects were probed or changed.
+Publication requires independent final-head Sol-medium review, green CI and
+Main's exact-head merge GO; merge is not shared-checkout rollout approval.
+
 ### TASK-42 — Guarded post-exit terminal-reply cleanup
 
 Main ruling `msg_cc2c63592b1d` permits exactly one journaled Ctrl-U, no Enter,

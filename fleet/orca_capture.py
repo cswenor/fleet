@@ -11,6 +11,7 @@ import time
 import sys
 from .commands import CommandError, orca, run
 from .config import load
+from .process_identity import omp_executable
 
 
 PROC = Path('/proc')
@@ -19,13 +20,6 @@ TERMINAL_FIELDS = ('handle', 'incarnationId', 'worktreeId', 'worktreePath',
 MESSAGE_FIELDS = ('id', 'run_id', 'delivery_contract', 'from_handle', 'to_handle',
                   'type', 'read', 'sequence', 'created_at', 'delivered_at')
 RUN_FIELDS = ('id', 'coordinator_handle', 'consumer_generation', 'legacy')
-OMP_BACKUP = re.compile(r'omp\.[0-9]+\.[0-9]+\.[0-9]+\.bak \(deleted\)')
-
-
-def _omp_executable(executable, argv0):
-    name = Path(executable).name
-    return (name.removesuffix(' (deleted)') == 'omp' or
-            bool(OMP_BACKUP.fullmatch(name) and Path(argv0).name == 'omp'))
 
 
 def _pick(value, fields):
@@ -90,7 +84,7 @@ def _argv_session(proc, expected_id=None):
         raise ValueError('session directory ambiguous')
     before = _stat(proc)
     executable = (proc / 'exe').readlink()
-    if not argv or not _omp_executable(executable, argv[0]):
+    if not argv or not omp_executable(executable, argv[0]):
         raise ValueError('not the recorded model executable')
     boot = (PROC / 'sys/kernel/random/boot_id').read_text().strip()
     cwd = str((proc / 'cwd').resolve(strict=True))
@@ -178,12 +172,12 @@ def _processes(paths):
             before = _stat(proc)
             field = 'exe'
             executable = (proc / 'exe').readlink()
-            if executable.name.removesuffix(' (deleted)') != 'omp' and not OMP_BACKUP.fullmatch(executable.name):
+            if not omp_executable(executable, 'omp'):
                 continue
             field = 'cmdline'
             command = (proc / 'cmdline').read_bytes()
             argv = command.split(b'\0')
-            if not _omp_executable(executable, os.fsdecode(argv[0])):
+            if not omp_executable(executable, os.fsdecode(argv[0])):
                 continue
             helper = next((kind for kind in ('daemon_broker', 'text_predict', 'js_eval_process')
                            if argv[1:2] == [('__omp_worker_' + kind).encode()]), None)
