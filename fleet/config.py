@@ -1,6 +1,7 @@
 """Validated, project-local configuration. No provider credentials belong here."""
 from pathlib import Path
 import os
+import math
 import re
 import shutil
 import sys
@@ -8,6 +9,9 @@ import yaml
 
 STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
                    'terminal': ['done', 'cancelled']}
+
+URGENT_EVENTS = ('provider_stalled', 'idle', 'wrong_model', 'stray_worktree',
+                 'merge_group_failure', 'pr_stuck')
 
 
 def validate_statuses(statuses, *, allow_no_progress=False):
@@ -88,6 +92,19 @@ def load(path):
     c.setdefault('interval_seconds', 60)
     if c['interval_seconds'] < 1 or s['push_seconds'] < 1:
         raise ValueError('intervals must be positive')
+    urgent = c.setdefault('urgent', {})
+    if not isinstance(urgent, dict):
+        raise ValueError('urgent must be a mapping')
+    urgent.setdefault('events', list(URGENT_EVENTS))
+    urgent.setdefault('pr_stuck_minutes', 45)
+    events = urgent['events']
+    if (not isinstance(events, list) or
+            any(not isinstance(event, str) or event not in URGENT_EVENTS for event in events) or
+            len(set(events)) != len(events)):
+        raise ValueError('urgent.events must be a list of distinct supported event names')
+    minutes = urgent['pr_stuck_minutes']
+    if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
+        raise ValueError('urgent.pr_stuck_minutes must be a positive finite number')
     for key in ('terminal', 'run'):
         if not c['coordinator'].get(key):
             raise ValueError(f'missing coordinator.{key}')

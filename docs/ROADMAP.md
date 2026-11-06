@@ -174,6 +174,36 @@ review + green CI, no builder Run binding or automatic reset spending.
 Session events recorded Sol medium, no fallback. No services/other projects
 changed; publication gate receipts are retained on TASK-33 and its PR.
 
+### TASK-37 — Selective wake and urgent supervisor relays
+
+`fleet wait --wake-on question,escalation,urgent` gates native blocking wake,
+never delivery contents or acknowledgment. Default `all` retains wake-on-anything.
+`urgent` aliases native `question`: Orca has no urgent type, and real ordinary
+terminal escalation sends fail `sender_not_assignee` without an active Dispatch.
+Supervisor urgent relays therefore use `question` with `[urgent] ` subjects;
+urgency and classification remain advisory, never authority.
+Main approval `msg_c5ad5f7fa703` requires the distinct `supervisor_urgent`
+advisory bucket with `replyExpected: false` / `no reply expected`; builder
+decision questions stay first and never share that bucket unless their sender
+and markers match the unauthenticated supervisor convention.
+
+Generic `urgent.events` defaults to wrong-model, provider-stalled, idle,
+stray-worktree, merge-group failure and PR-stuck conditions; `[]` disables
+upgrades. `urgent.pr_stuck_minutes` defaults to 45. The durable PR timer resets
+on state/head/merge-state/check/review progress, not comment churn.
+
+2026-11-06 real CLI proof on isolated Run `run_78bc1026ab9a`: ordinary status
+timed out without delivery; question woke with whole mixed pending mail
+(`delivery_7750277bab91`), which replayed unchanged before ack. Urgent question
+woke with the next ordinary status (`delivery_325f3402054d`). Explicit whole-batch
+acks drained the Run. Real scratch supervisor emitters also delivered wrong-model
+and 45-minute PR-stuck events (`msg_a973e77a60df`, `msg_a24b4220ca2c`) together;
+replay and explicit whole-batch ack passed. All 179 local unit tests passed.
+Builder terminal remained unbound; no live-Run probes or production changes.
+Final publication receipts are retained on TASK-37.
+Main coordinates the Project Alpha switch and TASK-10 script retirement;
+merge is held until Main confirms the shared-behavior rollout window.
+
 ### TASK-10 — Main wake-up through BOTH address forms
 
 Implemented in [PR15](https://github.com/cswenor/fleet/pull/15) under Main's approved native-routing contract above.

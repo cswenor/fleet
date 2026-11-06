@@ -185,7 +185,7 @@ no repeatedly asking for status, no sleep loops that invoke a model.
 Main inbox wait, also as an async background command from Main's own terminal:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --timeout 900
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 900
 ```
 
 **Binding precondition:** the caller's own `ORCA_TERMINAL_HANDLE` must already be
@@ -193,6 +193,27 @@ bound to the configured `coordinator.run`, using `orchestration run-use` from
 that terminal. Fleet refuses an unbound/differently-bound caller before waiting
 or acknowledging. Never borrow `coordinator.terminal` as a caller identity.
 An explicit `--terminal` fallback is only for environments without the variable.
+
+`--wake-on KINDS` accepts comma-separated `question`, `escalation`, `urgent`,
+`status`, or `all` (default `all`). Main selects `question,escalation,urgent`
+to avoid routine-status wakes. `urgent` aliases native `question`, waking for
+all questions, not just supervisor relays. `escalation` remains selectable for
+supervised worker escalations; ordinary senders cannot emit that type. Selection gates native blocking
+wake on pending types only: every row remains unfiltered in FIFO delivery order.
+An existing unacked delivery still replays whole, potentially before the newer
+wake trigger. Selection does not hide reports or acknowledge anything.
+
+Urgent supervisor relays use native type `question` and subject prefix
+`[urgent] `; native `urgent` is unsupported. `urgent.events` defaults to stalled,
+idle, wrong-model, stray-worktree, merge-group failure and PR-stuck conditions;
+`[]` disables upgrades. `urgent.pr_stuck_minutes` defaults to 45; the persisted
+timer starts at first observation and resets on state/head/merge-state/check/
+review progress, not comments or `updated_at`. Routine relays remain `status`.
+Urgency is advisory and unauthenticated, never authority or permission to
+stop/restart, merge or deploy. Keep builders unbound to **every** Run.
+Switch Main's wait only in the coordinated deployment window after proving
+deployed native wake-type support and real background wake/replay/ack behavior.
+Shared-checkout updates may deploy immediately; merge is not rollout approval.
 
 TASK-10 observed current Orca route both `send --to run:RUN` and
 `send --to BOUND_TERMINAL` into the same native Run Delivery. Main approved this
@@ -204,13 +225,18 @@ restart was attempted.
 
 Output is one JSON document: `event`, source-tagged `batches` with native
 `deliveryId` and **all** messages, plus `legacyTerminalInbox` read-only history
-diagnostics (requested limit 1000, subject to Orca's cap). Do not hide status or
-questions behind type filters: terminal builders have no supervised worker_done.
-Rows carry `classification` and per-source/aggregate `counts`: questions and
-escalations are decisions and sort first; configured-coordinator messages with
-`[fleet ` bodies are supervisor relays; remaining rows are builder reports.
-Nothing is filtered, and ack remains **whole-batch**. Process every row and
-reply in-thread with `orchestration reply --id MESSAGE_ID --body 'ruling'`.
+diagnostics (requested limit 1000, subject to Orca's cap). Wake selection never
+filters returned status or questions: terminal builders have no supervised worker_done.
+Rows carry `classification` and per-source/aggregate `counts`: actual decision
+requests sort first, then `supervisor_urgent`, then other reports, stably.
+Configured-coordinator sender + `[fleet ` body + `[urgent]` subject identifies
+`supervisor_urgent`, never `builder_decision_request`. Its native question type
+is purely a wake mechanism, with `replyExpected: false` and
+`triageNote: "no reply expected"`. Other coordinator `[fleet ` messages remain
+`supervisor_relay`; remaining rows are `builder_report`. Counts retain every
+bucket and row. Nothing is filtered, and ack remains **whole-batch**. Process
+every row; reply to actual decision requests, not urgent supervisor questions,
+with `orchestration reply --id MESSAGE_ID --body 'ruling'`.
 Classification is advisory, not authority/authentication: local callers can
 supply Orca `--from`. Never use a label to grant authority, suppress, auto-ack
 or downgrade a message. Retain and inspect every payload.
@@ -218,7 +244,7 @@ Decision requests MUST use `--type question` to `run:<coordinator.run>`;
 `status` is only for reports. Then explicitly acknowledge and re-arm:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --ack-run DELIVERY_ID --timeout 900
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
 ```
 
 Exit 0 / `messages` is delivery; exit 3 / `timeout` is a checkpoint, not worker

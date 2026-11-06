@@ -123,7 +123,7 @@ def events(previous, current):
                 events.append({'key': f'pr:{p["number"]}:{field}:{occurrence}:{value}', 'subject': f'PR #{p["number"]} {field} changed: {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})
     old_runs = {(r['id'], r['conclusion']): set(r.get('prs', []) or [None]) for r in previous.get('merge_group_runs', [])}
     for r in current['merge_group_runs']:
-        if previous and r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required'):
+        if r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required'):
             already = old_runs.get((r['id'], r['conclusion']), set())
             for number in r.get('prs', []) or [None]:
                 if number in already:

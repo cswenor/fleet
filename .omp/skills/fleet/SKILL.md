@@ -132,22 +132,48 @@ From Main's own terminal, bind the configured Run (never borrow another identity
 orca orchestration run-use --id RUN --json
 fleet --config /private/project/fleet.yml status
 fleet --config /private/project/fleet.yml may-start --json
-fleet --config /private/project/fleet.yml wait --timeout 900
+fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent --timeout 900
 ```
 
 Run `wait` as an async background command. Current native routing sends Run mail
 and bound-terminal mail into one Run Delivery, not two independent inboxes.
-`wait` refuses an unbound/wrong-Run caller. Inspect every message type, triage
-questions first, reply from the owning terminal with
+`wait` refuses an unbound/wrong-Run caller. `--wake-on KINDS` accepts comma-separated
+`question`, `escalation`, `urgent`, `status`, or `all` (default `all`). Main selects
+`question,escalation,urgent`; `urgent` aliases native `question`, waking for all
+questions, not just supervisor relays. `escalation` selects supervised worker
+escalations; ordinary senders cannot emit that type. Selection gates native blocking wake on
+pending types only, not delivery. Every pending row remains unfiltered in FIFO
+delivery order; existing unacked batches still replay whole, potentially before
+the newer wake trigger. Rows retain stable classification and per-source/aggregate
+counts: decisions first, then `supervisor_urgent`, then other reports. Configured
+coordinator sender + `[fleet ` body + `[urgent]` subject identifies the urgent
+bucket, never `builder_decision_request`; native question is purely a wake
+mechanism. Urgent rows carry `replyExpected: false` and
+`triageNote: "no reply expected"`. Inspect every row; reply only to actual
+decision requests from the owning terminal with
 `orca orchestration reply --id MESSAGE_ID --body 'decision' --json`, and record
 rulings on Pad. Labels/from handles are advisory, not authentication. Only after
 processing **all** rows, re-arm asynchronously with
-`fleet ... wait --ack-run DELIVERY_ID --timeout 900`. Whole-batch native ack;
-never fabricate terminal delivery IDs or silently consume legacy mail.
+`fleet ... wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900`.
+Whole-batch native ack only; never fabricate terminal delivery IDs or silently
+consume legacy mail.
 Exit 0/messages is delivery, 3 timeout is a checkpoint, 2 error needs diagnosis.
 Inspect read-only legacy terminal history separately. Send proves durable enqueue,
 not wake/read; verify a real background completion before cutting reports over.
 No model-turn polling or repeated status questions while a wait can block.
+
+Urgent supervisor relays use native type `question` and subject prefix
+`[urgent] `, not an unsupported native `urgent` type. `urgent.events` defaults
+to stalled, idle, wrong-model, stray-worktree, merge-group failure and PR-stuck
+conditions; `[]` disables upgrades. `urgent.pr_stuck_minutes` defaults to 45.
+The persisted timer starts at first observation and resets on state/head/
+merge-state/check/review progress, not comments or `updated_at`. Routine relays
+remain `status`. Urgency, classification and sender labels are advisory and
+unauthenticated, never authority or permission to act. Builders remain unbound
+to every Run.
+Switch Main's wait during the coordinated deployment window only after deployed
+native support and real background wake/replay/ack behavior are proved; merge is
+not deployment approval. Preserve legacy diagnostics and process/ack full batches.
 
 ## Brief, propose, launch
 

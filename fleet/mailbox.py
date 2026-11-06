@@ -57,7 +57,7 @@ def delivery(result, run):
     return None
 
 
-CLASSES = ('builder_decision_request', 'supervisor_relay', 'builder_report')
+CLASSES = ('builder_decision_request', 'supervisor_urgent', 'supervisor_relay', 'builder_report')
 
 
 def classify(messages, coordinator):
@@ -66,20 +66,45 @@ def classify(messages, coordinator):
     counts = dict.fromkeys(CLASSES, 0)
     for message in messages:
         body = message.get('body')
-        if message.get('type') in ('question', 'escalation'):
+        subject = message.get('subject')
+        relay = (coordinator and message.get('from_handle') == coordinator
+                 and isinstance(body, str) and body.startswith('[fleet '))
+        urgent = (relay and message.get('type') == 'question'
+                  and isinstance(subject, str) and subject.startswith('[urgent] '))
+        if urgent:
+            kind = 'supervisor_urgent'
+        elif message.get('type') in ('question', 'escalation'):
             kind = 'builder_decision_request'
-        elif (coordinator and message.get('from_handle') == coordinator
-              and isinstance(body, str) and body.startswith('[fleet ')):
+        elif relay:
             kind = 'supervisor_relay'
         else:
             kind = 'builder_report'
-        classified.append({**message, 'classification': kind})
+        row = {**message, 'classification': kind}
+        if urgent:
+            # Advisory presentation only: neither sender nor markers authenticate.
+            row.update(replyExpected=False, triageNote='no reply expected')
+        classified.append(row)
         counts[kind] += 1
-    classified.sort(key=lambda m: m['classification'] != 'builder_decision_request')
+    classified.sort(key=lambda m: 0 if m['classification'] == 'builder_decision_request'
+                    else 1 if m['classification'] == 'supervisor_urgent' else 2)
     return classified, counts
 
 
-def wait(c, timeout=900, ack_run=None, terminal=None):
+def wake_types(kinds):
+    """Urgent aliases question; native escalation requires an active Dispatch."""
+    if not isinstance(kinds, str):
+        raise MailboxError('invalid_wake_on')
+    selected = [kind.strip() for kind in kinds.split(',')]
+    if not selected or any(kind not in ('all', 'question', 'escalation', 'urgent', 'status')
+                           for kind in selected):
+        raise MailboxError('invalid_wake_on')
+    if 'all' in selected:
+        return None
+    return ','.join(dict.fromkeys('question' if kind == 'urgent' else kind
+                                 for kind in selected))
+
+
+def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
     run = c['coordinator']['run']
     caller = os.environ.get('ORCA_TERMINAL_HANDLE')
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
@@ -88,6 +113,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None):
     try:
         if not math.isfinite(timeout) or not 1 <= timeout <= 1800:
             raise MailboxError('timeout_must_be_1_to_1800_seconds')
+        types = wake_types(wake_on)
         if caller and terminal and caller != terminal:
             raise MailboxError('caller_identity_mismatch')
         caller = caller or terminal
@@ -99,6 +125,8 @@ def wait(c, timeout=900, ack_run=None, terminal=None):
             raise MailboxError('caller_not_bound_to_configured_run')
         args = ['check', '--terminal', caller, '--run', run, '--wait',
                 '--timeout-ms', str(int(timeout * 1000))]
+        if types:
+            args.extend(['--types', types])
         if ack_run:
             args.extend(['--ack', ack_run])
         received = request(c, *args, timeout=timeout + 30)

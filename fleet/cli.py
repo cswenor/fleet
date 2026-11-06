@@ -38,6 +38,8 @@ def main():
     p.add_argument('--interval', type=int, default=60)
     p = sub.add_parser('wait')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
+    p.add_argument('--wake-on', default='all',
+                   help='comma-separated question,escalation,urgent,status,all; urgent aliases question; deliveries stay whole')
     p.add_argument('--ack-run', help='acknowledge a processed Run delivery before waiting')
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
     p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')
@@ -89,7 +91,7 @@ def main():
             return 3 if result.get('event') == 'timeout' else 0
         if args.command == 'wait':
             from .mailbox import wait
-            result = wait(c, args.timeout, args.ack_run, args.terminal)
+            result = wait(c, args.timeout, args.ack_run, args.terminal, args.wake_on)
             print(json.dumps(result))
             return {'messages': 0, 'timeout': 3, 'error': 2}[result['event']]
         if args.command == 'serve':

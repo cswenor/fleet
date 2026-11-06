@@ -8,10 +8,18 @@ import time
 import urllib.request
 from . import github, health, snapshot, state, governor
 from .commands import orca, run, CommandError
+from .config import URGENT_EVENTS
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def event_signature(event):
+    content = [event['subject'], event['body'], event.get('branch')]
+    if event.get('type', 'status') != 'status':
+        content.append(event['type'])
+    return digest(content)
 
 
 def alerts(s):
@@ -32,6 +40,51 @@ def alerts(s):
             json.dumps(q, sort_keys=True) + ' ' + governor.CONSENT)
     if s.get('disk', {}).get('low'):
         add('disk', 'Fleet disk reserve reached', json.dumps(s['disk'], sort_keys=True))
+    return result
+
+
+def urgent_event(c, event):
+    """Urgency is a wake advisory, never sender authentication or authority."""
+    key = event['key']
+    kind = None
+    if key.startswith('health:'):
+        kind = key.rsplit(':', 1)[-1]
+    elif key.startswith('stray:'):
+        kind = 'stray_worktree'
+    elif key.startswith('group:'):
+        kind = 'merge_group_failure'
+    elif key.startswith('pr_stuck:'):
+        kind = 'pr_stuck'
+    if kind in c.get('urgent', {}).get('events', URGENT_EVENTS):
+        # Native Orca has no urgent type; question permits ordinary terminal senders.
+        return {**event, 'type': 'question', 'subject': '[urgent] ' + event['subject']}
+    return event
+
+
+def stuck_pr_alerts(c, ledger, current, now):
+    """Persist observed semantic progress, ignoring comments and updated_at."""
+    timers = ledger.setdefault('pr_progress', {})
+    active = {}
+    result = []
+    minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
+    for p in current['prs']:
+        if p['state'] != 'open':
+            continue
+        key = str(p['number'])
+        progress = {field: p.get(field) for field in ('state', 'head', 'merge_state')}
+        for field in ('checks', 'reviews'):
+            progress[field] = sorted(p.get(field, []), key=lambda row: json.dumps(row, sort_keys=True))
+        progress['queue'] = [entry.get('state') for entry in current.get('merge_queue', [])
+                             if entry.get('pullRequest', {}).get('number') == p['number']]
+        signature = digest(progress)
+        prior = timers.get(key)
+        timer = prior if prior and prior['signature'] == signature else {'signature': signature, 'since': now}
+        active[key] = timer
+        if now - timer['since'] >= minutes * 60:
+            result.append({'key': 'pr_stuck:' + key, 'subject': f'PR #{p["number"]} stuck',
+                           'body': p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.',
+                           'branch': p['branch'], 'pr': p['number']})
+    ledger['pr_progress'] = active
     return result
 
 
@@ -56,7 +109,7 @@ def enqueue(c, event, recipient):
                 raise CommandError('park owner identity unavailable or changed')
         # Explicit sender permits a systemd process. Never inject terminal input.
         return orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
-                    '--to', recipient, '--run', c['coordinator']['run'], '--type', 'status',
+                    '--to', recipient, '--run', c['coordinator']['run'], '--type', event.get('type', 'status'),
                     '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
 
 
@@ -106,7 +159,7 @@ def github_relays(ledger, events, current):
     result = []
     for event in events:
         scope = ':'.join(event['key'].split(':')[:3]) if event['key'].startswith('pr:') else event['key']
-        signature = digest([event['subject'], event['body'], event.get('branch')])
+        signature = event_signature(event)
         previous = streams.get(scope)
         if previous and previous['signature'] == signature:
             continue
@@ -121,6 +174,7 @@ def cycle(c, deliver=True):
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
     pending = ledger['pending']
     current_g = s.get('github')
+    pr_alerts = []
     if current_g is not None:
         changes = github.events(ledger['github'], current_g)
         seen = set(ledger.get('seen_prs', []))
@@ -129,12 +183,19 @@ def cycle(c, deliver=True):
         diagnosed = {e['pr'] for e in initial}
         # A saved baseline from before initial-state support is not a notification receipt.
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
-        pending.extend(github_relays(ledger, changes + initial, current_g))
+        pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes + initial], current_g))
+        pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time())
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
-    active = alerts(s)
+    active = alerts(s) + pr_alerts
+    if current_g is None:
+        # Unknown collection is not recovery: keep stuck occurrences deduplicated.
+        active_stuck = {key: value for key, value in ledger.get('active_alerts', {}).items()
+                        if key.startswith('pr_stuck:')} if isinstance(ledger.get('active_alerts'), dict) else {}
+    else:
+        active_stuck = {}
     known_quota = s.get('quota', {}).get('known', False)
     ledger['quota_unknown_cycles'] = 0 if known_quota else ledger.get('quota_unknown_cycles', 0) + 1
     if not known_quota and ledger['quota_unknown_cycles'] < c.get('quota', {}).get('unknown_alert_cycles', 3):
@@ -142,17 +203,19 @@ def cycle(c, deliver=True):
         # let the quota exception path bypass the unknown-quota alert debounce.
         active = [a for a in active if not a['key'].startswith('quota:')
                   and a['key'] != 'error:quota collection unavailable']
+    active = [urgent_event(c, a) for a in active]
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.
     prior = prior if isinstance(prior, dict) else {}
     for a in active:
-        signature = digest([a['subject'], a['body'], a.get('branch')])
+        signature = event_signature(a)
         if prior.get(a['key']) != signature:
             # Content changes and every recovery→recurrence receive a new identity.
             a = {**a, 'key': a['key'] + ':' + str(time.time_ns())}
             pending.append(a)
     ledger['active_alerts'] = {
-        a['key']: digest([a['subject'], a['body'], a.get('branch')]) for a in active}
+        a['key']: event_signature(a) for a in active}
+    ledger['active_alerts'].update(active_stuck)
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')

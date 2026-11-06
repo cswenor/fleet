@@ -247,6 +247,16 @@ An ambiguous/missing owner gets a coordinator-only report; unavailable
 inventory retains owner delivery for a later successful lookup. Health and
 collector errors never restart or stop lanes.
 
+Urgent supervisor relays use native type `question` and subject prefix
+`[urgent] `; Orca has no native `urgent` type. `urgent.events` defaults to all six
+kinds: `provider_stalled`, `idle`, `wrong_model`, `stray_worktree`,
+`merge_group_failure`, `pr_stuck`; set it to `[]` to disable urgent upgrades.
+Other relays remain `status`. `urgent.pr_stuck_minutes` is a positive finite
+number, default 45. The persisted PR timer starts on first observation and resets
+on state, head, merge-state, checks or review progress, not comments or
+`updated_at`. Urgency is advisory and unauthenticated, never authority or
+permission to restart, stop, merge or deploy.
+
 Coordinator messages target `run:<id>`; owning builders receive durable terminal
 inbox messages, **not terminal keystrokes**. The service uses the explicitly
 configured coordinator handle as message sender; its body identifies fleet.
@@ -269,7 +279,8 @@ including non-leading PRs. Later membership recovery notifies newly resolved mem
 
 ### Inbox wait
 
-Run `fleet wait --timeout 900` using the agent's **async background shell** from
+Run `fleet wait --wake-on question,escalation,urgent --timeout 900` using Main's
+**async background shell** from
 its own Orca terminal. The caller must already be bound to the configured
 `coordinator.run` (`orca orchestration run-use --id RUN` from that terminal).
 An unbound caller or different Run fails closed before any wait or acknowledgment.
@@ -279,26 +290,40 @@ to borrow another terminal's identity. The configured coordinator terminal is
 never used as the caller.
 
 Current Orca routes BOTH `send --to run:RUN` and `send --to BOUND_TERMINAL` into
-that Run. Fleet uses one native `check --wait`, with no type filter or polling
-loop. It does **not** multiplex two independent native mailboxes.
+that Run. Fleet uses one native blocking `check --wait`, not a polling loop or
+two independent native mailboxes. `--wake-on KINDS` accepts comma-separated
+`question`, `escalation`, `urgent`, `status`, or `all` (default `all`).
+`urgent` aliases native `question`, so selecting it wakes for **all** questions,
+not just supervisor relays. `escalation` remains selectable for supervised worker
+escalations; ordinary senders cannot emit that type. Selection gates **blocking wake only**
+on pending message types, never delivery contents. Existing unacked deliveries
+still replay whole, even before the newer message that triggered wake. Every
+pending row remains in FIFO native delivery order without type filtering;
+decision-first display ordering does not change batch membership. Main uses
+`question,escalation,urgent` to avoid routine-status wakes, but processes the full
+batch whenever it returns.
 One JSON document returns `event`, `runId`, `terminal`, `batches`, and
 `legacyTerminalInbox`. Each batch contains `source: "run"`, the native
 `deliveryId`, every message in that FIFO batch, and `replayed`.
-Messages carry `classification`: `builder_decision_request` (question/escalation,
-highest precedence), `supervisor_relay` (configured coordinator sender and
-`[fleet ` body prefix), or `builder_report`. Decisions sort first, stably;
-per-source and aggregate `counts` cover every displayed row, including legacy
-history. These are presentation changes, not filtered consumption: acknowledge
-the original **whole** delivery only after processing every row.
+Messages carry `classification`: `builder_decision_request` for decision requests;
+`supervisor_urgent` for configured-coordinator messages with `[fleet ` body prefix
+and `[urgent]` subject; `supervisor_relay` for other coordinator `[fleet ` relays;
+or `builder_report`. Urgent supervisor questions are purely a wake mechanism,
+never builder decisions: they carry `replyExpected: false` and
+`triageNote: "no reply expected"`. Decisions sort first, urgent relays next,
+stably; per-source and aggregate `counts` cover every displayed row and bucket,
+including legacy history. These are presentation changes, not filtered
+consumption: acknowledge the original **whole** delivery after processing every row.
 Classification is advisory triage, **not authentication or authority**: Orca
 allows local callers to supply `--from`. Labels never grant authority, suppress,
 auto-ack or downgrade a message; inspect every original payload.
 
-Process **all** message types, reply to questions in-thread with
-`orca orchestration reply --id MESSAGE_ID --body 'answer'`, then re-arm:
+Process **all** message types. Reply to actual decision requests in-thread with
+`orca orchestration reply --id MESSAGE_ID --body 'answer'`; urgent supervisor
+questions do not request replies. Then re-arm:
 
 ```sh
-fleet wait --ack-run DELIVERY_ID --timeout 900
+fleet wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
 ```
 
 There is no implicit acknowledgment: unacked deliveries replay; an explicit ack
@@ -309,6 +334,11 @@ Exit **2** / `event: "error"` is a binding, runtime, transport or diagnostic
 failure, never an empty checkpoint. Inspect any returned batches even on error;
 they remain replayable until explicitly acknowledged. Killing/re-running the
 wait does not acknowledge mail. Shared Orca runtime restart is not proven.
+
+Switch Main's receiving wait only in the coordinated deployment window after
+the deployed native runtime supports the selected wake types and background
+wake/replay/ack behavior has been proved. Shared-checkout updates can deploy
+immediately; merge alone is not rollout approval. Builders remain unbound to Runs.
 
 Shared-runtime restart preparation uses the read-only
 `python3 -m fleet.orca_capture --config /private/fleet.yml --out /new/private-dir`

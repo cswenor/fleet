@@ -42,6 +42,16 @@ class DeliveryTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaisesRegex(mailbox.MailboxError, 'invalid_delivery'):
                 mailbox.delivery(response(**changes), RUN)
 
+    def test_wake_selection_rejects_empty_or_unknown_kinds(self):
+        for value in ('', 'question,', 'heartbeat', 'ALL', None):
+            with self.subTest(value=value), self.assertRaises(mailbox.MailboxError):
+                mailbox.wake_types(value)
+
+    def test_urgent_alias_and_all_precedence(self):
+        self.assertEqual(mailbox.wake_types('question, urgent,escalation,status'),
+                         'question,escalation,status')
+        self.assertIsNone(mailbox.wake_types('question,all'))
+
 
 class WaitTests(unittest.TestCase):
     def setUp(self):
@@ -114,7 +124,7 @@ class WaitTests(unittest.TestCase):
         self.assertEqual([m['id'] for m in batch['messages']],
                          ['decision', 'escalation', 'report', 'relay', 'other', 'missing'])
         self.assertEqual(batch['counts'], {'builder_decision_request': 2,
-                                         'supervisor_relay': 1, 'builder_report': 3})
+                                         'supervisor_urgent': 0, 'supervisor_relay': 1, 'builder_report': 3})
         self.assertEqual(result['legacyTerminalInbox']['counts'], batch['counts'])
         self.assertEqual(result['legacyTerminalInbox']['messages'], batch['messages'])
         self.assertEqual(batch['messages'][0]['body'], '[fleet x] approve?')
@@ -123,6 +133,22 @@ class WaitTests(unittest.TestCase):
         messages, counts = mailbox.classify([{'id': 'one', 'body': '[fleet x] text'}], None)
         self.assertEqual(messages[0]['classification'], 'builder_report')
         self.assertEqual(counts['supervisor_relay'], 0)
+
+    def test_urgent_markers_are_advisory_and_do_not_hide_builder_questions(self):
+        rows = [
+            {'id': 'relay', 'type': 'question', 'from_handle': 'main',
+             'subject': '[urgent] wrong model', 'body': '[fleet x] model mismatch'},
+            {'id': 'builder', 'type': 'question', 'from_handle': 'builder',
+             'subject': '[urgent] decision', 'body': '[fleet x] approve?'},
+            {'id': 'ordinary', 'type': 'question', 'from_handle': 'main',
+             'subject': 'decision', 'body': '[fleet x] approve?'}]
+        classified, counts = mailbox.classify(rows, 'main')
+        self.assertEqual([m['id'] for m in classified], ['builder', 'ordinary', 'relay'])
+        self.assertEqual(counts['builder_decision_request'], 2)
+        self.assertEqual(counts['supervisor_urgent'], 1)
+        self.assertFalse(classified[-1]['replyExpected'])
+        self.assertEqual(classified[-1]['triageNote'], 'no reply expected')
+        self.assertNotIn('replyExpected', classified[0])
 
 class NativeErrorTests(unittest.TestCase):
     def test_runtime_errors_cannot_look_like_timeout(self):

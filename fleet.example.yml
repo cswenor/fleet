@@ -45,6 +45,12 @@ coordinator:
   terminal: term_replace
   run: run_replace
 interval_seconds: 60
+# Urgency is advisory, never authentication or additional authority.
+# Native Orca delivers these as question with an explicit [urgent] subject.
+urgent:
+  events: [provider_stalled, idle, wrong_model, stray_worktree, merge_group_failure, pr_stuck]
+  # [] keeps every relay ordinary status. Comment churn does not reset this timer.
+  pr_stuck_minutes: 45
 status:
   url: ''
   token_env: FLEET_STATUS_TOKEN
