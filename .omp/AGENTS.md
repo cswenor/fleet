@@ -55,6 +55,11 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   retiring a slot requires explicit config/Orca coordination.
 - Current task is already fresh. FRESH-READY is only after publishing NEW work
   and handing off a DIFFERENT next task, never the inherited boundary.
+- On a durable quota PARK request: finish the current step, commit and push WIP
+  to the task branch, write the Pad handoff, report PARKED with evidence to the
+  configured coordinator Run, then stop this session yourself. No next task or
+  FRESH-READY. Main must confirm a fresh session for resume. Fleet never injects
+  exit/interrupt/kill input; unknown liveness never authorizes another park.
 
 ## Publication: two independent gates
 

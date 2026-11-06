@@ -56,7 +56,10 @@ Native role routing mirrors Project Alpha: Main Opus high; plan/task/good_worker
 designer/review Sol medium; smol/fast_worker Sonnet medium; same allowed native
 fallback chains, advisors off. Builders get a stronger launch overlay: Sol medium,
 no model fallback, reserve fail-closed, 200K fixed compaction, extended context off.
-No automatic Pad dispatcher or active-lane quota pausing exists yet.
+No automatic Pad dispatcher exists yet. Quota reserve now cooperatively parks
+one lowest-priority lane on known reserve; unknown usage never parks. Main must
+reconcile WIP/Pad handoff and confirm a fresh session before resuming parked work
+(see README quota contract and roadmap TASK-11).
 
 ## Brief and launch builders
 

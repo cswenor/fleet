@@ -61,6 +61,7 @@ Never create extra git worktrees. Self-publish according to project rules.
 Use the following durable command to report, not terminal input:
 {shlex.quote(c['orca'])} orchestration send --to run:{c['coordinator']['run']} --type status --subject "{ref}: report" --body "<evidence and outcome>"
 An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet watch-pr PR as an async background command; never poll with model turns.
+On a durable PARK request: finish your current step, commit and push WIP to this task branch, write a Pad handoff, report PARKED with evidence to the Run above, then stop yourself. No next task or FRESH-READY; resume only in a Main-confirmed fresh session.
 {b['footer']}
 '''
         path = state.directory(c)
@@ -75,7 +76,9 @@ An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet wat
                       'fallbackChains': {b['resolved_model']: []}},
             'compaction': {'modelThresholds': {b['resolved_model']: 'f200000'}}}))
         overlay.chmod(0o600)
-        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '@' + str(prompt_path)])
+        session_dir = path / ('sessions-' + nonce)
+        session_dir.mkdir(mode=0o700)
+        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '--session-dir', str(session_dir), '@' + str(prompt_path)])
         if existing and shells:
             handle = shells[0]['terminal']
             terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
@@ -88,7 +91,15 @@ An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet wat
         else:
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
-        state.write(c, 'last-launch', {'ref': ref, 'worktree': w, 'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)})
+        receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'worktree': w,
+                   'terminal': handle if existing and shells else result['terminal']['handle'],
+                   'terminal_incarnation_id': (terminal if existing and shells else result['terminal']).get('incarnationId'),
+                   'session_dir': str(session_dir),
+                   'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
+        state.write(c, 'last-launch', receipt)
+        launches = state.read(c, 'launches', {})
+        launches[w['path']] = receipt
+        state.write(c, 'launches', launches)
         orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
         if c['hooks'].get('after_launch'):
             run(c['hooks']['after_launch'], w['path'])

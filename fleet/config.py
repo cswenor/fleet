@@ -40,6 +40,9 @@ def load(path):
     q.setdefault('provider', b['resolved_model'].split('/')[0])
     q.setdefault('reserve_percent', 10)
     q.setdefault('max_age_seconds', 900)
+    q.setdefault('park_timeout_seconds', 1800)
+    if not isinstance(q['park_timeout_seconds'], (int, float)) or not 0 < q['park_timeout_seconds'] <= 86400:
+        raise ValueError('quota.park_timeout_seconds must be positive and at most 86400')
     if not 0 <= q['reserve_percent'] <= 100 or q['max_age_seconds'] <= 0:
         raise ValueError('invalid quota thresholds')
     d = c.setdefault('disk', {})

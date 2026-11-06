@@ -1,11 +1,12 @@
 """No model calls, no lane input. Durable inbox delivery is not an agent wake."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
 import signal
 import time
 import urllib.request
-from . import github, health, snapshot, state
+from . import github, health, snapshot, state, governor
 from .commands import orca, run, CommandError
 
 
@@ -27,21 +28,42 @@ def alerts(s):
         add('stray:' + path, 'Stray project worktree', path)
     if not s.get('quota', {}).get('may_start', False):
         q = s.get('quota', {})
-        add('quota', 'Fleet quota reserve: new builders withheld', json.dumps(q, sort_keys=True))
+        add('quota:' + q.get('reason', 'unavailable'), 'Fleet quota reserve: new builders withheld',
+            json.dumps(q, sort_keys=True) + ' ' + governor.CONSENT)
     if s.get('disk', {}).get('low'):
         add('disk', 'Fleet disk reserve reached', json.dumps(s['disk'], sort_keys=True))
     return result
 
 
 def enqueue(c, event, recipient):
-    # Explicit sender permits a non-interactive systemd process. Never inject terminal input.
-    return orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
-                '--to', recipient, '--run', c['coordinator']['run'], '--type', 'status',
-                '--subject', event['subject'], '--body', f"[fleet {c['repo']}] {event['body']}")
+    prefix = 'DRILL ' if c.get('_drill_usage_file') else ''
+    if recipient.startswith('pad:'):
+        return run(['pad', '--workspace', c['pad_workspace'], 'item', 'comment', recipient[4:],
+                    prefix + event['body']], c['root'])
+    builder_park = event.get('park') and recipient == event['recipients'][0]
+    # Serialize final identity check + enqueue against every Fleet launch/reuse.
+    with state.lock(c, 'launcher') if builder_park else nullcontext():
+        if builder_park:
+            attempt = event['attempt']
+            t = orca(c, 'terminal', 'show', '--terminal', recipient)['terminal']
+            screen = orca(c, 'terminal', 'read', '--terminal', recipient, '--screen')['terminal']
+            current = {'terminal': recipient, 'path': attempt['path'], 'task': attempt['ref'],
+                       'incarnation_id': t.get('incarnationId')}
+            if (not t.get('connected') or t.get('orphaned') or not t.get('writable')
+                    or t.get('worktreeId') != attempt['worktree']
+                    or health.shell_ready('\n'.join(screen.get('tail', [])))
+                    or not governor.same_attempt(c, attempt, [current])):
+                raise CommandError('park owner identity unavailable or changed')
+        # Explicit sender permits a systemd process. Never inject terminal input.
+        return orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
+                    '--to', recipient, '--run', c['coordinator']['run'], '--type', 'status',
+                    '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
 
 
 def push(c, s, receipt):
     config = c['status']
+    if c.get('_drill_usage_file'):
+        return receipt
     url = config['url']
     token = os.environ.get(config['token_env'], '') if config['token_env'] else ''
     if not url or not token:
@@ -81,6 +103,8 @@ def cycle(c, deliver=True):
         pending.extend(changes + initial)
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
+    pending.extend(governor.advance(c, s, ledger))
+    s['governor'] = ledger['governor']
     active = alerts(s)
     prior = set(ledger['active_alerts'])
     for a in active:
@@ -94,8 +118,9 @@ def cycle(c, deliver=True):
     inventory = s.get('inventory')
     remaining = []
     failures = []
+    protected = set()
     for event in pending:
-        recipients = ['run:' + c['coordinator']['run']]
+        recipients = event.get('recipients', ['run:' + c['coordinator']['run']])
         owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
         if owning_terminal:
             recipients.append(owning_terminal)
@@ -103,6 +128,14 @@ def cycle(c, deliver=True):
             key = digest([event['key'], recipient])
             if key in ledger['sent']:
                 continue
+            if event.get('park') and recipient == event['recipients'][0]:
+                if not governor.deliverable(c, event, s, ledger):
+                    # Durable Run/Pad copies retry even after exit/recovery/replacement.
+                    active_park = ledger['governor']['active']
+                    obsolete = not active_park or active_park['key'] != event['park']
+                    if obsolete:
+                        ledger['sent'][key] = {'at': time.time(), 'suppressed': 'obsolete builder attempt'}
+                    continue
             if not deliver:
                 continue
             try:
@@ -116,12 +149,13 @@ def cycle(c, deliver=True):
         done = resolved and all(digest([event['key'], r]) in ledger['sent'] for r in recipients)
         if not done:
             remaining.append(event)
+            protected.update(digest([event['key'], r]) for r in recipients)
         elif c['hooks'].get('event'):
             run(c['hooks']['event'], c['root'])
     ledger['pending'] = remaining
-    # Keep receipts long enough to dedupe recent GitHub history, bound private state size.
+    # Pending events retain successful-recipient receipts through arbitrarily long outages.
     cutoff = time.time() - 7 * 86400
-    ledger['sent'] = {k: v for k, v in ledger['sent'].items() if v['at'] > cutoff}
+    ledger['sent'] = {k: v for k, v in ledger['sent'].items() if k in protected or v['at'] > cutoff}
     try:
         ledger['push'] = push(c, s, ledger.get('push', {}))
     except Exception:

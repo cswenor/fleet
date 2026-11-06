@@ -1,4 +1,6 @@
 """One snapshot contract for CLI, daemon, and central status."""
+import json
+from pathlib import Path
 import shutil
 import time
 from . import github, health, quota
@@ -15,6 +17,10 @@ def collect(c):
             result[key] = fn()
         except (CommandError, ValueError, KeyError, TypeError):
             result['errors'].append(key + ' collection unavailable')
+    if c.get('_drill_usage_file'):
+        result['drill'] = True
+        result['real_quota'] = result.get('quota', {})
+        result['quota'] = quota.evaluate(json.loads(Path(c['_drill_usage_file']).read_text()), c['quota'], now)
     try:
         free = shutil.disk_usage(c['disk']['path']).free / 1_000_000_000
         result['disk'] = {'path': c['disk']['path'], 'free_gb': round(free, 2), 'min_free_gb': c['disk']['min_free_gb'], 'low': free < c['disk']['min_free_gb']}
@@ -29,6 +35,8 @@ def may_start(c, s):
         reasons.extend(s['errors'])
     if not s.get('quota', {}).get('may_start'):
         reasons.append(s.get('quota', {}).get('reason', 'quota unavailable'))
+    if c.get('_drill_usage_file') and not s.get('real_quota', {}).get('may_start'):
+        reasons.append('real quota: ' + s.get('real_quota', {}).get('reason', 'quota unavailable'))
     if s.get('disk', {}).get('low', True):
         reasons.append('disk reserve reached or unavailable')
     inventory = s.get('inventory', {})

@@ -21,7 +21,7 @@ statuses are `open`, `in-progress`, `done`, `cancelled`, not elsewhere's `todo`.
 | 4 | Main wakes on worker_done/escalation/question via background check --wait | TASK-10 implements `fleet wait`: bound Run receives both Run- and bound-terminal-addressed mail; native replay/ack, timeout/error distinction, read-only legacy diagnostics. Project Alpha cutover remains open. |
 | 5 | Builders use async builds/CI; supervisor relays PR/review/queue/merge events | Implemented `fleet watch-pr`; send is enqueue only. PR initial DIRTY/failing/merged/closed diagnoses immediately. |
 | 6 | Per-project supervisor: health, PR watcher, Pad dispatcher, quota, snapshot | Health/watch/push/install implemented; explicit guarded launch exists. Automatic Pad scheduling is NOT implemented; TASK-12. |
-| 7 | Quota reserve, no silent builder fallback, fail-closed | New launches withheld with unknown/stale/reserve/cap/disk failure. Running-lane priority enforcement and saved-reset consent remain TASK-11. |
+| 7 | Quota reserve, no silent builder fallback, fail-closed | New launches withheld with unknown/stale/reserve/cap/disk failure; TASK-11 adds known-reserve cooperative priority parking, recovery reporting and explicit saved-reset consent policy (no spending command). |
 | 8 | Fresh task context; Sol compaction fixed ~200K; extended context off | `fleet launch` overlay enforces `f200000`, no auto-resume, extendedContext false. Repo config also fixes threshold; native Main/helper fallback policy mirrors Project Alpha, builder overlay overrides it. |
 | 9 | Read-only central with 24h PRs/commits/queue/builders/model/quota/disk; outage independent | Implemented the central host/the PaaS central, per-project systemd supervisors. Distinct project tokens; tailnet-only view, no controls. |
 | 10 | Decision rights, initially Project Alpha standing policy | Generic template `templates/AGENTS.decision-rights.md` adopted in fleet (TASK-14); task threads remain TASK-15. Project Alpha standing policy stays Project Alpha-owned via TASK-16 coordination. |
@@ -121,12 +121,38 @@ Send remains enqueue, not proof of wake. Shared-runtime restart remains TASK-13.
 
 ### TASK-11 — Quota governor enforcement
 
-Warn-only for already-running lanes is insufficient. Agree safe cooperative
-pause/checkpoint/resume semantics and priority/ties with owner; withhold/park
-lowest-priority work when reserve is reached, preserving in-flight state. Missing
-or stale usage fails closed. Demonstrate priority ordering, refusal, recovery,
-no silent model fallback, and explicit owner approval recorded **before** spending
-any saved reset. Unknown liveness never authorizes destructive stop/retry.
+Implemented in [PR17](https://github.com/cswenor/fleet/pull/17) under owner/Main rulings on TASK-11:
+known reserve only; unknown/stale usage withholds starts and alerts, never parks.
+Pad priority orders lanes; newest authoritative launch wins a tie, unresolved
+timestamps block only ties. One outstanding PARK, timeout escalates once,
+exact verified shell exit permits re-evaluation; no terminal input/stop/kill.
+Recovery lists parked/outstanding tasks; resume is Main-confirmed fresh context.
+Saved resets require recorded owner DECISION before spend; no spending code path.
+
+2026-11-06 isolated CLI drill: known reserve and unknown launch refusals had
+distinct reasons. Scratch Run `run_b19810ac37d9`, two explicitly adapted scratch
+terminal inventory rows (not additional worktrees), real Pad priorities/delivery.
+Unknown produced alert only. Reserve sent exactly one low-priority TASK-21 PARK
+`msg_f5940010e069`; repeat cycle did not resend. Fresh session
+`01a1b191-42e6-743d-8912-c2d91519ea72` recorded resolved Sol medium/no fallback,
+pushed WIP `a203160`, wrote Pad handoff, reported PARKED `msg_21fc41491dac`,
+and returned to a verified shell. Next cycle re-evaluated the higher-priority
+scratch lane; recovery `msg_3079fd84eb6e` listed TASK-21 parked/TASK-11 outstanding.
+Only scratch terminals received PARK; no live builder/production service changed.
+Scratch builder/dummy terminals closed and remote `drill/task-21-quota-1793980358`
+deleted. 51 tests pass, including pre/post-selection reincarnation suppression,
+post-exit durable-copy retry and dedupe across receipt expiry. Reviews prompted
+correction of these defects before merge. Final locked-send smoke Run
+`run_582aa0f81eed` proved original queued PARK never reaches a replacement launch,
+and actual builder send `msg_3b54726d358f` occurs once while failed Run/Pad copies
+retry after verified shell exit (`msg_5a4ca093a581`). All smoke terminals closed.
+Preselection smoke `run_57fb2effd2f8` proved stale recorded incarnation causes
+alert-only/no PARK, then reconciliation permits exactly one actual dummy PARK
+`msg_4030331dc6e9`. Its owned scratch terminals were closed.
+Long-outage smoke `run_5c4ce0b02cd8` aged pending receipts eight days and proved
+builder `msg_67a7ceef943f`/Run `msg_1ff2f5c2039a` sent once while only failed Pad
+retried. Pending events protect successful-recipient receipts from pruning.
+See the PR and Pad for final-head independent review/CI gate receipts.
 
 ### TASK-12 — Pad ready queue to a free slot
 

@@ -13,12 +13,15 @@ def main():
     for cmd in ('status', 'may-start'):
         p = sub.add_parser(cmd)
         p.add_argument('--json', action='store_true')
+        p.add_argument('--drill-usage-file', help='test-only quota fixture; disables central push')
     p = sub.add_parser('serve')
     p.add_argument('--once', action='store_true')
     p.add_argument('--no-deliver', action='store_true')
+    p.add_argument('--drill-usage-file', help='test-only quota fixture; disables central push')
     p = sub.add_parser('launch')
     p.add_argument('ref')
     p.add_argument('--slot')
+    p.add_argument('--drill-usage-file', help='test-only additional launch withhold, never bypasses real quota')
     p = sub.add_parser('watch-pr')
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
@@ -44,6 +47,8 @@ def main():
                 print(json.dumps(install_central(c, args.environment_file)))
             return 0
         c = load(args.config)
+        if getattr(args, 'drill_usage_file', None):
+            c['_drill_usage_file'] = args.drill_usage_file
         if args.command == 'wait':
             from .mailbox import wait
             result = wait(c, args.timeout, args.ack_run, args.terminal)
@@ -75,7 +80,8 @@ def main():
         print(json.dumps(s, indent=2) if args.json else snapshot.render(s))
         return 0 if not s['errors'] else 1
     except (ValueError, OSError, CommandError) as e:
-        print(f'fleet: {e}', file=sys.stderr)
+        prefix = 'DRILL ' if getattr(args, 'drill_usage_file', None) else ''
+        print(f'{prefix}fleet: {e}', file=sys.stderr)
         return 2
 
 

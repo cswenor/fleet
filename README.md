@@ -66,6 +66,38 @@ Missing/stale usage fails closed. Account identities, provider metadata and
 credentials are never persisted in the snapshot. `may-start` exits 1 when quota,
 disk, builder cap, or incomplete collection prevents a launch.
 
+With **known** usage at/below reserve, `serve` requests cooperative PARK of one
+lowest-priority lane (Pad critical > high > medium > low > unresolvable).
+Ties park the most recently launched lane; missing matching timestamps withhold
+only unresolved ties and alert Main. `launches.json`, keyed by absolute slot,
+records launch ID/time/ref/worktree/handle/incarnation and a unique private
+`session_dir`; this is launch evidence, not proof of model resolution or exit.
+Unknown/stale usage withholds starts and alerts Main but **never parks**.
+The owner-builder inbox, coordinator Run and Pad task receive the request.
+The builder finishes its step, commits/pushes WIP, records a Pad handoff,
+reports PARKED, and exits itself. Fleet never injects exit/interrupt/kill input.
+An exact connected terminal at a verified shell prompt permits re-evaluation;
+absence/disconnection never does. `quota.park_timeout_seconds` (default 1800,
+maximum 86400) escalates once without authorizing another park.
+Builder delivery is bound to the selected launch record and terminal incarnation;
+changed/unverifiable identity alerts Main and blocks further parking. Final
+live identity/readiness validation and enqueue hold the launcher lock to prevent
+Fleet reuse races. Run/Pad copies retry independently even after builder exit.
+Requests and recipient receipts survive supervisor restarts and dedupe within
+an episode; recovery reports parked/outstanding tasks. Relaunch is always
+Main-confirmed and fresh. Terminal-only inboxes have Orca's lifetime limitation;
+the Run/Pad copies preserve the request after terminal closure. Send is enqueue,
+not proof the builder woke or read it. Saved resets require an explicit owner
+Pad DECISION **before** spending; Fleet invokes no reset/spend command.
+
+Test/drill only: `status`, `may-start`, `serve`, and `launch` accept
+`--drill-usage-file PATH` containing the `omp usage --json` shape. The flag is
+never loaded from config/environment. Drill delivery bodies/subjects start
+`DRILL`, central push is disabled, and launch must pass **both real usage and
+the fixture** (a fixture cannot permit a real-quota refusal). Use an isolated
+`XDG_STATE_HOME`, config, scratch Run and owned scratch terminals: a drill still
+sends real inbox/Pad messages. Never point a drill at live builders.
+
 ## Development
 
 ```sh

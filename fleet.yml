@@ -22,10 +22,14 @@ builder:
     write a handoff for a DIFFERENT next task, report FRESH-READY with that ref to
     fleet Main, and stop. Never resume old context, silently fallback, create extra
     worktrees, stash, or spend saved resets without owner approval.
+    On PARK finish the current step, commit and push WIP, write a Pad handoff,
+    report PARKED to the configured Run, then stop yourself; resume requires
+    a Main-confirmed fresh session.
 quota:
   provider: openai-codex
   reserve_percent: 10
   max_age_seconds: 900
+  park_timeout_seconds: 1800
 disk:
   path: /
   min_free_gb: 20

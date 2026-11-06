@@ -94,6 +94,7 @@ def collect(c, now=None):
                          'title': t.get('title'), 'model': model, 'flags': flags,
                          'idle_seconds': idle, 'state': 'shell' if ready else (flags[0] if flags else 'active'),
                          'shell_ready': ready,
+                         'incarnation_id': t.get('incarnationId'),
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]

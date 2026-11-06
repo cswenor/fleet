@@ -22,10 +22,13 @@ builder:
     for an inherited handoff or boundary. Only after publishing your next piece
     of work, choose a different next task, write its handoff, report FRESH-READY
     with that different task ref to the coordinator, and stop.
+    On PARK: finish current step, commit+push WIP, write Pad handoff, report PARKED
+    to the configured Run, then stop yourself. Resume only as a confirmed fresh session.
 quota:
   provider: openai-codex
   reserve_percent: 10
   max_age_seconds: 900
+  park_timeout_seconds: 1800
 disk:
   path: /
   min_free_gb: 20
