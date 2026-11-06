@@ -61,8 +61,12 @@ copied files in the target project. Copies pin policy to the adopted version;
 no moving symlinks, installer code or public skill registry are required.
 `omp skill` manages registry packages, `omp plugin` manages plugins, and
 `orca skills install/update` manages bundled Orca skills; none is needed for this
-plain project-local skill plus separate config overlay. Do not publish to a
-registry without owner approval.
+plain project-local skill plus separate config overlay.
+
+Registry publication is planned but unavailable until the owner obtains Stencil
+registry access (TASK-43). Version metadata `0.1.0` does not mean a package has
+been published. Use the copy procedure above; no registry scope or install spec
+is assigned yet. Do not publish to a registry without owner approval.
 Keep the copied skill and overlay byte-identical. If the target formatter would
 rewrite them, exclude just these vendored files using its existing vendor-ignore
 convention; continue checking all project-authored policy and configuration.

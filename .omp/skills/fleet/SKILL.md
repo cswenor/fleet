@@ -4,6 +4,8 @@ description: >-
   Operate the full Fleet project workflow: onboarding, Main Run and inbox waits,
   Pad briefs, fresh builders, task threads, independent review and CI, publication,
   deployment coordination, quota parking, retirement and Orca restart recovery.
+metadata:
+  version: 0.1.0
 ---
 
 # Fleet workflow
@@ -49,12 +51,14 @@ cp /path/to/fleet/.omp/unadvised-review.yml /path/to/project/.omp/unadvised-revi
 cp -n /path/to/fleet/fleet.example.yml /path/to/project/fleet.yml
 ```
 
-This is the install/update mechanism; no plugin or registry needed. Commit skill
-and unchanged review overlay with project policy. A copied skill is version-pinned
-until explicitly updated; no symlink to a moving shared checkout. Stock omp loads
-`<repo>/.omp/skills/<name>/SKILL.md`. Prove discovery in a fresh session started
-inside the project: ask a workflow question without naming the skill and retain
-its skill read plus answer. File existence alone is not discovery proof.
+This is the install/update mechanism; no plugin or registry needed. Registry
+publication is planned pending owner access; version metadata is not proof of a
+published package. No registry scope or install spec is assigned yet.
+Commit skill and unchanged review overlay with project policy. A copied skill is
+version-pinned until explicitly updated; no symlink to a moving shared checkout.
+Stock omp loads `<repo>/.omp/skills/<name>/SKILL.md`. Prove discovery in a fresh
+session started inside the project: ask a workflow question without naming the
+skill and retain its skill read plus answer. File existence alone is not proof.
 
 1. Install Fleet with `pipx install /path/to/fleet` (or a venv + `pip install`).
    Adopt Fleet's `templates/AGENTS.decision-rights.md`, filling project/Main/review/
