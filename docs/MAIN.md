@@ -117,6 +117,25 @@ head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
 only green+reviewed small PRs. Keep reusable lanes after merge; retire session,
 not slot. Update Pad result and roadmap evidence when acceptance is actually met.
 
+### Carry a prerequisite
+
+TASK-41 permits an explicit Main-approved prerequisite within a live session,
+not arbitrary task switching or authority inferred from Pad ancestry. Record
+approval on the carried Pad item, then from Main's configured terminal:
+
+```sh
+fleet --config ~/.config/fleet/fleet.yml carry --slot /path/to/lane --launch EXACT_ID --ref TASK-N --evidence 'Main approval and prerequisite reason'
+```
+
+The exact current launch must be live with matching terminal/incarnation and an
+unsettled primary thread. Unknown/settled launch, primary ref, competing ownership,
+non-Main caller or empty evidence refuse. The builder opens the carried ref as a
+separate thread on the same attempt; questions and result are ref-local.
+Carried claims block next/launch/restart until the launch is resolved; settling
+the carried thread alone does not free it. Restart still retires the primary
+ref. Replacement sessions require new approval; no fake Dispatch or Run binding.
+
+
 ### Independent review
 
 Use stock omp, not an improvised reviewer agent/runner. From the task checkout,

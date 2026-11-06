@@ -2,6 +2,7 @@
 import json
 import os
 import time
+import re
 from pathlib import Path
 from . import config, health, snapshot, state
 from .commands import CommandError, json_run, run
@@ -143,6 +144,49 @@ def reconcile(c, slot, launch_id, evidence):
         return receipt
 
 
+def carry(c, slot, launch_id, ref, evidence):
+    """Main explicitly assigns a prerequisite to one existing launch attempt."""
+    slot = str(Path(slot).expanduser().resolve())
+    actor = os.environ.get('ORCA_TERMINAL_HANDLE')
+    if actor != c['coordinator']['terminal']:
+        raise ValueError('carry requires the configured Main terminal identity')
+    if slot not in c['builder']['slots'] or not evidence.strip():
+        raise ValueError('carry requires a configured slot and non-empty approval evidence')
+    if not re.fullmatch(r'[A-Z]+-\d+', ref):
+        raise ValueError('expected uppercase Pad reference')
+    with state.lock(c, 'launcher'):
+        launch = state.read(c, 'launches', {}).get(slot, {})
+        if not launch_id or launch.get('id') != launch_id:
+            raise ValueError('carry requires an exact current launch ID and slot')
+        if launch['ref'] == ref:
+            raise ValueError('cannot carry the primary ref')
+        primary = state.read(c, 'threads-' + launch['ref'], {}).get(launch['ref'], {})
+        inventory = health.collect(c)
+        if (primary.get('attempts', {}).get(launch_id, {}).get('settled') is not False or
+                launch not in unresolved(c, inventory)):
+            raise ValueError('cannot carry on an unknown or settled launch primary thread')
+        if inventory.get('errors') or not any(
+                b['path'] == slot and b.get('terminal') == launch.get('terminal')
+                and b.get('incarnation_id') == launch.get('terminal_incarnation_id')
+                and bool(b.get('incarnation_id')) and b.get('connected') and health.active(b)
+                for b in inventory.get('builders', [])):
+            raise ValueError('carry requires positively identified live launch health')
+        carries = state.read(c, 'carries', {})
+        existing = carries.get(launch_id, {}).get(ref)
+        claims = [claim for claim in assignments(c, inventory)
+                  if claim != (ref, slot, 'carried launch receipt')]
+        reasons = duplicate_reasons(ref, claims, slot)
+        if reasons:
+            raise ValueError('carry withheld: ' + '; '.join(reasons))
+        if existing is not None:
+            return existing
+        receipt = {'ref': ref, 'slot': slot, 'launch_id': launch_id,
+                   'actor': actor, 'at': time.time(), 'evidence': evidence.strip()}
+        carries.setdefault(launch_id, {})[ref] = receipt
+        state.write(c, 'carries', carries)
+        return receipt
+
+
 def slot_reasons(c, inventory, path):
     reasons = []
     trees = [w for w in inventory.get('worktrees', []) if w['path'] == path]
@@ -178,8 +222,14 @@ def assignments(c, inventory, *, retiring=None):
         for source, text in (('branch', branch), ('card', w.get('comment', ''))):
             for match in health.REF.finditer(text or ''):
                 claims.append((match[1].upper(), w['path'], source))
+    carries = state.read(c, 'carries', {})
     for receipt in unresolved(c, inventory):
         claims.append((receipt['ref'], receipt['worktree']['path'], 'unresolved launch receipt'))
+        for ref, approval in carries.get(receipt.get('id'), {}).items():
+            if (approval.get('launch_id') == receipt.get('id') and
+                    approval.get('slot') == receipt['worktree']['path'] and
+                    approval.get('ref') == ref):
+                claims.append((ref, approval['slot'], 'carried launch receipt'))
     for b in inventory.get('builders', []):
         exact_retiring = (retiring is not None and
                           b.get('path') == retiring['worktree']['path'] and

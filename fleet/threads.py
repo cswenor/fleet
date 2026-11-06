@@ -38,6 +38,24 @@ def _record_question(c, ref, task, key, q):
         q['question_recorded'] = True
 
 
+
+def authorized(c, launch, slot, ref):
+    if not launch.get('id'):
+        return False
+    if launch.get('ref') == ref:
+        return True
+    approval = state.read(c, 'carries', {}).get(launch['id'], {}).get(ref, {})
+    if not (approval.get('ref') == ref and approval.get('slot') == slot and
+            approval.get('launch_id') == launch['id']):
+        return False
+    primary = state.read(c, _name(launch['ref']), {}).get(launch['ref'], {})
+    if primary.get('attempts', {}).get(launch['id'], {}).get('settled') is not False:
+        return False
+    reconciled = state.read(c, 'reconciliations', {}).get(launch['id'], {})
+    retirement = state.read(c, 'retirements', {}).get(slot, {})
+    return not (reconciled.get('launch_id') == launch['id'] or
+                retirement.get('launch_id') == launch['id'])
+
 def open_thread(c, ref, slot=None):
     name = _name(ref)
     caller = identity(c)
@@ -46,7 +64,7 @@ def open_thread(c, ref, slot=None):
         raise ValueError('thread slot must be configured')
     branch = run(['git', 'branch', '--show-current'], slot).strip()
     launch = state.read(c, 'launches', {}).get(slot, {})
-    if launch.get('ref') != ref or launch.get('terminal') != caller:
+    if not authorized(c, launch, slot, ref) or launch.get('terminal') != caller:
         raise ValueError('task/terminal must match the authoritative launch receipt')
     with state.lock(c, name):
         ledger = state.read(c, name, {})
@@ -72,7 +90,8 @@ def current(c, ref, caller):
     matches = [(key, a) for key, a in task['attempts'].items()
                if a['terminal'] == caller and not a['settled']
                and launches.get(a['slot'], {}).get('id') == key
-               and launches[a['slot']].get('ref') == ref]
+               and launches[a['slot']].get('terminal') == caller
+               and authorized(c, launches[a['slot']], a['slot'], ref)]
     if len(matches) != 1:
         raise ValueError('no unique current task attempt; old replies cannot authorize new work')
     key, attempt = matches[0]

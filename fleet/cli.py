@@ -35,6 +35,11 @@ def main():
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
     p.add_argument('--evidence', required=True, help='non-secret positive exit evidence; absence is not exit')
+    p = sub.add_parser('carry', help='Main approves a prerequisite ref on an exact live launch')
+    p.add_argument('--slot', required=True)
+    p.add_argument('--launch', required=True, dest='launch_id')
+    p.add_argument('--ref', required=True)
+    p.add_argument('--evidence', required=True, help='non-secret explicit Main approval')
     p = sub.add_parser('watch-pr')
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
@@ -115,6 +120,10 @@ def main():
         if args.command == 'reconcile':
             from .dispatcher import reconcile
             print(json.dumps(reconcile(c, args.slot, args.launch_id, args.evidence), indent=2))
+            return 0
+        if args.command == 'carry':
+            from .dispatcher import carry
+            print(json.dumps(carry(c, args.slot, args.launch_id, args.ref, args.evidence), indent=2))
             return 0
         if args.command == 'launch':
             from .launcher import launch

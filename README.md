@@ -453,8 +453,32 @@ history is evicted: retain the terminal until the wait copies the reply to Pad.
 No native history is consumed/acknowledged. Ambiguous sends fail closed against
 resending: reconcile the recorded unique subthread with Main/native history
 before any operator repair. `result` refuses unresolved decisions and settles the
-attempt; old/settled receipts cannot authorize a new task. Launch each new task
-in a fresh omp session, never resume old context.
+attempt; old/settled receipts cannot authorize a new task. Ordinary new tasks
+require a fresh omp session; the explicit prerequisite exception follows below.
+
+Main may approve a prerequisite in the existing session (Pad relations alone
+never authorize it). Record the decision on Pad, then from the configured Main
+terminal run:
+
+```sh
+fleet --config /private/project/fleet.yml carry --slot /path/to/slot-a \
+  --launch EXACT_ID --ref TASK-124 --evidence 'Explicit Main prerequisite approval'
+```
+
+`carry` requires the exact current live launch, matching terminal/incarnation,
+an unsettled primary thread and non-empty approval evidence. Unknown/settled
+launches, the primary ref itself, another owner's claim and non-Main callers
+refuse. Repeating the same approval preserves its original receipt. This is an
+identity policy check, not authentication against local environment spoofing.
+The builder opens `thread open TASK-124 --slot /path/to/slot-a` with the same
+config. Its separate canonical task thread shares the launch attempt, not its
+question subthreads or settlement: `result TASK-124` settles only TASK-124.
+`next`, `launch` and `restart` retain the carried claim while the launch is
+unresolved, even after the carried result. Verified launch exit/retirement or
+Main reconciliation releases ownership; a replacement launch never inherits
+approval. Restart's OLD/NEXT logic still uses the primary launch ref. No native
+transport or supervised Dispatch changes.
+
 
 Builder terminals must remain **unbound**. Health exposes binding as `none`,
 `bound` plus Run ID, or `unknown`; bound slot terminals are

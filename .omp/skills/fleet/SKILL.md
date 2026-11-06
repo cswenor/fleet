@@ -242,6 +242,20 @@ run asynchronously. At natural checkpoints and before final reporting, inspect
 all inbox types and process before acknowledging. Do not inject terminal input
 for reports, interrupt other builders, or use sudo without explicit Main approval.
 
+Prerequisite exception: Main must record explicit approval on Pad and run
+`fleet --config /private/project/fleet.yml carry --slot /path/to/lane --launch EXACT_ID --ref TASK-N --evidence 'Main approval'`
+from the configured Main terminal. No approval inferred from task relations.
+The exact current launch must have matching live terminal/incarnation and an
+unsettled primary thread; primary ref, competing claim, unknown/settled launch,
+empty evidence and non-Main callers refuse. The builder then opens TASK-N as a
+separate canonical thread on that same attempt. Its questions/results remain
+ref-local; result settles only TASK-N. Carried ownership remains claimed through
+unresolved launch health, blocking next/launch/restart until verified exit,
+retirement or reconciliation. Replacement launches never inherit approval;
+restart OLD/NEXT still uses the primary ref. This is not native Dispatch or
+arbitrary task switching. Keep builder terminals unbound.
+
+
 ## Publication: two independent gates
 
 Open a small PR with Pad ref and real runtime evidence. After committing its

@@ -129,6 +129,21 @@ class DispatcherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already assigned'):
             dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
 
+    def test_carried_ref_is_excluded_from_next_and_shared_launch_gate(self):
+        receipt = {'id': 'launch', 'ref': 'TASK-1', 'worktree': {'path': self.path, 'id': 'tree'},
+                   'terminal': 'term', 'terminal_incarnation_id': 'inc'}
+        state.write(self.c, 'launches', {self.path: receipt})
+        state.write(self.c, 'carries', {'launch': {'TASK-2': {
+            'ref': 'TASK-2', 'slot': self.path, 'launch_id': 'launch'}}})
+        self.builder['shell_ready'] = False
+        row = next(row for row in self.propose()['tasks'] if row['ref'] == 'TASK-2')
+        self.assertIn('carried launch receipt', '; '.join(row['reasons']))
+        for retiring in (None, receipt):
+            with self.assertRaisesRegex(ValueError, 'TASK-2 already assigned.*carried launch receipt'):
+                dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path, retiring=retiring)
+        self.builder['shell_ready'] = True
+        self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
+
     def test_retirement_must_match_launch_and_verified_shell_stage(self):
         receipt = {'id': 'launch', 'ref': 'TASK-2', 'worktree': {'path': self.path},
                    'terminal': 'old', 'terminal_incarnation_id': 'old-inc'}

@@ -111,6 +111,36 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-41 — Explicit prerequisite carry approvals
+
+Main approved `fleet carry --slot PATH --launch EXACT_ID --ref TASK-N --evidence TEXT`:
+only the configured Main terminal may record an approval bound to the exact
+current launch/slot. Additional live terminal/incarnation and unsettled-primary
+guards approved in `msg_93623840d21c`. Unknown/settled launch, primary ref,
+competing ownership and empty evidence refuse; Pad ancestry grants no authority.
+Carried refs get separate canonical threads sharing only the launch attempt.
+Questions and settlement remain ref-local. Next/launch/restart keep carried
+claims while the launch is unresolved; verified resolution releases them.
+Replacement launches need new approval; primary-ref retirement is unchanged.
+
+Real source CLI drill: isolated Run `run_f53a0916e07f`, private config/state,
+Main-created fixtures TASK-47/48, seeded exact launch receipt and sleep-based
+active scratch terminal health fixture (not a model-launch proof). `carry` and
+both thread opens succeeded. Question `msg_e7547a8e6a4b` received scratch Main
+reply `msg_17818ba89ddd`; `thread wait` copied it to actual Pad. Carried result
+`msg_bb59deaf37ad` settled only TASK-48; primary remained unsettled. Real `next`
+excluded TASK-48 with `carried launch receipt` (global admission separately
+withheld for GitHub collection/cap). Both fixture tasks cancelled and both
+owned scratch terminals closed with `ptyKilled=true`; no live-Run probes,
+extra worktrees, production changes or shared deployment. Review found a missing
+primary-thread fail-open: approvals now require the exact primary attempt with
+`settled == False`, including carried-thread authorization. A second isolated
+CLI smoke (`run_306bc8bb32f6`, same cancelled fixture refs) refused carry before
+primary open (exit 2), then accepted carry and carried open after primary open.
+All 263 local tests passed. Publication receipts belong on TASK-41/PR; shared
+rollout requires Main.
+
+
 ### TASK-36 — macOS host support
 
 Phase A: [source-bound audit](macos-audit.md) merged in
