@@ -113,6 +113,32 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-53 — Keep builders awake for their PR events
+
+Owning an open PR requires an armed async `fleet --config CONFIG watch-pr N`.
+Process every event and re-arm after every completion (including timeout/error)
+until merged or closed. Retired `pr-wait.sh` scripts and single-workflow
+`gh run watch` alone are not substitutes: terminal inbox enqueue cannot start
+a builder turn. Default/generated/project footers, adoption policy, workflow
+skill and README/Main now carry the same requirement.
+
+Check-change subjects name failing checks concisely; shared event identity,
+exact-PR filtering, initial-state diagnosis and native transport are unchanged.
+Regressions exercise unchanged pending snapshots followed by both a failed
+check-run shape and a codex-review-like failed commit status. All 282 tests pass.
+
+Real source-CLI drill on scratch draft [PR49](https://github.com/cswenor/fleet/pull/49):
+a commit-status check stayed pending for at least 180 seconds, failed at
+02:34:06Z and ended the armed watcher at 02:34:14Z. After re-arm, a
+`codex-review-TASK-53` status failed at 02:35:17Z and woke it at 02:35:22Z,
+with the failing name in its concise subject. An earlier normal CI completion
+also woke the watcher and was re-armed. PR49 was closed, never merged; a final
+watch reported closed. No missed failure transition was reproduced: the repair
+is the mandatory persistent watch lifecycle and actionable failure diagnostics,
+not a native transport change.
+
+Shared deployment remains Main-owned, after exact-head GO and publication gates.
+
 ### TASK-51 — Complete restart publication search
 
 Completion lookup uses quoted title/body ref search and a merge-date window from

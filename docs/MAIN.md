@@ -211,10 +211,13 @@ For PR state (including initial failure/DIRTY, reviews, queue failures and merge
 fleet --config ~/.config/fleet/fleet.yml watch-pr PR_NUMBER
 ```
 
-Run it as an **async background command**, then work on actionable items or use
-omp wait only when blocked. CI Actions-only watches may use `gh run watch` or
-run_watch; they do not replace the full PR event watcher. No model-turn polling,
-no repeatedly asking for status, no sleep loops that invoke a model.
+While owning an open PR, builders **MUST** keep this armed as an **async background
+command**. Process each event and re-arm after every completion (including
+timeout/error) until merged or closed; work on actionable items or use omp wait
+only when blocked. Initial failures can return immediately again: fix the
+reported failure, never treat inbox silence as success. CI Actions-only watches
+may additionally use `gh run watch` or run_watch, but never replace the full PR
+watcher with those or retired `pr-wait.sh` scripts. No model-turn polling.
 
 Main inbox wait, also as an async background command from Main's own terminal:
 

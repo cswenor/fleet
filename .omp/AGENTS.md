@@ -89,8 +89,12 @@ installation or wake delivery. Retain evidence as source-bound where appropriate
 
 ## Events and threads
 
-No model-turn polling. Use async builds, CI watches and `fleet watch-pr PR`.
-Orca send means durable enqueue, not guaranteed wake. Check mail at natural
+No model-turn polling. Use async builds and CI watches. While owning an open PR,
+builders MUST keep `fleet --config CONFIG watch-pr PR` armed as an async background
+command, process each event, and re-arm after every completion (including
+timeout/error) until merged or closed. Never rely on retired `pr-wait.sh` scripts
+or a single-workflow `gh run watch` alone. Fix named failures even if an initial
+failure returns again. Orca send means durable enqueue, not guaranteed wake. Check mail at natural
 checkpoints without hiding status/replies behind type filters. Process a Delivery
 before acknowledging it. Reply to questions in their original inbox thread with
 `orchestration reply --id`, from the terminal owning the identity.

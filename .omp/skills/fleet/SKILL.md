@@ -282,10 +282,14 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
    `thinking_level_change=medium`, no later model/effort change, fallback,
    advisor or delegation. Restricted tools are a policy boundary, not OS sandbox.
    If evidence is unreachable, escalate; never widen reviewer tools casually.
-2. Green GitHub CI on that **same final head**. Use async
-   `fleet ... watch-pr NUMBER` for whole-PR events; stock `gh run watch` is useful
-   for CI-only work but not a replacement. A watcher reports initial failing/
-   DIRTY/merged/closed state too. Fix task-caused failures; do not hand-merge red.
+2. Green GitHub CI on that **same final head**. While owning an open PR, builders
+   **MUST** keep `fleet --config CONFIG watch-pr NUMBER` armed as an async
+   background command. Process each event and re-arm after every completion
+   (including timeout/error) until merged or closed. Never rely on retired
+   `pr-wait.sh` scripts or a single-workflow `gh run watch` alone. A watcher
+   reports initial failing/DIRTY/merged/closed state too; initial failures can
+   return immediately again. Fix the named failing checks rather than ignoring
+   the event; do not hand-merge red. Inbox enqueue alone cannot wake a builder.
 
 Resolve findings. Any changed head requires fresh final-head review and CI.
 Record reviewer session ID, full reviewed SHA, findings/resolutions and CI run URL

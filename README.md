@@ -276,7 +276,14 @@ Inbox enqueue does not prove the agent woke or read it. `watch-pr` first reports
 an already-DIRTY, failing, merged or closed PR immediately. Otherwise it blocks
 on only the selected PR (including merge-group failures naming it) and exits
 on changes, timeout, or API failure, so async shell completion can wake a builder
-without polling model turns.
+without polling model turns. Check-failure subjects name the failing checks.
+
+While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
+armed as an async background command. Process each event and re-arm after every
+completion, including timeout/error, until the PR merges or closes. An initial
+failure may return immediately again: fix the reported failure rather than
+ignoring it or treating a quiet inbox as success. Never rely on retired
+`pr-wait.sh` scripts or a single-workflow `gh run watch` alone.
 
 Failed native merge groups resolve all constituent PRs by walking the synthetic
 first-parent merge chain between the queue branch's base SHA and run head SHA.

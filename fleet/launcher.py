@@ -131,7 +131,7 @@ Never bind this builder terminal to an orchestration Run. Keep terminal identity
 Use the following durable command to report, not terminal input:
 {shlex.quote(c['orca'])} orchestration send --to run:{c['coordinator']['run']} --type status --subject "{ref}: report" --body "<evidence and outcome>"
 Decision requests use EXACTLY ONE channel: fleet thread question {ref}, with the same --config as thread open. It sends the native type question to run:{c['coordinator']['run']} itself; NEVER also send a direct orca send/ask/question for the same decision. Follow-ups use reply/status in the same pending native subthread, not a new direct question. Use fleet thread wait {ref} for replies and fleet thread result {ref} for the final outcome, with the same --config. Direct reports use --type status only.
-An inbox send is durable enqueue, NOT a guaranteed new agent turn. Run fleet watch-pr PR as an async background command; never poll with model turns.
+An inbox send is durable enqueue, NOT a guaranteed new agent turn. While you own an open PR, MUST keep fleet watch-pr PR armed as an async background command with the same --config as thread open. Process each event and re-arm after every completion (including timeout/error) until merged or closed. Never rely on retired pr-wait.sh scripts or single-workflow gh run watch alone; never poll with model turns.
 On a durable PARK request: finish your current step, commit and push WIP to this task branch, write a Pad handoff, report PARKED with evidence to the Run above, then stop yourself. No next task or FRESH-READY; resume only in a Main-confirmed fresh session.
 {b['footer']}
 '''

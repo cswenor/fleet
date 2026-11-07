@@ -82,6 +82,11 @@ def collect(c, pr_number=None):
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
 
 
+def _failing_checks(p):
+    return sorted({x['name'] for x in p['checks'] if x.get('conclusion') in
+                   ('failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale')})
+
+
 def initial_event(p):
     reasons = []
     if p['state'] in ('merged', 'closed'):
@@ -89,8 +94,7 @@ def initial_event(p):
     else:
         if p.get('merge_state') == 'DIRTY':
             reasons.append('DIRTY')
-        failed = [x['name'] for x in p['checks'] if x.get('conclusion') in
-                  ('failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale')]
+        failed = _failing_checks(p)
         if failed:
             reasons.append('failing checks: ' + ', '.join(failed))
     if not reasons:
@@ -120,7 +124,12 @@ def events(previous, current):
             if before.get(field) != p.get(field):
                 value = json.dumps(p.get(field), sort_keys=True)
                 occurrence = p.get('updated_at', p['head'])
-                events.append({'key': f'pr:{p["number"]}:{field}:{occurrence}:{value}', 'subject': f'PR #{p["number"]} {field} changed: {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})
+                detail = f'{field} changed: {p["state"]}'
+                if field == 'checks':
+                    failed = _failing_checks(p)
+                    if failed:
+                        detail += '; failing checks: ' + ', '.join(failed)
+                events.append({'key': f'pr:{p["number"]}:{field}:{occurrence}:{value}', 'subject': f'PR #{p["number"]} {detail}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url'] + '\n' + field + ': ' + value})
     old_runs = {(r['id'], r['conclusion']): set(r.get('prs', []) or [None]) for r in previous.get('merge_group_runs', [])}
     for r in current['merge_group_runs']:
         if r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required'):

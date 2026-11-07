@@ -27,6 +27,25 @@ class InitialStateTests(unittest.TestCase):
                 self.assertEqual(result['pr'], 7)
                 self.assertIn(diagnostic, result['events'][0]['body'])
 
+    def test_watch_wakes_after_long_pending_check_and_review_check_failures(self):
+        for name, status, conclusion in [
+            ('long CI', 'completed', 'failure'),
+            ('codex-review', 'failure', 'failure'),
+        ]:
+            with self.subTest(name=name):
+                pending = history(pull(checks=[{'id': 1, 'name': name,
+                                                'status': 'pending', 'conclusion': None}]))
+                failed = history(pull(checks=[{'id': 1, 'name': name,
+                                               'status': status, 'conclusion': conclusion}]))
+                with patch.object(github, 'collect', side_effect=[pending] * 6 + [failed]), \
+                        patch.object(watcher.time, 'sleep'), \
+                        patch.object(watcher.time, 'monotonic', side_effect=range(0, 390, 30)):
+                    result = watcher.watch({}, 7, timeout=600, interval=60)
+                event = result['events'][0]
+                self.assertEqual(event['pr'], 7)
+                self.assertIn('failing checks: ' + name, event['subject'])
+                self.assertEqual(github.events(failed, failed), [])
+
     def test_watch_initial_group_failures_are_scoped_to_known_membership(self):
         failed = {'id': 5, 'conclusion': 'failure', 'url': 'https://example/run/5',
                   'prs': [8], 'membership_complete': True}

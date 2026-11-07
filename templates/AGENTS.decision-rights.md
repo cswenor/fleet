@@ -54,6 +54,12 @@ Self-merge small task-linked PRs only after BOTH gates on the final head:
    resolve findings and retain reviewer/session and exact-head evidence.
 2. Green required CI on that same head; fix task-caused failures before merge.
 
+While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
+armed as an async background command. Process each event and re-arm after every
+completion (including timeout/error) until merged or closed. Never rely on retired
+`pr-wait.sh` scripts or a single-workflow `gh run watch` alone; inbox enqueue does
+not prove wake. Fix reported failures even if an initial failure returns again.
+
 For the filled fleet Sol-medium binding, copy `.omp/unadvised-review.yml` with
 the workflow skill and use the fresh stock omp invocation in
 `docs/MAIN.md` (Independent review). Bind `@review` explicitly in the overlay;

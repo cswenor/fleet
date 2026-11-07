@@ -17,8 +17,11 @@ builder:
   idle_seconds: 2700
   footer: |
     Self-publish small PRs after a fresh independent read-only unadvised Sol
-    review and green CI (no fleet review bot). Use fleet watch-pr asynchronously,
-    never model-turn polling. This session is already fresh for its assigned task;
+    review and green CI (no fleet review bot). While you own an open PR, MUST keep
+    fleet watch-pr PR armed as an async background command. Process each event and
+    re-arm after every completion (including timeout/error) until merged or closed.
+    Never rely on retired pr-wait.sh scripts or single-workflow gh run watch alone;
+    never poll with model turns. This session is already fresh for its assigned task;
     never signal FRESH-READY for an inherited handoff. Pick the next piece by plan
     priority, usually the same feature; the same ref is allowed. Never switch to
     an unrelated task just to get a different ref. Only after publishing your NEXT
