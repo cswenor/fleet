@@ -294,6 +294,14 @@ an already-DIRTY, failing, merged or closed PR immediately. Otherwise it blocks
 on only the selected PR (including merge-group failures naming it) and exits
 on changes, timeout, or API failure, so async shell completion can wake a builder
 without polling model turns. Check-failure subjects name the failing checks.
+Initial merge-group failures are omitted only when a newer, completely resolved
+group with a distinct synthetic head SHA also includes this PR, or a synthetic
+merge's second parent proves it tested an older PR head. Ordering uses creation
+time, falling back to run ID only when
+timestamps are missing. Unknown ordering, membership or lineage retains the failure.
+Pending-group membership reads are bounded newest-first and stop at a proven
+successor; later live failures still wake immediately. Supervisor events are unchanged.
+A later pending/successful workflow on the same group cannot hide its failed workflow.
 
 While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
 armed as an async background command. Process each event and re-arm after every

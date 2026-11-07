@@ -87,6 +87,57 @@ class InitialStateTests(unittest.TestCase):
         self.assertEqual([e['pr'] for e in result['events']], [7])
         self.assertIn('DIRTY', result['events'][0]['body'])
 
+    def test_watch_initial_superseded_groups(self):
+        old = {'id': 5, 'head_sha': 'old-group', 'conclusion': 'failure',
+               'url': 'https://example/run/5', 'prs': [7],
+               'membership_complete': True, 'created_at': '2026-11-06T00:00:00Z'}
+        newer = {**old, 'id': 6, 'head_sha': 'new-group',
+                 'url': 'https://example/run/6',
+                 'created_at': '2026-11-06T01:00:00Z'}
+        scenarios = [
+            ('pending successor', newer | {'conclusion': None}, []),
+            ('failed successor', newer, [6]),
+            ('same group pending workflow', newer | {'head_sha': old['head_sha'], 'conclusion': None}, [5]),
+            ('same group successful workflow', newer | {'head_sha': old['head_sha'], 'conclusion': 'success'}, [5]),
+            ('unknown successor group', newer | {'head_sha': None, 'conclusion': None}, [5]),
+            ('partial successor membership', newer | {'membership_complete': False, 'conclusion': None}, [5]),
+            ('single failure', None, [5]),
+            ('unknown successor membership', newer | {'prs': []}, [5]),
+            ('unrelated successor', newer | {'prs': [8]}, [5]),
+            ('missing timestamps', newer | {'created_at': None, 'conclusion': None}, []),
+            ('equal timestamps', newer | {'created_at': old['created_at'], 'conclusion': None}, [5]),
+            ('older despite higher id', newer | {'created_at': '2026-11-05T00:00:00Z', 'conclusion': None}, [5]),
+        ]
+        for label, successor, expected in scenarios:
+            with self.subTest(label=label):
+                current = history(pull(), runs=[old] + ([successor] if successor else []))
+                with patch.object(github, 'collect', return_value=current):
+                    result = watcher.watch({}, 7, timeout=0)
+                self.assertEqual([e['subject'] for e in result.get('events', [])],
+                                 [f'Merge group {n} failure' for n in expected])
+
+    def test_watch_initial_group_lineage_requires_member_head_proof(self):
+        failed = {'id': 5, 'head_sha': 'synthetic', 'conclusion': 'failure',
+                  'url': 'https://example/run/5', 'prs': [7], 'membership_complete': True}
+        for heads, expected in [({}, True), ({'8': 'old'}, True),
+                                ({'7': 'sha'}, True), ({'7': 'old'}, False)]:
+            with self.subTest(heads=heads), patch.object(github, 'collect',
+                    return_value=history(pull(), runs=[failed | {'member_heads': heads}])):
+                result = watcher.watch({}, 7, timeout=0)
+            self.assertEqual(bool(result.get('events')), expected)
+
+    def test_watch_newer_group_live_failure_still_wakes(self):
+        old = {'id': 5, 'head_sha': 'old-group', 'conclusion': 'failure',
+               'url': 'https://example/run/5', 'prs': [7], 'membership_complete': True}
+        newer = {**old, 'id': 6, 'head_sha': 'new-group',
+                 'conclusion': None, 'url': 'https://example/run/6'}
+        before = history(pull(), runs=[old, newer])
+        after = history(pull(), runs=[old, newer | {'conclusion': 'failure'}])
+        with patch.object(github, 'collect', side_effect=[before, after]), \
+                patch.object(watcher.time, 'sleep'):
+            result = watcher.watch({}, 7)
+        self.assertEqual([e['subject'] for e in result['events']], ['Merge group 6 failure'])
+
     def test_daemon_first_sighting_and_new_unhealthy_pr_notify_once(self):
         current = history(pull(merge_state='DIRTY'))
         initial = github.events({}, current)
@@ -108,8 +159,48 @@ class GroupTests(unittest.TestCase):
     def test_synthetic_chain_excludes_side_history_and_includes_every_group_member(self):
         commit = lambda sha, parent, number: {'sha': sha, 'parents': [{'sha': parent}, {'sha': 'side'}], 'commit': {'message': f'Title (#{number})'}}
         commits = [commit('group-b', 'group-a', 8), commit('group-a', 'base', 7), commit('side', 'other', 99)]
-        self.assertEqual(groups.members(commits, 'base', 'group-b'), ([7, 8], True))
-        self.assertEqual(groups.members(commits[0:1], 'base', 'group-b'), ([8], False))
+        self.assertEqual(groups.members(commits, 'base', 'group-b'),
+                         ([7, 8], True, {'7': 'side', '8': 'side'}))
+        self.assertEqual(groups.members(commits[0:1], 'base', 'group-b'),
+                         ([8], False, {'8': 'side'}))
+
+    def test_per_pr_resolution_bounds_pending_lookups_and_preserves_supervisor(self):
+        base = 'a' * 40
+        def run(n, conclusion=None):
+            return {'id': n, 'head_sha': f'group-{n}', 'conclusion': conclusion,
+                    'branch': f'gh-readonly-queue/main/pr-7-{base}',
+                    'created_at': f'2026-11-06T0{n}:00:00Z'}
+        def compare(c, *args):
+            head = args[-1].split('...')[1].split('?')[0]
+            return [{'commits': [{'sha': head, 'parents': [{'sha': base}, {'sha': 'pr-head'}],
+                                  'commit': {'message': 'Feature (#7)'}}]}]
+        for number, expected in [(None, ['group-2']), (7, ['group-2', 'group-5'])]:
+            with self.subTest(number=number), patch.object(groups.state, 'read', return_value={}), \
+                    patch.object(groups.state, 'write'), patch.object(groups, 'gh', side_effect=compare) as gh:
+                resolved = groups.resolve({'repo': 'owner/repo'},
+                                          [run(1), run(2, 'failure'), run(3), run(4), run(5)],
+                                          pr_number=number)
+            self.assertEqual([call.args[-1].split('...')[1].split('?')[0] for call in gh.call_args_list], expected)
+            by_id = {r['id']: r for r in resolved}
+            self.assertEqual(by_id[1]['prs'], [])
+            self.assertEqual(by_id[3]['prs'], [])
+            self.assertEqual(by_id[5]['prs'], [7] if number else [])
+            self.assertEqual(by_id[2]['member_heads'], {'7': 'pr-head'})
+
+    def test_failed_pending_lookup_is_memoized_only_within_collection(self):
+        from fleet.commands import CommandError
+        base = 'a' * 40
+        failed = {'id': 2, 'head_sha': 'old', 'conclusion': 'failure',
+                  'branch': f'gh-readonly-queue/main/pr-7-{base}'}
+        pending = {'id': 3, 'head_sha': 'new', 'conclusion': None,
+                   'branch': f'gh-readonly-queue/main/pr-8-{base}'}
+        with patch.object(groups.state, 'read', return_value={}), \
+                patch.object(groups.state, 'write') as save, \
+                patch.object(groups, 'gh', side_effect=CommandError('lookup failed')) as gh:
+            runs = groups.resolve({'repo': 'owner/repo'}, [failed, pending, pending | {'id': 4}], pr_number=7)
+        self.assertEqual(gh.call_count, 2)
+        self.assertEqual(save.call_args.args[-1], {})
+        self.assertFalse(runs[-1]['membership_complete'])
 
     def test_secondary_group_member_receives_failure_even_when_head_checks_do_not_change(self):
         a, b = pull(), pull(number=8, branch='second')

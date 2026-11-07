@@ -62,8 +62,9 @@ def collect(c, pr_number=None):
     run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{since}&per_page=100')
     runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
                              'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
+                             'created_at': r.get('created_at'),
                              'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
-                            for page in run_pages for r in page['workflow_runs']])
+                            for page in run_pages for r in page['workflow_runs']], pr_number=pr_number)
     if pr_number is not None:
         return {'prs': result, 'merge_group_runs': runs}
     owner, name = repo.split('/')

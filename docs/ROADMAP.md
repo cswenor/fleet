@@ -178,6 +178,32 @@ Real GitHub/quota/disk collection and native transport were unchanged. This is
 supervisor emission proof, not a fresh model launch or deployment. Publication
 receipts belong on TASK-52/PR; shared rollout requires Main's exact-head GO.
 
+### TASK-60 — Superseded initial merge-group failures
+
+`watch-pr` no longer replays a failed group superseded by a newer completely
+resolved group for the selected PR, including a pending successor. Proven
+second-parent PR-head mismatch also suppresses an obsolete initial failure;
+synthetic queue head SHA inequality alone is never lineage proof. Unknown
+ordering, membership and lineage retain failures. Live failure transitions and
+supervisor event semantics are unchanged.
+
+Main approved per-PR-only pending membership resolution (decision
+`msg_56814084c026`), bounded newest-first after the oldest relevant failure and
+stopping at a complete successor. Complete immutable membership retains the
+existing cache; unsuccessful lookups are memoized only within one collection.
+Regression scenarios failed before the fix and pass afterward; all 327 tests pass.
+Independent review found that a later workflow on the same synthetic group could
+hide a sibling failure. New cases reproduced that bug; supersession now requires
+a distinct known synthetic group SHA, in both initial filtering and bounded reads.
+
+Real source CLI entrypoint against Project Alpha PR2395 observed old failed group
+42339647000 and newer in-progress group 42341249696 without a stale exit:
+`watch-pr 2395 --timeout 5 --interval 5` returned timeout after collection/wait,
+not the old failure. Read-only GitHub instrumentation counted 17 calls, including
+3 compares across both collections; private scratch config/state isolated this
+from live supervisors and Runs. Publication receipts belong on TASK-60/PR;
+exact-head merge GO and shared deployment remain Main-owned.
+
 ### TASK-56 — Shared structural health UI detection
 
 Health and retirement now share `health.omp_ui`: the current composer/status band
