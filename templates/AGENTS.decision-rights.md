@@ -88,6 +88,10 @@ native message ID before its Pad message-ID comment; retry the same known-ID
 receipt to finish recording without another send. Ambiguous sends without an ID
 refuse duplicates and require reconciliation, not a raw-send workaround.
 Ready does not schedule launches; Main approves the fresh launch.
+Ready sends native `question` as a launch decision request, waking Main's
+decision-filtered wait. Main replies in that native thread with the ruling;
+the builder stops after sending without waiting. Existing sent `status`
+receipts remain valid and must never be resent on upgrade.
 If Main authorizes continuing after `thread result`, record that ruling and run
 `fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
 before any new question; never fall back to direct Run questions. This continues

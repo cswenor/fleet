@@ -113,6 +113,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-63 — FRESH-READY wakes Main for a launch ruling
+
+`thread ready` now sends native `question`, not `status`, so Main's
+`wait --wake-on question,escalation,urgent` wakes and classifies it as
+`builder_decision_request`. Main replies in its native thread with the launch
+ruling; the builder still stops immediately after sending. Subject/body,
+guards, Pad receipt and idempotency are unchanged. Existing sent status
+receipts remain valid and are never resent on upgrade. Wake filters and
+supervisor alert policy are unchanged.
+
+The ready regression failed before the type change; repeat/classification and
+legacy-status-receipt regressions pass. Main-approved scratch drill
+`msg_61a46389d101` used Run `run_54ae024b0e1c`, TASK-52/PR53 source publication,
+TASK-58's later handoff and a seeded pre-PR53 private launch, not a model launch.
+The source CLI decision-filtered background wait woke in 7.82s with delivery
+`delivery_9b957e3326f3`: exactly one question `msg_bc3c3415125e`, classified
+`builder_decision_request`. Repeated ready returned the same ID, with its real
+Pad receipt verified. Scratch Main replied in-thread (`msg_51b987dc9b8a`) and
+acknowledged the delivery. Both owned terminals closed with `ptyKilled: true`;
+private drill state was removed, TASK-58 remains cancelled. All 352 tests pass.
+Publication receipts belong on TASK-63/PR; shared deployment is Main-owned,
+and merge is held for Main's exact-head GO.
+
 ### TASK-62 — Authorized same-session continuation
 
 `fleet thread reopen REF --authorized-by MSG_ID [--reason TEXT]` continues the
@@ -210,11 +233,11 @@ Publication receipts belong on TASK-61/PR; Main exact-head merge GO is required.
 primary attempt is settled. The unbound caller must own its authoritative launch.
 Readiness requires a PR carrying the current ref merged after that launch and
 a concrete later handoff on NEXT, including same-ref continuations. Main approved
-this across-ref boundary in `msg_c496aff9f1eb`. One native status targets the
-configured Run; its message ID is saved before the Pad receipt comment. Repeats
+this across-ref boundary in `msg_c496aff9f1eb`. TASK-63 supersedes the original
+native status with a question to the configured Run; its message ID is saved before the Pad receipt comment. Repeats
 return that ID, Pad failures retry only recording, and ambiguous sends refuse
 duplicates. Ready never schedules or launches work. Builder guidance separates
-this report from `thread question` decisions and ordinary progress/PARK status.
+this final launch decision request from in-task `thread question` and progress/PARK status.
 
 The supervisor closes the completed-idle silence gap with one nonurgent
 “settled, no ready report” status per verified launch/handoff, after

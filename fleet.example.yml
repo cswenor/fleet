@@ -44,6 +44,8 @@ builder:
     action and stop. Use the same config as thread open, never raw orca send for
     FRESH-READY. Same-ref readiness needs the newer merge and later concrete
     handoff on that ref; Pad done alone is insufficient. Main approves the fresh launch.
+    Ready sends a native question for Main's launch ruling; Main replies in-thread.
+    Stop after sending without waiting for that reply; never resend an existing receipt.
     On PARK: finish current step, commit+push WIP, write Pad handoff, report PARKED
     to the configured Run, then stop yourself. Resume only as a confirmed fresh session.
     Decision requests use EXACTLY ONE channel: fleet thread question. It sends

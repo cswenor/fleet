@@ -346,7 +346,11 @@ insufficient. Never raw `orca send` for FRESH-READY or decisions; use
 `thread question` for decisions. Ordinary progress/PARK reports may still
 raw-send native `status`, never keystrokes.
 
-Ready sends native status exactly once and stores an idempotent receipt with
+Ready sends native `question` exactly once to wake Main's decision-filtered wait,
+where it is a `builder_decision_request`. Main replies in that native thread with
+the launch ruling; the builder stops after sending without waiting for the reply.
+Existing sent `status` receipts remain valid: never resend them on upgrade.
+Ready stores an idempotent receipt with
 the native message ID before writing a Pad comment containing that ID. Retry
 the same known-ID receipt to finish a failed Pad comment without resending.
 Ambiguous sends without a message ID refuse duplicates: reconcile with

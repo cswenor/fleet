@@ -34,6 +34,8 @@ builder:
     concrete handoff on that ref; Pad done alone is insufficient. Main approves
     the fresh launch. Never resume old context, silently fallback, create extra
     worktrees, stash, or spend saved resets without owner approval.
+    Ready sends a native question for Main's launch ruling; Main replies in-thread.
+    Stop after sending without waiting for that reply; never resend an existing receipt.
     On PARK finish the current step, commit and push WIP, write a Pad handoff,
     report PARKED to the configured Run, then stop yourself; resume requires
     a Main-confirmed fresh session.

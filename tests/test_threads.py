@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
-from fleet import cli, state, threads
+from fleet import cli, mailbox, state, threads
 
 
 class ThreadTests(unittest.TestCase):
@@ -230,13 +230,28 @@ class ReadyTests(unittest.TestCase):
         self.assertEqual(receipts[0]['message_id'], receipts[1]['message_id'])
         self.assertEqual(len(self.sent), 1)
         flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
-        self.assertEqual(flags['--type'], 'status')
+        self.assertEqual(flags['--type'], 'question')
         self.assertEqual(flags['--to'], 'run:run_main')
         self.assertEqual(flags['--subject'], 'TASK-1: FRESH-READY TASK-2')
         self.assertIn('TASK-2 comment handoff-1', flags['--body'])
         self.assertEqual(len(self.pads), 1)
         self.assertEqual(self.pads[0][0], 'TASK-1')
         self.assertIn('Ready report: ' + receipts[0]['message_id'], self.pads[0][1])
+        classified, _ = mailbox.classify(
+            [{'id': receipts[0]['message_id'], 'type': flags['--type'],
+              'subject': flags['--subject'], 'body': flags['--body'],
+              'from_handle': 'term_builder'}], self.c['coordinator'])
+        self.assertEqual(classified[0]['classification'], 'builder_decision_request')
+
+    def test_existing_status_ready_receipt_remains_valid_without_resend(self):
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one']['ready'] = {
+            'next_ref': 'TASK-2', 'message_id': 'old-status', 'recorded': True,
+            'status': 'sent'}
+        state.write(self.c, 'threads-TASK-1', ledger)
+        self.assertEqual(threads.ready(self.c, 'TASK-2')['message_id'], 'old-status')
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.pads, [])
 
     def test_reopen_continuation_is_idempotent_and_isolates_old_decisions(self):
         first = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['one']

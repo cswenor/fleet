@@ -316,7 +316,7 @@ def ready(c, next_ref, body=''):
                 state.write(c, name, ledger)
                 message = request(c, 'send', '--from', caller,
                                   '--to', 'run:' + c['coordinator']['run'],
-                                  '--type', 'status', '--thread-id', attempt.get('thread_id', task['id']),
+                                  '--type', 'question', '--thread-id', attempt.get('thread_id', task['id']),
                                   '--subject', f'{ref}: FRESH-READY {next_ref}',
                                   '--body', report['body'])['message']
                 report.update(message_id=message['id'], status='sent', at=time.time())

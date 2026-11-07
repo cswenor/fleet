@@ -118,6 +118,9 @@ After the primary `thread result` settles, the builder's last lane action is
 Ordinary progress/PARK reports may still raw-send native `status`. Same-ref
 readiness retains the newer-merge/later-concrete-handoff guards; Pad done alone
 is insufficient. Ready reports do not schedule launches; Main confirms them.
+FRESH-READY uses native `question`, waking the decision-filtered Main wait and
+classifying as `builder_decision_request`. Reply in its native thread with the
+launch ruling; the builder stops after sending and does not wait for the reply.
 
 Fresh independent read-only unadvised Sol medium reviewer is gate one for every
 PR; record reviewer/session/final-head findings. Fleet has no review bot: final

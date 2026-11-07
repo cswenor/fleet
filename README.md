@@ -543,7 +543,7 @@ require a fresh omp session; the explicit prerequisite exception follows below.
 After merge, write the concrete next-piece Pad handoff, settle the primary
 thread with `thread result`, then make
 `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action and
-stop. `NEXT` is the proposed next Pad ref, not a launch request. The caller must
+stop. `NEXT` is the proposed next Pad ref, requesting Main's launch decision. The caller must
 be the unbound terminal of the current authoritative primary launch, with its
 canonical attempt already settled; a carried task result alone is insufficient.
 Before a new send, its live incarnation and worktree routing must still match the
@@ -553,7 +553,7 @@ and a concrete handoff on NEXT written strictly after that merge. Same-ref readi
 those newer-merge/later-handoff guards, including a non-empty next-piece
 description after the ref; Pad done alone and inherited boundaries do not qualify.
 
-Ready sends one native `status` to Main and saves an idempotent receipt with
+Ready sends one native `question` to Main so decision-filtered waits wake, and saves an idempotent receipt with
 `next_ref`, native `message_id`, timestamp and Pad-recording state. It then writes
 a Pad comment containing the message ID. Retrying the same known-ID receipt
 does not send again; if only the Pad write failed, retry the same command to
@@ -562,6 +562,10 @@ sends: reconcile the receipt with Main/native history before operator repair,
 never substitute raw `orca send`. The ID proves durable enqueue, not wake/read
 or approval. Ready does not schedule, restart or launch anything; Main still
 approves the fresh launch.
+Existing sent `status` receipts remain valid and are never resent on upgrade.
+Main processes FRESH-READY as a `builder_decision_request` and replies in its
+native thread with the launch ruling. The builder stops after sending; it does
+not wait for that reply.
 
 Main may approve a prerequisite in the existing session (Pad relations alone
 never authorize it). Record the decision on Pad, then from the configured Main
