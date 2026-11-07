@@ -882,6 +882,8 @@ Email Main had started at 22:05Z; no installer terminal input was sent after tha
 ### TASK-18 — Success metric: Codex usage per merged PR
 
 Baseline: seven days ending **2026-11-06**, owner-provided figures.
+**Baseline source: owner-provided, unverified**; exact UTC boundaries and source
+class remain unknown.
 
 | Metric | Baseline |
 |---|---:|
@@ -898,3 +900,17 @@ aggregate source provenance and date boundaries, distinguish provider/account
 changes and workload differences; report before/after measurable reduction or
 lack of one. No secrets/account IDs. Do not infer causal savings from an
 incomparable interval or treat ~182 as an exact baseline PR count.
+
+Preparation (2026-11-07): [reproducible procedure and exercised dry run](metrics.md).
+Main approved docs-only incomplete-source scope in `msg_560fc2bfe0d0`; no custom
+ingestion. The stock omp 18.17.0 local stats index omits Fleet's dedicated
+`--session-dir` logs. The short-window result is explicitly **LOCAL INDEX /
+INCOMPLETE / NOT COMPARABLE**, not a savings measurement. Exact GitHub merge
+counts are collected separately for Project Alpha, Fleet and Project Beta.
+
+TASK-18 stays **open**. Before the Nov 13 measurement checkpoint, Main must
+resolve the intended exact after-window dates, baseline provenance (owner
+question: provider dashboard or auth-broker history?), and complete matching
+source coverage. Follow-up decision: stock extra-session-root indexing if
+available, otherwise a separate small ingestion task. No per-PR baseline rate
+or measured change is valid until those gates pass; ~182 remains an estimate.
