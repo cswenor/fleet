@@ -113,6 +113,35 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-56 — Shared structural health UI detection
+
+Health and retirement now share `health.omp_ui`: the current composer/status band
+and bottom permission/Ask widget determine UI state, never transcript keywords.
+Real dialogs set `waiting_dialog`; a gear-marked running job reports `background`,
+not a dialog or stale-output `idle` alert. Ordinary stale-output alerts remain
+unchanged when no current job marker exists. Unknown/partial widgets and drafts
+still cannot establish positive retirement idle evidence. Model/provider,
+disconnection, ownership and urgent relay policy are unchanged.
+
+The omp 18.17 fixture regressions reproduced false dialog flags for approval prose
+and background waits, plus a missed real Ask dialog. Coverage includes the exact
+“Waiting for live drill completion” phrase, idle-π/job repaint, quoted widgets,
+stale footer/gear rows and partial widgets. Independent review identified a
+concurrent permission/job precedence bug; a failing-before/passing-after composite
+of captured screens now proves a dialog wins over its job footer and retains
+the stale-output alert. All 290 tests pass.
+
+Real source health inventory reads of owned scratch terminal
+`term_28cf1cbd-48ab-4221-9e48-d10e73062da9`, session
+`01a1b3e5-2dc2-7023-a465-3d0f95d153ee` (omp 18.17.0), observed permission and Ask
+as `waiting_dialog`, approval prose as active/no flags, and a `sleep 180` async
+job with “Waiting for live drill completion” plus `⚙ 1` as background/no flags.
+Ask hides the footer, so its existing `model_unknown` flag retains precedence
+over `waiting_dialog` in the display state. No model-classification change.
+The drill used a private minimal config and real read-only Orca inventory,
+without adapters, Run binding, live supervisor writes or deployment.
+Publication receipts belong on TASK-56/PR; shared rollout remains Main-owned.
+
 ### TASK-54 — Structural retirement UI detection
 
 Retirement no longer searches final assistant prose for approval/permission/deny

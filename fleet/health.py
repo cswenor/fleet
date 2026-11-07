@@ -53,6 +53,42 @@ def active(builder):
     return not (builder['connected'] and builder.get('shell_ready', False))
 
 
+def omp_ui(text):
+    """Recognise the current OMP composer/widget, never transcript prose.
+
+    Unknown and nonempty composers remain distinct from positive idle evidence.
+    Dialog boxes replace the composer and end at the current UI boundary.
+    """
+    lines = ANSI.sub('', text).splitlines()
+    footers = [i for i, line in enumerate(lines)
+               if re.match(r' (?:π|[⠁-⣿].*) >\s*◑', line)]
+    footer = footers[-1] if footers else None
+    current_footer = (footer is not None and footer + 1 < len(lines) and
+                      lines[footer + 1].startswith('╰─') and
+                      all(row.startswith('   ') for row in lines[footer + 2:]))
+    background = False
+    if current_footer:
+        status = lines[footer]
+        background = bool(re.search(r'(?:^|\s)⚙(?:\s|$)', status))
+        if status.startswith(' π >') and not background:
+            return ('idle' if footer == len(lines) - 2 and
+                    re.fullmatch(r'╰─\s*', lines[-1]) else 'draft')
+    # A widget is either the whole bottom UI (Ask), or immediately above the
+    # working footer/border (permission). A job never hides a pending approval.
+    end = footer if current_footer else len(lines)
+    widget = lines[:end]
+    if widget and re.fullmatch(r'╰─+╯\s*', widget[-1]):
+        for i in range(len(widget) - 2, -1, -1):
+            if re.fullmatch(r'╭─ (?:Ask|Allow tool: .+?) ─+╮\s*', widget[i]):
+                body = widget[i + 1:-1]
+                if body and all(re.fullmatch(r'(?:│.*│|├─+┤)\s*', row) for row in body):
+                    return 'dialog'
+                break
+    if background:
+        return 'background'
+    return 'working' if current_footer else 'unknown'
+
+
 def classify(terminal, text, expected, idle_seconds, now):
     text = ANSI.sub('', text)
     live = '\n'.join(text.splitlines()[-12:])
@@ -66,13 +102,14 @@ def classify(terminal, text, expected, idle_seconds, now):
         flags.append('model_unknown')
     if re.search(r'No API key|Retry failed after|rate.limit|quota exceeded|Spend a saved Claude|provider error', live, re.I):
         flags.append('provider_stalled')
-    if re.search(r'Ask \d* question|waiting for (?:approval|input)|approve.*deny|permission required', live, re.I):
+    ui = omp_ui(text)
+    if ui == 'dialog':
         flags.append('waiting_dialog')
     if not terminal.get('connected', False) or terminal.get('orphaned'):
         flags.append('disconnected')
     last = terminal.get('lastOutputAt')
     idle = max(0, int(now - last / 1000)) if isinstance(last, (int, float)) else None
-    if idle is not None and idle > idle_seconds:
+    if idle is not None and idle > idle_seconds and ui != 'background':
         flags.append('idle')
     return model, flags, idle
 
@@ -126,11 +163,12 @@ def collect(c, now=None):
             flags.append('owner_delivery_broken')
         elif terminal_binding['state'] == 'unknown':
             flags.append('binding_unknown')
+        state = 'background' if omp_ui(text) == 'background' else 'active'
         ref = REF.search(branch(w.get('branch'))) or REF.search(t.get('title', ''))
         builders.append({'terminal': t['handle'], 'worktree': w['id'], 'path': w['path'],
                          'branch': branch(w.get('branch')), 'task': ref[1].upper() if ref else None,
                          'title': t.get('title'), 'model': model, 'flags': flags,
-                         'idle_seconds': idle, 'state': flags[0] if flags else ('shell' if ready else 'active'),
+                         'idle_seconds': idle, 'state': flags[0] if flags else ('shell' if ready else state),
                          'shell_ready': ready, 'binding': terminal_binding,
                          'incarnation_id': t.get('incarnationId'),
                          'connected': t.get('connected', False) and not t.get('orphaned')})

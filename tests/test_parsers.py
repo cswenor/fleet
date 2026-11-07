@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import time
 import unittest
 from unittest.mock import patch
@@ -17,6 +19,58 @@ class HealthTests(unittest.TestCase):
         _, flags, _ = classify(t, '◑ GPT-6.1 Sol > 🌳 project', 'openai-codex/gpt-6.1-sol', 600, 200)
         self.assertEqual(flags, [])
 
+    def test_captured_dialogs_and_background_are_distinct(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        terminal = {'connected': True, 'lastOutputAt': 100_000}
+        for name, screen in screens.items():
+            with self.subTest(surface=name):
+                _, flags, _ = classify(terminal, '\n'.join(screen),
+                                       'openai-codex/gpt-6.1-sol', 60, 200)
+                self.assertEqual('waiting_dialog' in flags, name in ('permission', 'ask'))
+                self.assertEqual('idle' in flags, name != 'background')
+                if name == 'background':
+                    self.assertEqual(health.omp_ui('\n'.join(screen)), 'background')
+
+    def test_permission_takes_precedence_over_concurrent_background_job(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        screen = screens['permission'][:-2] + screens['background'][-2:]
+        _, flags, _ = classify({'connected': True, 'lastOutputAt': 100_000},
+                               '\n'.join(screen), 'openai-codex/gpt-6.1-sol', 60, 200)
+        self.assertEqual(flags, ['waiting_dialog', 'idle'])
+
+    def test_job_status_not_wait_prose_controls_background_and_idle(self):
+        terminal = {'connected': True, 'lastOutputAt': 100_000}
+        for glyph in ('π', '⠙ 30s'):
+            text = ('⎋ Waiting for live drill completion\n'
+                    f' {glyph} > ◑ GPT-6.1 Sol > ⚙ 1\n╰─')
+            _, flags, _ = classify(terminal, text, 'openai-codex/gpt-6.1-sol', 60, 200)
+            self.assertEqual(flags, [])
+            self.assertEqual(health.omp_ui(text), 'background')
+        # A transcript gear or stale footer cannot suppress the stale-output alert.
+        for text in ('⚙ 1\n π > ◑ GPT-6.1 Sol >\n╰─',
+                     ' ⠙ 30s > ◑ GPT-6.1 Sol > ⚙ 1\nold screen, no composer'):
+            _, flags, _ = classify(terminal, text, 'openai-codex/gpt-6.1-sol', 60, 200)
+            self.assertEqual(flags, ['idle'])
+
+    def test_ask_replaces_old_composer_and_partial_widget_stays_unknown(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        self.assertEqual(health.omp_ui('\n'.join(screens['idle'] + screens['ask'])), 'dialog')
+        self.assertEqual(health.omp_ui('\n'.join(screens['ask'][:-1])), 'unknown')
+
+    def test_transcript_prose_and_widget_quotes_do_not_become_dialogs(self):
+        footer = ' π > ◑ GPT-6.1 Sol >'
+        for prose in ('Waiting for input; permission required; approve or deny.',
+                      'Ask 2 questions; Main approved merge.',
+                      '╭─ Ask ───╮\n│ quoted prompt │\n╰─────────╯'):
+            with self.subTest(prose=prose):
+                _, flags, _ = classify({'connected': True},
+                                       prose + '\n' + footer + '\n╰─',
+                                       'openai-codex/gpt-6.1-sol', 60, 200)
+                self.assertNotIn('waiting_dialog', flags)
+
     def test_current_screen_model_is_not_lost_in_capped_output_history(self):
         c = {'root': '/slot', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},
              'builder': {'slots': ['/slot'], 'resolved_model': 'openai-codex/gpt-6.1-sol', 'idle_seconds': 600}}
@@ -28,12 +82,16 @@ class HealthTests(unittest.TestCase):
             if args[:2] == ('terminal', 'list'):
                 return {'terminals': [{'handle': 'lane', 'worktreeId': 'tree', 'agentIdentity': 'omp',
                                         'connected': True, 'lastOutputAt': 100_000}]}
-            return {'terminal': {'tail': ['◑ GPT-6.1 Sol >'] if '--screen' in args else ['busy output'] * 120}}
-        with patch.object(health, 'orca', side_effect=orca):
-            builder = health.collect(c, now=100)['builders'][0]
-        self.assertEqual(builder['model'], 'GPT-6.1 Sol')
-        self.assertEqual(builder['state'], 'active')
-        self.assertEqual(builder['flags'], [])
+            return {'terminal': {'tail': screen if '--screen' in args else ['busy output'] * 120}}
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        for screen, expected in ((['◑ GPT-6.1 Sol >'], 'active'),
+                                 (screens['background'], 'background')):
+            with self.subTest(state=expected), patch.object(health, 'orca', side_effect=orca):
+                builder = health.collect(c, now=100)['builders'][0]
+                self.assertEqual(builder['model'], 'GPT-6.1 Sol')
+                self.assertEqual(builder['state'], expected)
+                self.assertEqual(builder['flags'], [])
 
     def test_unknown_terminal_identity_keeps_slot_occupied(self):
         c = {'root': '/root', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},

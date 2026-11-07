@@ -243,21 +243,13 @@ def _idle(c, record, tree, handle, previous=None):
             terminal.get('incarnationId') != record['terminal_incarnation_id']):
         raise ValueError('target identity disconnected, changed, or unknown')
     screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
-    text = health.ANSI.sub('', '\n'.join(screen.get('tail', [])))
-    # Require OMP's actual idle composer footer, not merely silence or an old title.
-    lines = text.splitlines()
-    footers = [i for i, line in enumerate(lines) if re.match(r' π >\s*◑', line)]
-    if not footers:
-        raise ValueError('no positive idle OMP composer; working, dialog, background job, or stale screen')
-    # Empty composer is exactly one column-zero border after the footer. Draft
-    # continuation rows are indented, even when their text happens to be ╰─.
-    if footers[-1] != len(lines) - 2 or not re.fullmatch(r'╰─\s*', lines[-1]):
-        raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
-    # Approval/Ask widgets replace the composer; working jobs replace π with a
-    # spinner. Do not scan transcript rows: ordinary final prose is not UI state.
-    # Also reject the status band's job marker if π is visible during a repaint.
-    if re.search(r'(?:^|\s)⚙(?:\s|$)', lines[footers[-1]]):
+    ui = health.omp_ui('\n'.join(screen.get('tail', [])))
+    if ui == 'background':
         raise ValueError('background job status visible; retirement withheld')
+    if ui == 'draft':
+        raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
+    if ui != 'idle':
+        raise ValueError('no positive idle OMP composer; working, dialog, background job, or stale screen')
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
         raise ValueError('agent status inventory incomplete')
