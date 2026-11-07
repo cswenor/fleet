@@ -130,7 +130,7 @@ def _merged_prs(c, finished, date_filter):
             raise ValueError('completion PR search incomplete or inconsistent; retirement withheld') from exc
 
 
-def _completion(c, ref, finished, record):
+def _completion(c, ref, finished, record, *, require_handoff=False):
     item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
     same_ref = ref == finished
     started = record.get('at')
@@ -149,20 +149,20 @@ def _completion(c, ref, finished, record):
         prs = matches(_merged_prs(c, finished, '<' + boundary))
     if not prs:
         raise ValueError('finished task has no merged PR carrying its Pad ref')
-    if same_ref:
+    if same_ref or require_handoff:
         prs = [p for p in prs if _timestamp(p['mergedAt']) > launched]
         if not prs:
-            raise ValueError('same-ref restart requires a new PR merged after this launch')
+            raise ValueError('same-ref restart or ready report requires a new PR merged after this launch')
     fields = item.get('fields', {})
     if isinstance(fields, str):
         fields = json.loads(fields)
-    if not same_ref and fields.get('status') == 'done':
+    if not same_ref and not require_handoff and fields.get('status') == 'done':
         return {'finished_ref': finished, 'pr': prs[0]['url'], 'pad_status': 'done'}
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments', ref, '--format', 'json'], c['root'])
     for comment in comments:
         body = comment.get('body', '')
         if pattern.search(body) and re.search(r'\bhandoff\b', body, re.I):
-            if same_ref:
+            if same_ref or require_handoff:
                 # A bare ref/handoff marker is not a next-piece description.
                 tail = pattern.split(body, maxsplit=1)[1]
                 tail = re.sub(r'\bhandoff\b', '', tail, flags=re.I).strip(' \t\r\n:;,.!-')
@@ -171,6 +171,8 @@ def _completion(c, ref, finished, record):
             for pr in prs:
                 if _timestamp(comment.get('created_at')) > _timestamp(pr['mergedAt']):
                     return {'finished_ref': finished, 'pr': pr['url'], 'handoff': comment['id']}
+    if require_handoff:
+        raise ValueError(f'ready report requires a concrete handoff on {ref} after the new merge')
     raise ValueError('finished task is neither Pad done nor handed off after publication on next task')
 
 

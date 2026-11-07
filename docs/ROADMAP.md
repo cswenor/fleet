@@ -113,6 +113,49 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-57 — Durable end-of-task ready reports
+
+`fleet thread ready NEXT [--body TEXT]` reports FRESH-READY after the current
+primary attempt is settled. The unbound caller must own its authoritative launch.
+Readiness requires a PR carrying the current ref merged after that launch and
+a concrete later handoff on NEXT, including same-ref continuations. Main approved
+this across-ref boundary in `msg_c496aff9f1eb`. One native status targets the
+configured Run; its message ID is saved before the Pad receipt comment. Repeats
+return that ID, Pad failures retry only recording, and ambiguous sends refuse
+duplicates. Ready never schedules or launches work. Builder guidance separates
+this report from `thread question` decisions and ordinary progress/PARK status.
+
+The supervisor closes the completed-idle silence gap with one nonurgent
+“settled, no ready report” status per verified launch/handoff, after
+`builder.ready_report_minutes` (positive finite, default 15). New attempts time
+from settlement; legacy attempts start a persisted timer at first verified
+handoff observation. A ready message ID or replacement launch invalidates a
+queued fallback. Other idle suppression and urgency policy remain unchanged.
+
+Main-approved real source-CLI drill used scratch Run `run_0e0412bd2023`,
+source-bound TASK-52/PR53 evidence and a seeded pre-merge scratch launch timestamp,
+not a real model launch. After settlement, two ready calls returned
+`msg_1e6810ccb770`; native delivery `delivery_c2da8862eb2d` contained exactly one
+FRESH-READY status and Pad contained its receipt. Separate private state with an
+aged settlement and no ready receipt produced one nonurgent fallback
+`msg_28024839246d` across two source supervisor cycles. The inventory filter
+included only the owned sleep-based scratch terminal; real GitHub/quota/disk
+collection and native transport remained in use. Native baseline PR events were
+processed across both FIFO batches before acknowledgment. Both owned terminals
+closed with `ptyKilled: true`, TASK-58 was cancelled, and private drill state was
+removed. Publication receipts belong on TASK-57/PR; shared deployment remains
+Main-owned and held for exact-head GO.
+
+Independent review found a missing live-incarnation check before ready delivery.
+The new ownership regression failed before the correction; ready now verifies
+live incarnation, worktree routing and connected/writable/non-orphaned state
+immediately before sending. All 322 tests pass. A second isolated real CLI drill,
+Run `run_f228070a4ebc`, refused a deliberately mismatched scratch incarnation
+(exit 2), then accepted the matching live identity. Repeating ready returned
+`msg_59f3364e9434`; delivery `delivery_39d4effca84a` contained exactly one ready
+status. Both owned terminals closed with `ptyKilled: true` and private state was
+removed; the same source-bound/seeded launch limitation applies.
+
 ### TASK-52 — Completed-boundary idle alerts
 
 Idle emission now requires checking the authoritative slot launch and terminal

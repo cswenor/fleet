@@ -189,6 +189,13 @@ post-publication handoff on a different next item. Next refs come from the resul
 or finished-item comments. Unknown/unreadable evidence keeps the alert. Positive
 proof is process-memory-only per launch until replacement/restart; other health
 alerts and raw snapshot flags are unchanged. No supervisor Pad writes.
+For a settled canonical attempt with a verified next-ref handoff and no native
+ready message ID, the supervisor emits nonurgent `settled, no ready report` once
+per launch after `builder.ready_report_minutes` from settlement (positive finite,
+default 15). For legacy attempts without a settlement timestamp, the timer starts
+at the first verified handoff observation and persists in supervisor state.
+The fallback does not write Pad or schedule launches; absence of a message ID
+never proves a report was sent.
 Switch Main's wait during the coordinated deployment window only after deployed
 native support and real background wake/replay/ack behavior are proved; merge is
 not deployment approval. Preserve legacy diagnostics and process/ack full batches.
@@ -306,12 +313,33 @@ gates; there is no Fleet review bot or implied second model reviewer.
 
 After merge, update the project roadmap and durable Pad result:
 `fleet ... thread result TASK-N --body 'PR, exact review/CI receipts, runtime proof, outcome'`.
-Unresolved decisions prevent settlement. Report via durable Orca `send --to
-run:RUN --type status`, not keystrokes. Keep reusable slots. Pick the next piece
+Unresolved decisions prevent settlement. Keep reusable slots. Pick the next piece
 by plan priority, usually the same feature; the same ref is allowed. Never switch
 to an unrelated task just to get a different ref. FRESH-READY requires this
 session's NEXT piece merged after its launch and a concrete next-piece handoff
-written after that merge, never an inherited boundary. Main approves the launch.
+written after that merge, never an inherited boundary. After the primary thread
+result settles, make this the last lane action, then stop:
+
+```sh
+fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece handoff'
+```
+
+`--body TEXT` is optional. Use the same explicit config as `thread open` and
+replace NEXT with the proposed next ref. The caller must be the unbound terminal
+of the current authoritative primary launch, with a settled canonical attempt.
+Same-ref readiness retains the newer-merge/later-concrete-handoff guards,
+including a non-empty next-piece description after the ref; Pad done alone is
+insufficient. Never raw `orca send` for FRESH-READY or decisions; use
+`thread question` for decisions. Ordinary progress/PARK reports may still
+raw-send native `status`, never keystrokes.
+
+Ready sends native status exactly once and stores an idempotent receipt with
+the native message ID before writing a Pad comment containing that ID. Retry
+the same known-ID receipt to finish a failed Pad comment without resending.
+Ambiguous sends without a message ID refuse duplicates: reconcile with
+Main/native history, never raw-send a replacement. A message ID proves durable
+enqueue, not wake/read or approval. Ready does not schedule or launch anything;
+Main approves the fresh launch.
 
 Merge is not deployment permission. A shared Fleet checkout may back every
 project's launcher/supervisor: fast-forwarding it deploys behavior immediately.

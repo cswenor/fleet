@@ -178,6 +178,15 @@ class CompletedIdleTests(unittest.TestCase):
         pad = patch.object(supervisor, 'json_run', side_effect=self.pad)
         pad.start()
         self.addCleanup(pad.stop)
+        from fleet import restart
+        gh = patch.object(restart, 'gh', side_effect=CommandError('offline'))
+        gh.start()
+        self.addCleanup(gh.stop)
+        restart_pad = patch.object(restart, 'json_run',
+                                   side_effect=lambda argv, cwd: self.item if 'show' in argv
+                                   else self.comments)
+        restart_pad.start()
+        self.addCleanup(restart_pad.stop)
 
     def save_attempt(self):
         state.write(self.c, 'threads-TASK-37',
@@ -246,7 +255,7 @@ class CompletedIdleTests(unittest.TestCase):
             self.cycle(2)
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
                          ['[urgent] Builder idle: TASK-37'])
-        self.assertEqual(len(self.pad_calls), 1)
+        self.assertEqual(len([argv for argv in self.pad_calls if 'show' in argv]), 1)
 
     def test_negative_completion_is_retried(self):
         self.item['fields']['status'] = 'in-progress'
@@ -295,6 +304,194 @@ class CompletedIdleTests(unittest.TestCase):
                          ['[urgent] Builder idle: TASK-37'])
 
 
+class MissingReadyReportTests(unittest.TestCase):
+    enqueue = UrgentRelayTests.enqueue
+    cycle = UrgentRelayTests.cycle
+    urgent_calls = UrgentRelayTests.urgent_calls
+    save_attempt = CompletedIdleTests.save_attempt
+    pad = CompletedIdleTests.pad
+
+    def setUp(self):
+        CompletedIdleTests.setUp(self)
+        from fleet import restart
+        def completion(c, ref, finished, launch, **kwargs):
+            if ref == finished:
+                raise ValueError('no same-ref handoff')
+            return {'handoff': 'handoff'}
+        proof = patch.object(restart, '_completion', side_effect=completion)
+        self.proof = proof.start()
+        self.addCleanup(proof.stop)
+        # Keep these tests focused on missing-ready delivery, not PR-stuck timers.
+        self.s.pop('github')
+
+    def fallback_calls(self):
+        return [(event, recipient) for event, recipient in self.calls
+                if event['key'].startswith('missing_ready:')]
+
+    def test_default_timer_boundary_and_nonurgent_status(self):
+        self.cycle(100)
+        self.cycle(999)
+        self.assertEqual(self.fallback_calls(), [])
+        self.cycle(1000)
+        calls = self.fallback_calls()
+        self.assertEqual(len(calls), 1)
+        event, recipient = calls[0]
+        self.assertIn('settled, no ready report', event['subject'])
+        self.assertEqual(event['type'], 'status')
+        self.assertEqual(recipient, 'run:r')
+        self.assertEqual(self.urgent_calls(), [])
+
+    def test_settled_timestamp_and_configured_boundary(self):
+        self.c['builder'] = {'ready_report_minutes': 0.5}
+        self.attempt['settled_at'] = 100
+        self.save_attempt()
+        self.cycle(129)
+        self.assertEqual(self.fallback_calls(), [])
+        self.cycle(130)
+        self.assertEqual(len(self.fallback_calls()), 1)
+
+    def test_invalid_legacy_timestamps_start_at_verified_observation(self):
+        for value in (None, True, -1, float('nan'), float('inf'), 2000):
+            with self.subTest(value=value):
+                self.attempt['settled_at'] = value
+                self.save_attempt()
+                ledger = {}
+                self.assertEqual(supervisor.missing_ready_reports(self.c, self.s, ledger, 100), [])
+                self.assertEqual(next(iter(ledger['missing_ready_reports'].values()))['since'], 100)
+
+    def test_once_survives_restart_disappearance_and_receipt_expiry(self):
+        self.cycle(0)
+        self.cycle(900)
+        self.c.pop('_completed_idle_launches', None)
+        self.c.pop('_verified_ready_handoffs', None)
+        self.s['inventory']['builders'] = []
+        self.cycle(901)
+        self.s['inventory']['builders'] = [self.builder]
+        self.cycle(8 * 86400)
+        self.cycle(9 * 86400)
+        self.assertEqual(len(self.fallback_calls()), 1)
+
+    def test_ready_receipt_is_reread_despite_positive_cache(self):
+        self.cycle(0)
+        self.attempt['ready'] = {'message_id': 'native-message', 'recorded': False}
+        self.save_attempt()
+        self.cycle(900)
+        self.assertEqual(self.fallback_calls(), [])
+
+    def test_ready_without_message_id_does_not_prove_delivery(self):
+        self.attempt['ready'] = {'recorded': True, 'next_ref': 'TASK-38'}
+        self.save_attempt()
+        self.cycle(0)
+        self.cycle(900)
+        self.assertEqual(len(self.fallback_calls()), 1)
+
+    def test_no_deliver_persists_single_pending_identity_until_retry(self):
+        self.cycle(0)
+        with patch.object(supervisor.time, 'time', return_value=900):
+            _, report = supervisor.cycle(self.c, deliver=False)
+        self.assertEqual(report['pending'], 1)
+        self.assertEqual(self.fallback_calls(), [])
+        key = state.read(self.c, 'supervisor')['pending'][0]['key']
+        self.c.pop('_verified_ready_handoffs', None)
+        self.cycle(901)
+        self.cycle(902)
+        self.assertEqual([event['key'] for event, _ in self.fallback_calls()], [key])
+
+    def test_failed_enqueue_retries_same_event(self):
+        self.cycle(0)
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            _, report = self.cycle(900)
+        self.assertEqual(report['pending'], 1)
+        key = state.read(self.c, 'supervisor')['pending'][0]['key']
+        self.cycle(901)
+        self.assertEqual([event['key'] for event, _ in self.fallback_calls()], [key])
+
+    def test_pending_is_discarded_if_ready_arrives_or_launch_replaced(self):
+        for replacement in (False, True):
+            with self.subTest(replacement=replacement):
+                state.write(self.c, 'supervisor', {'github': {}, 'pending': [], 'sent': {},
+                                                  'active_alerts': []})
+                state.write(self.c, 'launches', {'/slot': self.launch})
+                self.attempt.pop('ready', None)
+                self.save_attempt()
+                self.cycle(0)
+                with patch.object(supervisor.time, 'time', return_value=900):
+                    supervisor.cycle(self.c, deliver=False)
+                if replacement:
+                    state.write(self.c, 'launches', {'/slot': {**self.launch, 'id': 'replacement'}})
+                else:
+                    self.attempt['ready'] = {'message_id': 'native-message'}
+                    self.save_attempt()
+                self.cycle(901)
+                self.assertEqual(self.fallback_calls(), [])
+                self.assertFalse(any(event.get('missing_ready') for event in
+                                     state.read(self.c, 'supervisor')['pending']))
+
+    def test_done_without_handoff_never_starts_timer(self):
+        self.proof.return_value = {'handoff': None}
+        self.proof.side_effect = None
+        self.cycle(0)
+        self.cycle(900)
+        self.assertEqual(self.fallback_calls(), [])
+        self.assertEqual(state.read(self.c, 'supervisor')['missing_ready_reports'], {})
+        self.assertEqual(self.urgent_calls(), [])
+
+    def test_same_ref_handoff_can_trigger_missing_ready_fallback(self):
+        self.attempt['result'] = 'Published. Next TASK-37 handoff: implement the next piece.'
+        self.save_attempt()
+        self.proof.side_effect = None
+        self.proof.return_value = {'handoff': 'same-ref-handoff'}
+        self.cycle(0)
+        self.cycle(900)
+        calls = self.fallback_calls()
+        self.assertEqual(len(calls), 1)
+        self.assertIn('handoff to TASK-37', calls[0][0]['body'])
+
+    def test_unknown_handoff_keeps_idle_alert_and_no_fallback(self):
+        self.item['fields']['status'] = 'in-progress'
+        self.proof.side_effect = CommandError('offline')
+        self.cycle(0)
+        self.cycle(900)
+        self.assertEqual(self.fallback_calls(), [])
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+
+    def test_unsettled_attempt_does_not_start_fallback_timer(self):
+        self.attempt['settled'] = False
+        self.save_attempt()
+        self.cycle(0)
+        self.cycle(900)
+        self.assertEqual(self.fallback_calls(), [])
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+
+    def test_replacement_launch_earns_its_own_fallback(self):
+        self.cycle(0)
+        self.cycle(900)
+        replacement = {**self.launch, 'id': 'replacement'}
+        state.write(self.c, 'launches', {'/slot': replacement})
+        state.write(self.c, 'threads-TASK-37',
+                    {'TASK-37': {'id': 'thread', 'attempts': {'replacement': self.attempt}}})
+        self.cycle(901)
+        self.cycle(1801)
+        events = [event for event, _ in self.fallback_calls()]
+        self.assertEqual(len(events), 2)
+        self.assertNotEqual(events[0]['key'], events[1]['key'])
+
+    def test_pending_unknown_attempt_is_retained_without_delivery(self):
+        self.cycle(0)
+        with patch.object(supervisor.time, 'time', return_value=900):
+            supervisor.cycle(self.c, deliver=False)
+        (Path(self.c['_state']) / 'threads-TASK-37.json').write_text('{')
+        self.cycle(901)
+        self.assertEqual(self.fallback_calls(), [])
+        self.assertTrue(any(event.get('missing_ready') for event in
+                            state.read(self.c, 'supervisor')['pending']))
+        self.save_attempt()
+        self.cycle(902)
+        self.assertEqual(len(self.fallback_calls()), 1)
+
+
 class UrgentConfigAndDeliveryTests(unittest.TestCase):
     def test_native_type_is_question_only_for_explicit_urgent_events(self):
         c = {'coordinator': {'terminal': 'main', 'run': 'r'}, 'repo': 'owner/project'}
@@ -338,6 +535,17 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
                     c['urgent'] = urgent
                     path.write_text(yaml.safe_dump(c))
                     with self.assertRaisesRegex(ValueError, 'urgent'):
+                        config.load(path)
+            c.pop('urgent')
+            for minutes in (0.5, 15):
+                c['builder']['ready_report_minutes'] = minutes
+                path.write_text(yaml.safe_dump(c))
+                self.assertEqual(config.load(path)['builder']['ready_report_minutes'], minutes)
+            for minutes in (0, -1, True, '15', None, float('inf'), float('nan')):
+                with self.subTest(ready_report_minutes=minutes):
+                    c['builder']['ready_report_minutes'] = minutes
+                    path.write_text(yaml.safe_dump(c))
+                    with self.assertRaisesRegex(ValueError, 'builder.ready_report_minutes'):
                         config.load(path)
 
 

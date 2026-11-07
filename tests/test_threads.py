@@ -180,3 +180,124 @@ class ThreadTests(unittest.TestCase):
         with patch.object(threads, 'request', return_value={'run': {'id': 'scratch'}}):
             with self.assertRaisesRegex(ValueError, 'must not be Run-bound'):
                 threads.question(self.c, 'TASK-1', 'approve?')
+
+
+class ReadyTests(unittest.TestCase):
+    open = ThreadTests.open
+    request = ThreadTests.request
+
+    def setUp(self):
+        ThreadTests.setUp(self)
+        from fleet import restart
+        self.launch = state.read(self.c, 'launches')[self.temp.name]
+        self.launch['at'] = 1767225599
+        self.launch['terminal_incarnation_id'] = 'builder-incarnation'
+        self.launch['worktree'] = {'id': 'repo::' + self.temp.name, 'path': self.temp.name}
+        self.terminal = {'handle': 'term_builder', 'incarnationId': 'builder-incarnation',
+                         'worktreeId': self.launch['worktree']['id'],
+                         'connected': True, 'writable': True, 'orphaned': False}
+        self.live = patch.object(threads, 'orca', create=True,
+                                 side_effect=lambda *args: {'terminal': self.terminal})
+        self.live.start()
+        self.addCleanup(self.live.stop)
+        state.write(self.c, 'launches', {self.temp.name: self.launch})
+        self.prs = [{'title': 'TASK-1 completed', 'body': '', 'url': 'https://example/pr/1',
+                     'mergedAt': '2026-01-01T00:00:00Z'}]
+        self.comments = [{'id': 'handoff-1', 'body': 'TASK-1 handoff: implement the next CLI piece',
+                          'created_at': '2026-01-01T00:00:01Z'}]
+        self.proof = patch.object(restart, '_merged_prs', side_effect=lambda *a: self.prs)
+        self.proof.start()
+        self.addCleanup(self.proof.stop)
+        self.pad_reads = patch.object(restart, 'json_run',
+                                     side_effect=lambda argv, cwd: self.comments if 'comments' in argv
+                                     else {'fields': {'status': 'done'}})
+        self.pad_reads.start()
+        self.addCleanup(self.pad_reads.stop)
+        self.open()
+        threads.result(self.c, 'TASK-1', 'published')
+        self.sent.clear()
+        self.pads.clear()
+
+    def test_ready_cli_after_settle_is_idempotent_and_records_message_on_pad(self):
+        argv = ['fleet', 'thread', 'ready', 'TASK-2', '--body', 'Ready to retire.']
+        receipts = []
+        with patch.object(cli, 'load', return_value=self.c), patch('sys.argv', argv):
+            for _ in range(2):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(cli.main(), 0)
+                receipts.append(json.loads(output.getvalue()))
+        self.assertEqual(receipts[0]['message_id'], receipts[1]['message_id'])
+        self.assertEqual(len(self.sent), 1)
+        flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
+        self.assertEqual(flags['--type'], 'status')
+        self.assertEqual(flags['--to'], 'run:run_main')
+        self.assertEqual(flags['--subject'], 'TASK-1: FRESH-READY TASK-2')
+        self.assertIn('TASK-2 comment handoff-1', flags['--body'])
+        self.assertEqual(len(self.pads), 1)
+        self.assertEqual(self.pads[0][0], 'TASK-1')
+        self.assertIn('Ready report: ' + receipts[0]['message_id'], self.pads[0][1])
+
+    def test_pad_failure_retries_comment_not_native_send(self):
+        with patch.object(threads, 'pad', side_effect=ValueError('pad unavailable')):
+            with self.assertRaisesRegex(ValueError, 'pad unavailable'):
+                threads.ready(self.c, 'TASK-2')
+        report = threads.ready(self.c, 'TASK-2')
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn(report['message_id'], self.pads[0][1])
+
+    def test_ambiguous_native_send_never_resends(self):
+        with patch.object(threads, 'request', side_effect=[{'run': None}, ValueError('transport')]):
+            with self.assertRaisesRegex(ValueError, 'transport'):
+                threads.ready(self.c, 'TASK-2')
+        with self.assertRaisesRegex(ValueError, 'ambiguous ready send'):
+            threads.ready(self.c, 'TASK-2')
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.pads, [])
+
+    def test_same_ref_requires_new_merge_and_later_concrete_handoff(self):
+        self.assertEqual(threads.ready(self.c, 'TASK-1')['handoff'], 'handoff-1')
+
+    def test_old_publication_and_missing_or_marker_handoff_refuse_for_any_next_ref(self):
+        for next_ref in ('TASK-1', 'TASK-2'):
+            with self.subTest(next_ref=next_ref, boundary='old merge'):
+                self.prs[0]['mergedAt'] = '2025-12-31T23:59:58Z'
+                with self.assertRaisesRegex(ValueError, 'merged after this launch'):
+                    threads.ready(self.c, next_ref)
+            self.prs[0]['mergedAt'] = '2026-01-01T00:00:00Z'
+            for body, at in (('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
+                             ('TASK-1 handoff: next piece', '2026-01-01T00:00:00Z')):
+                with self.subTest(next_ref=next_ref, body=body, at=at):
+                    self.comments[0].update(body=body, created_at=at)
+                    with self.assertRaisesRegex(ValueError, 'concrete handoff on ' + next_ref):
+                        threads.ready(self.c, next_ref)
+        self.assertEqual(self.sent, [])
+
+    def test_ready_requires_settlement_and_current_primary_launch(self):
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one']['settled'] = False
+        state.write(self.c, 'threads-TASK-1', ledger)
+        with self.assertRaisesRegex(ValueError, 'settled'):
+            threads.ready(self.c, 'TASK-2')
+        state.write(self.c, 'launches', {self.temp.name: dict(self.launch, id='replacement')})
+        with self.assertRaisesRegex(ValueError, 'settled'):
+            threads.ready(self.c, 'TASK-2')
+        self.assertEqual(self.sent, [])
+
+    def test_report_cannot_change_next_ref_after_delivery(self):
+        threads.ready(self.c, 'TASK-2')
+        with self.assertRaisesRegex(ValueError, 'different next ref'):
+            threads.ready(self.c, 'TASK-3')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_changed_or_unknown_terminal_ownership_refuses_ready(self):
+        original = dict(self.terminal)
+        for change in ({'incarnationId': 'replacement'}, {'incarnationId': None},
+                       {'worktreeId': 'another-worktree'}, {'connected': False},
+                       {'writable': False}, {'orphaned': True}):
+            with self.subTest(change=change):
+                self.terminal = {**original, **change}
+                with self.assertRaisesRegex(ValueError, 'terminal ownership'):
+                    threads.ready(self.c, 'TASK-2')
+                self.assertEqual(self.sent, [])
+                self.assertEqual(self.pads, [])

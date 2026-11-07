@@ -15,6 +15,7 @@ builder:
   - /home/dev/orca/workspaces/fleet/fleet-lane2
   rules_file: .omp/AGENTS.md
   idle_seconds: 2700
+  ready_report_minutes: 15 # Positive finite minutes; nonurgent missing-ready fallback.
   footer: |
     Self-publish small PRs after a fresh independent read-only unadvised Sol
     review and green CI (no fleet review bot). While you own an open PR, MUST keep
@@ -26,9 +27,13 @@ builder:
     priority, usually the same feature; the same ref is allowed. Never switch to
     an unrelated task just to get a different ref. Only after publishing your NEXT
     piece of work (merged after your launch) and writing its concrete next-piece
-    handoff after that merge, report FRESH-READY with the next ref to fleet Main,
-    and stop. Never resume old context, silently fallback, create extra worktrees,
-    stash, or spend saved resets without owner approval.
+    handoff after that merge, settle the primary thread with fleet --config CONFIG
+    thread result REF. Then make fleet --config CONFIG thread ready NEXT [--body TEXT]
+    your last lane action and stop. Use the same config as thread open, never raw
+    orca send for FRESH-READY. Same-ref readiness needs the newer merge and later
+    concrete handoff on that ref; Pad done alone is insufficient. Main approves
+    the fresh launch. Never resume old context, silently fallback, create extra
+    worktrees, stash, or spend saved resets without owner approval.
     On PARK finish the current step, commit and push WIP, write a Pad handoff,
     report PARKED to the configured Run, then stop yourself; resume requires
     a Main-confirmed fresh session.
@@ -36,7 +41,8 @@ builder:
     the native type question to run:<coordinator.run> itself; never also send a
     direct orca send/ask/question for the same decision. Follow-ups use reply/status
     in the same pending native subthread, not a new direct question.
-    Reports use --type status. Never bind a builder terminal to any Run.
+    Ordinary progress/PARK reports may still raw-send with --type status.
+    Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex
   reserve_percent: 10

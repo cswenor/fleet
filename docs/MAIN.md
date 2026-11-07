@@ -112,6 +112,12 @@ input acceptance. Pick the next piece by plan priority, usually the same feature
 the same ref is allowed. Never switch to an unrelated task just to get a different
 ref. FRESH-READY requires this session's NEXT piece merged after its launch and a
 concrete next-piece handoff written after that merge; never an inherited boundary.
+After the primary `thread result` settles, the builder's last lane action is
+`fleet --config CONFIG thread ready NEXT [--body TEXT]`, then stop. Never raw
+`orca send` for FRESH-READY or decisions; use `thread question` for decisions.
+Ordinary progress/PARK reports may still raw-send native `status`. Same-ref
+readiness retains the newer-merge/later-concrete-handoff guards; Pad done alone
+is insufficient. Ready reports do not schedule launches; Main confirms them.
 
 Fresh independent read-only unadvised Sol medium reviewer is gate one for every
 PR; record reviewer/session/final-head findings. Fleet has no review bot: final
@@ -124,6 +130,12 @@ canonical thread result plus Pad done or a verified post-publication handoff on
 a different next item. Unknown evidence still alerts. Positive completion is
 cached only in supervisor memory per launch; replacement/restart rechecks it.
 Raw health flags and other urgent kinds remain unchanged.
+For a settled canonical attempt with a verified next-ref handoff but no ready
+message ID, the supervisor emits nonurgent `settled, no ready report` once per
+launch after `builder.ready_report_minutes` (positive finite, default 15) from
+settlement. For legacy attempts without a settlement timestamp, the timer starts
+at the first verified handoff observation and persists in supervisor state.
+This fallback does not write Pad or authorize/schedule a launch.
 
 ### Carry a prerequisite
 
@@ -341,6 +353,13 @@ to Pad; restart/Pad-write retry reuses that private copy. Native terminal histor
 is capped and expires on close: do not close before an unseen reply is copied.
 `thread result REF --body 'publication receipts/outcome'` records the durable
 outcome and settles only that launch attempt, without fake Dispatch completion.
+After settlement, `fleet --config CONFIG thread ready NEXT [--body TEXT]` verifies
+the current primary launch from its unbound caller terminal and the newer merge
+plus later concrete next-piece handoff. Its idempotent receipt stores the native
+status message ID before recording that ID in a Pad comment. Retry the same
+known-ID receipt to finish a failed Pad comment without resending. An ambiguous
+send lacking an ID refuses duplicates and requires reconciliation with Main/native
+history, never a raw-send workaround. Enqueue proves neither wake nor approval.
 
 Never bind a lane terminal to a Run, even during a scratch proof. Health marks
 known bound slot terminals `owner_delivery_broken` and preserves unknown binding

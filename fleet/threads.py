@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from . import state
-from .commands import run
+from .commands import run, orca
 from .mailbox import request, MailboxError
 
 
@@ -188,6 +188,69 @@ def result(c, ref, body):
         receipt = request(c, 'send', '--from', caller, '--to', 'run:' + c['coordinator']['run'],
                           '--type', 'status', '--thread-id', task['id'],
                           '--subject', ref + ': result', '--body', body)
-        attempt.update(settled=True, result=body)
+        attempt.update(settled=True, settled_at=time.time(), result=body)
         state.write(c, name, ledger)
         return {'thread_id': task['id'], 'attempt': key, 'receipt': receipt, 'settled': True}
+
+
+def ready(c, next_ref, body=''):
+    """Report a settled primary launch's next handoff, never resend an uncertain send."""
+    _name(next_ref)
+    caller = identity(c)
+    # Serialize against launch/restart: readiness must never be attributed to a
+    # replacement launch while publication or native delivery is in flight.
+    with state.lock(c, 'launcher'):
+        matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
+                   if slot in c['builder']['slots'] and launch.get('terminal') == caller]
+        if len(matches) != 1:
+            raise ValueError('no unique authoritative launch for this terminal')
+        slot, launch = matches[0]
+        ref = launch['ref']
+        name = _name(ref)
+        with state.lock(c, name):
+            ledger = state.read(c, name, {})
+            task = ledger.get(ref, {})
+            key = launch['id']
+            attempt = task.get('attempts', {}).get(key, {})
+            if (not task.get('id') or attempt.get('settled') is not True
+                    or attempt.get('terminal') != caller or attempt.get('slot') != slot):
+                raise ValueError('ready requires the current primary task attempt to be settled')
+            report = attempt.get('ready')
+            if report:
+                if report['next_ref'] != next_ref:
+                    raise ValueError('ready already targets a different next ref')
+                if not report.get('message_id'):
+                    raise ValueError('ambiguous ready send; reconcile native inbox before retrying; never resend')
+            else:
+                from .restart import _completion
+                proof = _completion(c, next_ref, ref, launch, require_handoff=True)
+                terminal = orca(c, 'terminal', 'show', '--terminal', caller)['terminal']
+                worktree = launch.get('worktree', {})
+                if (not launch.get('terminal_incarnation_id')
+                        or terminal.get('handle') != caller
+                        or terminal.get('incarnationId') != launch['terminal_incarnation_id']
+                        or not worktree.get('id') or worktree.get('path') != slot
+                        or terminal.get('worktreeId') != worktree['id']
+                        or not terminal.get('connected') or not terminal.get('writable')
+                        or terminal.get('orphaned')):
+                    raise ValueError('ready terminal ownership is unknown or changed')
+                report = {'next_ref': next_ref, 'handoff': proof['handoff'],
+                          'pr': proof['pr'], 'status': 'sending',
+                          'body': f"Pad-Ref: {ref}\nFRESH-READY {next_ref}\n"
+                                  f"Handoff: {next_ref} comment {proof['handoff']}\n"
+                                  f"Published: {proof['pr']}\n{body}".rstrip()}
+                attempt['ready'] = report
+                state.write(c, name, ledger)
+                message = request(c, 'send', '--from', caller,
+                                  '--to', 'run:' + c['coordinator']['run'],
+                                  '--type', 'status', '--thread-id', task['id'],
+                                  '--subject', f'{ref}: FRESH-READY {next_ref}',
+                                  '--body', report['body'])['message']
+                report.update(message_id=message['id'], status='sent', at=time.time())
+                state.write(c, name, ledger)
+            if not report.get('recorded'):
+                pad(c, ref, f"Fleet task thread: {task['id']}\nAttempt: {key}\n"
+                            f"Ready report: {report['message_id']}\n{report['body']}")
+                report['recorded'] = True
+                state.write(c, name, ledger)
+            return {'ref': ref, 'attempt': key, **report}

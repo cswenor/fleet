@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 import hashlib
 import json
+import math
 import os
 import re
 import signal
@@ -72,6 +73,89 @@ def _completed_idle(c, builder):
         return completed
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
         return False
+
+
+def _ready_candidate(c, identity):
+    """Re-read authority and ready receipts, including when completion is cached."""
+    try:
+        launch = state.read(c, 'launches', {}).get(identity['slot'], {})
+        if any(launch.get(field) != identity[field] for field in
+               ('id', 'ref', 'terminal', 'terminal_incarnation_id')):
+            return False
+        task = state.read(c, 'threads-' + identity['ref'], {}).get(identity['ref'], {})
+        attempt = task.get('attempts', {}).get(identity['id'], {})
+        if attempt.get('ready', {}).get('message_id'):
+            return False
+        if (not task.get('id') or attempt.get('settled') is not True
+                or not isinstance(attempt.get('result'), str) or not attempt['result'].strip()
+                or attempt.get('slot') != identity['slot']
+                or attempt.get('terminal') != identity['terminal']):
+            return None
+        return attempt
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def missing_ready_reports(c, s, ledger, now):
+    """Persist a timer and one queue identity per verified, exact launch."""
+    timers = ledger.setdefault('missing_ready_reports', {})
+    result = []
+    for builder in (s.get('inventory') or {}).get('builders', []):
+        try:
+            slot = builder['path']
+            launch = state.read(c, 'launches', {}).get(slot, {})
+            if (not launch.get('id') or not re.fullmatch(r'[A-Z]+-\d+', launch.get('ref', ''))
+                    or launch.get('terminal') != builder['terminal']
+                    or not builder.get('incarnation_id')
+                    or launch.get('terminal_incarnation_id') != builder['incarnation_id']):
+                continue
+            identity = {field: launch[field] for field in
+                        ('id', 'ref', 'terminal', 'terminal_incarnation_id')}
+            identity['slot'] = slot
+            attempt = _ready_candidate(c, identity)
+            if not attempt:
+                continue
+            key = digest([slot, launch['id'], launch['terminal'],
+                          launch['terminal_incarnation_id']])
+            handoffs = c.setdefault('_verified_ready_handoffs', {})
+            next_ref = handoffs.get(key)
+            if not next_ref:
+                from . import restart
+                comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item',
+                                     'comments', launch['ref'], '--format', 'json'], c['root'])
+                text = attempt['result'] + '\n' + '\n'.join(row['body'] for row in comments)
+                refs = set(re.findall(r'(?<![\w-])[A-Z]+-\d+(?![\w-])', text))
+                for ref in sorted(refs):
+                    try:
+                        proof = restart._completion(c, ref, launch['ref'], launch, require_handoff=True)
+                    except ValueError:
+                        continue
+                    if proof.get('handoff'):
+                        next_ref = handoffs[key] = ref
+                        break
+            if not next_ref:
+                continue
+            settled_at = attempt.get('settled_at')
+            valid_time = (isinstance(settled_at, (int, float)) and not isinstance(settled_at, bool)
+                          and math.isfinite(settled_at) and 0 <= settled_at <= now)
+            timer = timers.setdefault(key, {'since': settled_at if valid_time else now})
+            minutes = c.get('builder', {}).get('ready_report_minutes', 15)
+            if timer.get('queued') or now - timer['since'] < minutes * 60:
+                continue
+            result.append({'key': 'missing_ready:' + key, 'type': 'status',
+                           'subject': f"Builder settled, no ready report: {launch['ref']}",
+                           'body': f"{launch['terminal']} {slot}; settled {launch['ref']} has a verified "
+                                   f"post-publication handoff to {next_ref}, but no ready report "
+                                   f"after {minutes:g} minutes.",
+                           'branch': None, 'missing_ready': identity})
+            # Persisted with pending before delivery, also in --no-deliver mode.
+            timer['queued'] = True
+            timer['queued_at'] = now
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+            # Unknown evidence must never change the ordinary health policy.
+            continue
+    return result
+
 
 
 def alerts(s, c):
@@ -270,6 +354,7 @@ def cycle(c, deliver=True):
     ledger['active_alerts'] = {
         a['key']: event_signature(a) for a in active}
     ledger['active_alerts'].update(active_stuck)
+    pending.extend(missing_ready_reports(c, s, ledger, time.time()))
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')
@@ -277,6 +362,16 @@ def cycle(c, deliver=True):
     failures = []
     protected = set()
     for event in pending:
+        if event.get('missing_ready'):
+            candidate = _ready_candidate(c, event['missing_ready'])
+            if candidate is False:
+                # Ready receipts and replacement launches invalidate queued fallbacks.
+                continue
+            if candidate is None:
+                remaining.append(event)
+                protected.update(digest([event['key'], r]) for r in
+                                 event.get('recipients', ['run:' + c['coordinator']['run']]))
+                continue
         recipients = list(event.get('recipients', ['run:' + c['coordinator']['run']]))
         owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
         if owning_terminal:

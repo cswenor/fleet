@@ -274,6 +274,14 @@ is memoised per launch in supervisor process memory until replacement/restart;
 negative/unknown results retry each cycle. Raw health flags and all other alerts
 are unchanged. The supervisor never writes Pad to establish completion.
 
+After a canonical result is settled and a next-ref handoff is verified, a missing
+ready report produces a nonurgent `settled, no ready report` status once per launch.
+`builder.ready_report_minutes` is a positive finite number, default 15, measured
+from settlement. For legacy attempts without a settlement timestamp, the timer
+starts at the first verified handoff observation and persists in supervisor state.
+A native ready message ID proves enqueue; absence of an ID is not proof of
+reporting. This fallback neither writes Pad nor schedules a launch.
+
 Coordinator messages target `run:<id>`; owning builders receive durable terminal
 inbox messages, **not terminal keystrokes**. The service uses the explicitly
 configured coordinator handle as message sender; its body identifies fleet.
@@ -438,10 +446,11 @@ simulate reliable delivery. Enqueue alone still does not prove owner wake.
 Use the same project `--config` on every command:
 
 ```sh
-fleet thread open TASK-123 --slot /path/to/slot-a
-fleet thread question TASK-123 --body 'Proposal, risk, decision needed'
-fleet thread wait TASK-123 --timeout 900  # async background shell, not model polling
-fleet thread result TASK-123 --body 'Published PR, review/CI receipts, outcome'
+fleet --config CONFIG thread open TASK-123 --slot /path/to/slot-a
+fleet --config CONFIG thread question TASK-123 --body 'Proposal, risk, decision needed'
+fleet --config CONFIG thread wait TASK-123 --timeout 900  # async background shell
+fleet --config CONFIG thread result TASK-123 --body 'Published PR, review/CI receipts, outcome'
+fleet --config CONFIG thread ready NEXT --body 'Concrete next-piece handoff'
 ```
 
 `open` requires the caller's authoritative launch receipt and records Pad ref,
@@ -458,7 +467,9 @@ direct `orca send`/`ask`/question for the same decision. Success JSON includes
 that no separate direct send is needed. A pending question refuses with its
 message ID and subthread (an ambiguous send has no known message ID).
 Follow-ups use reply/status in that same pending native subthread, not a new
-direct question. Reports use `status`. Main answers the emitted question message
+direct question. Ordinary progress/PARK reports may still raw-send with native
+type `status`; final FRESH-READY must use `thread ready`, never raw `orca send`.
+Main answers the emitted question message
 ID with native `orchestration reply --id`. Native `ask`, including resume, requires
 a Dispatch and cannot serve terminal builders. One background `thread wait` process reads
 non-consuming terminal history every two seconds (requested 1000, native cap
@@ -477,6 +488,31 @@ resending: reconcile the recorded unique subthread with Main/native history
 before any operator repair. `result` refuses unresolved decisions and settles the
 attempt; old/settled receipts cannot authorize a new task. Ordinary new tasks
 require a fresh omp session; the explicit prerequisite exception follows below.
+
+#### Final FRESH-READY receipt
+
+After merge, write the concrete next-piece Pad handoff, settle the primary
+thread with `thread result`, then make
+`fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action and
+stop. `NEXT` is the proposed next Pad ref, not a launch request. The caller must
+be the unbound terminal of the current authoritative primary launch, with its
+canonical attempt already settled; a carried task result alone is insufficient.
+Before a new send, its live incarnation and worktree routing must still match the
+launch receipt, and the terminal must be connected, writable and non-orphaned.
+Ready verifies a PR carrying the current ref merged strictly after this launch
+and a concrete handoff on NEXT written strictly after that merge. Same-ref readiness retains
+those newer-merge/later-handoff guards, including a non-empty next-piece
+description after the ref; Pad done alone and inherited boundaries do not qualify.
+
+Ready sends one native `status` to Main and saves an idempotent receipt with
+`next_ref`, native `message_id`, timestamp and Pad-recording state. It then writes
+a Pad comment containing the message ID. Retrying the same known-ID receipt
+does not send again; if only the Pad write failed, retry the same command to
+finish that comment. An ambiguous send without a message ID refuses duplicate
+sends: reconcile the receipt with Main/native history before operator repair,
+never substitute raw `orca send`. The ID proves durable enqueue, not wake/read
+or approval. Ready does not schedule, restart or launch anything; Main still
+approves the fresh launch.
 
 Main may approve a prerequisite in the existing session (Pad relations alone
 never authorize it). Record the decision on Pad, then from the configured Main
@@ -595,7 +631,9 @@ Pick the next piece by plan priority, usually the same feature; the same ref is
 allowed. Never switch to an unrelated task just to get a different ref.
 `FRESH-READY` requires publishing this session's NEXT piece of work (merged after
 its launch), then writing a concrete next-piece handoff after that merge; never
-signal it for an inherited handoff. Keep project-local footer overrides consistent.
+signal it for an inherited handoff. After `thread result` settlement, use
+`fleet --config CONFIG thread ready NEXT [--body TEXT]` as the last lane action,
+never raw-send readiness. Keep project-local footer overrides consistent.
 
 The launch overlay disables auto-resume, extended context, and model fallback;
 sets reserve policy fail-closed and an empty pinned-model fallback chain; and

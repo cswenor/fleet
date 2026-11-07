@@ -32,7 +32,8 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   with Pad ref, proposal, risk and decision needed. It sends the native question
   to `run:run_ca3dd4d80c5a` itself. Never also send a direct orca send/ask/question
   for the same decision. Follow-ups use reply/status in the same pending native
-  subthread, not a new direct question. Reports use `--type status`. Reply
+  subthread, not a new direct question. Ordinary progress/PARK reports may still
+  raw-send native `status`; FRESH-READY uses `thread ready` below. Reply
   in-thread and record the ruling on Pad; Main escalates owner-only decisions
   to the owner. Enqueue is not approval or proof of wake. Pending a decision,
   proceed only with unaffected in-scope work.
@@ -62,6 +63,13 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   merged after its launch and a concrete next-piece handoff written after that
   merge, never the inherited boundary. Same-ref restart requires both on that
   ref; Pad done alone is insufficient.
+  Settle the primary `thread result`, then make
+  `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action
+  and stop. Use the same config as `thread open`, never raw `orca send` for
+  FRESH-READY. The idempotent receipt records the native message ID and a Pad
+  comment containing it; retry a known-ID receipt only to finish recording.
+  Ambiguous sends lacking an ID forbid duplicates and require reconciliation.
+  Ready reports do not schedule launches; Main approves the fresh launch.
 - On a durable quota PARK request: finish the current step, commit and push WIP
   to the task branch, write the Pad handoff, report PARKED with evidence to the
   configured coordinator Run, then stop this session yourself. No next task or

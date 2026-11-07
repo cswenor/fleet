@@ -122,15 +122,19 @@ def launch(c, ref, slot=None, *, _locked=False):
         thread_command = shlex.join(['fleet', '--config',
                                      str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
                                      'thread', 'open', ref, '--slot', w['path']])
+        ready_command = shlex.join(['fleet', '--config',
+                                    str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
+                                    'thread', 'ready', 'NEXT'])
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
 Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
 Never create extra git worktrees. Self-publish according to project rules.
 Open the durable task thread before working: {thread_command}
 Never bind this builder terminal to an orchestration Run. Keep terminal identity for thread replies and inbox delivery.
-Use the following durable command to report, not terminal input:
+Use the following durable command only for ordinary progress/PARK reports, not decisions or FRESH-READY; never use terminal input:
 {shlex.quote(c['orca'])} orchestration send --to run:{c['coordinator']['run']} --type status --subject "{ref}: report" --body "<evidence and outcome>"
-Decision requests use EXACTLY ONE channel: fleet thread question {ref}, with the same --config as thread open. It sends the native type question to run:{c['coordinator']['run']} itself; NEVER also send a direct orca send/ask/question for the same decision. Follow-ups use reply/status in the same pending native subthread, not a new direct question. Use fleet thread wait {ref} for replies and fleet thread result {ref} for the final outcome, with the same --config. Direct reports use --type status only.
+Decision requests use EXACTLY ONE channel: fleet thread question {ref}, with the same --config as thread open. It sends the native type question to run:{c['coordinator']['run']} itself; NEVER also send a direct orca send/ask/question for the same decision. Follow-ups use reply/status in the same pending native subthread, not a new direct question. Use fleet thread wait {ref} for replies and fleet thread result {ref} for the final outcome, with the same --config. Ordinary direct reports use --type status only.
+After merge and a later concrete next-piece handoff, settle the primary thread with thread result. Then make {ready_command} [--body TEXT] your last lane action and stop; replace NEXT with the next ref. This is the only FRESH-READY channel, never raw orca send. It requires work merged after this launch and a concrete handoff after that merge, including for the same ref; inherited boundaries and Pad done alone are insufficient. The idempotent ready receipt records the native message ID and its Pad comment; ambiguous sends forbid duplicates. Ready reports do not schedule launches: Main approves the fresh launch.
 An inbox send is durable enqueue, NOT a guaranteed new agent turn. While you own an open PR, MUST keep fleet watch-pr PR armed as an async background command with the same --config as thread open. Process each event and re-arm after every completion (including timeout/error) until merged or closed. Never rely on retired pr-wait.sh scripts or single-workflow gh run watch alone; never poll with model turns.
 On a durable PARK request: finish your current step, commit and push WIP to this task branch, write a Pad handoff, report PARKED with evidence to the Run above, then stop yourself. No next task or FRESH-READY; resume only in a Main-confirmed fresh session.
 {b['footer']}

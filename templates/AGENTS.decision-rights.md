@@ -79,6 +79,15 @@ its ref after its launch, then a concrete next-piece handoff written after that
 merge. An inherited publication/handoff is not readiness. Same-ref `restart`
 requires that new merge and later handoff on the same ref, with a non-empty
 next-piece description after the ref; Pad done alone does not satisfy this guard.
+After primary `thread result` settlement, make
+`fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action and
+stop, using the same config as `thread open`. Never raw `orca send` for
+FRESH-READY or decisions; decisions use `thread question`. Ordinary progress/PARK
+reports may still raw-send native `status`. Ready's idempotent receipt records the
+native message ID before its Pad message-ID comment; retry the same known-ID
+receipt to finish recording without another send. Ambiguous sends without an ID
+refuse duplicates and require reconciliation, not a raw-send workaround.
+Ready does not schedule launches; Main approves the fresh launch.
 
 Keep project-specific rules in project AGENTS, `fleet.yml` (supported configuration
 only), or referenced templates, never project-name branches in fleet code. The

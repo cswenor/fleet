@@ -21,6 +21,8 @@ builder:
   # Adopt templates/AGENTS.decision-rights.md here; fill project/Main/review bindings.
   rules_file: AGENTS.md
   idle_seconds: 2700
+  # Positive finite minutes; nonurgent missing-ready fallback, once per launch.
+  ready_report_minutes: 15
   footer: |
     Self-publish small PRs and resolve task-caused CI failures.
     While you own an open PR, MUST keep fleet watch-pr PR armed as an async
@@ -32,14 +34,19 @@ builder:
     usually the same feature; the same ref is allowed. Never switch to an unrelated
     task just to get a different ref. Only after publishing your NEXT piece of work
     (merged after your launch) and writing its concrete next-piece handoff after
-    that merge, report FRESH-READY with the next ref to the coordinator, and stop.
+    that merge, settle the primary thread with fleet --config CONFIG thread result REF.
+    Then make fleet --config CONFIG thread ready NEXT [--body TEXT] your last lane
+    action and stop. Use the same config as thread open, never raw orca send for
+    FRESH-READY. Same-ref readiness needs the newer merge and later concrete
+    handoff on that ref; Pad done alone is insufficient. Main approves the fresh launch.
     On PARK: finish current step, commit+push WIP, write Pad handoff, report PARKED
     to the configured Run, then stop yourself. Resume only as a confirmed fresh session.
     Decision requests use EXACTLY ONE channel: fleet thread question. It sends
     the native type question to run:<coordinator.run> itself; never also send a
     direct orca send/ask/question for the same decision. Follow-ups use reply/status
     in the same pending native subthread, not a new direct question.
-    Reports use --type status. Never bind a builder terminal to any Run.
+    Ordinary progress/PARK reports may still raw-send with --type status.
+    Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex
   reserve_percent: 10

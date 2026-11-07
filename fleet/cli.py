@@ -65,6 +65,9 @@ def main():
     t = commands.add_parser('result')
     t.add_argument('ref')
     t.add_argument('--body', required=True)
+    t = commands.add_parser('ready', help='report the next handoff after settling the current attempt')
+    t.add_argument('ref', help='next Pad reference')
+    t.add_argument('--body', default='')
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     p.add_argument('--environment-file', help='private service token file (macOS: literal KEY=value)')
@@ -103,6 +106,8 @@ def main():
                                     'with reply/status in this same native subthread, not a new question.'}
             elif args.thread_command == 'wait':
                 result = threads.wait(c, args.ref, args.timeout)
+            elif args.thread_command == 'ready':
+                result = threads.ready(c, args.ref, args.body)
             else:
                 result = threads.result(c, args.ref, args.body)
             print(json.dumps(result))
