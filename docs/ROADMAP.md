@@ -113,6 +113,32 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-54 — Structural retirement UI detection
+
+Retirement no longer searches final assistant prose for approval/permission/deny
+words. Real omp 18.17.0 approval dialogs and Ask widgets replace the idle
+composer; background work uses a spinner and a `⚙ 1` status-band segment.
+The existing exact two-row idle/empty-composer shape rejects those surfaces and
+unknown layouts. The job marker is checked only inside the composer status band,
+including a repaint with an idle π glyph. Exact-pane, final-stop, session lease,
+foreground process and single-exit proofs remain unchanged.
+
+Captured real idle, permission, Ask and background screens are regression
+fixtures. Approval-prose regression failed before the fix; all 284 local tests
+pass afterward. Main-approved private CLI drill (`msg_7fb06ec48feb`) used OLD
+TASK-34/PR30 and NEXT fixture TASK-55, scratch Run `run_42470da0a918`, and an
+inventory-only adapter limited to owned scratch terminals in the existing lane.
+An open real permission dialog refused exit 2 before any retirement journal/input.
+After approval, OLD session `01a1b3dc-ca93-73c7-b0a1-f6a3e17acd8e` ended with
+“Main approved merge; permission and deny are prose.” Restart then sent one exit,
+verified the same-incarnation shell and launched TASK-55 attempt
+`1794019057868778452`. An initial missing scratch extension binding also refused
+before input; explicit known extension configuration corrected the fixture.
+Replacement session `01a1b3de-65fa-76a4-9ee6-def77db85c63` recorded actual
+Sol/medium/no fallback and stopped without implementation. Both owned scratch
+terminals closed with `ptyKilled: true`; TASK-55 cancelled and adapter removed.
+Publication receipts belong on TASK-54/PR; shared rollout remains Main-owned.
+
 ### TASK-53 — Keep builders awake for their PR events
 
 Owning an open PR requires an armed async `fleet --config CONFIG watch-pr N`.

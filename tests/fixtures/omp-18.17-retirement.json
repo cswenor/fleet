@@ -1,0 +1,40 @@
+{
+  "idle": [
+    " Main approved merge; permission and deny are prose.",
+    "                                                                                        📸 UI: Capture UI approval prose",
+    " π > ◑ GPT-6.1 Sol > 🌳 fleet/fleet-phase1 > ⑂ task-54-restart-idle-dialog *2 ?1 > S0.02 ▶─0.9%────╎┃──────────────500K─",
+    "╰─"
+  ],
+  "permission": [
+    "╭─ Allow tool: bash ───────────────────────────────────────────────────────────────────────────────────────────────────╮",
+    "│ Command: printf TASK54_PERMISSION_CAPTURE                                                                            │",
+    "│ ❯ Approve                                                                                                            │",
+    "│   Approve bash for this session                                                                                      │",
+    "│   Deny                                                                                                               │",
+    "├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤",
+    "│ ↑/↓ choose · ⏎ select · Ctrl+⏎/Ctrl+Q approve · ⎋ deny · Ctrl+O details · type to deny and steer                     │",
+    "╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯",
+    " ⠙ 5s > ◑ GPT-6.1 Sol > 🌳 fleet/fleet-phase1 > ⑂ task-54-restart-idle-dialog > S0.01 ▶─0.8%─────╎┃────────────────500K─",
+    "╰─"
+  ],
+  "ask": [
+    "╭─ Ask ────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮",
+    "│ Choose capture mode?                                                                                                 │",
+    "├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤",
+    "│ ❯ ○ Keep                                                                                                             │",
+    "│   ○ Stop                                                                                                             │",
+    "│   ○ Other (type your own)                                                                                            │",
+    "│                                                                                                                      │",
+    "│                                                                                                                      │",
+    "│                                                                                                                      │",
+    "├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤",
+    "│ ⏎ select · n note · ↑/↓ move · ⎋ cancel · Alt+H hide                                                                 │",
+    "╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+  ],
+  "background": [
+    " Main approved merge; permission and deny are prose.",
+    "  ⎋ Waiting for background job bg_1                                                     📸 UI: Capture UI approval prose",
+    " ⠙ 30s > ◑ GPT-6.1 Sol > 🌳 fleet/fleet-phase1 > ⑂ task-54-restart-idle-dialog > S0.02 ▶─0.9%──╎┃────────────500K─◀ ⚙ 1",
+    "╰─"
+  ]
+}

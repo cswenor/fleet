@@ -253,9 +253,11 @@ def _idle(c, record, tree, handle, previous=None):
     # continuation rows are indented, even when their text happens to be ╰─.
     if footers[-1] != len(lines) - 2 or not re.fullmatch(r'╰─\s*', lines[-1]):
         raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
-    live = '\n'.join(lines[max(0, footers[-1] - 3):])
-    if re.search(r'waiting for|background job|permission|approve|deny|ask \d* question', live, re.I):
-        raise ValueError('dialog or background job visible; retirement withheld')
+    # Approval/Ask widgets replace the composer; working jobs replace π with a
+    # spinner. Do not scan transcript rows: ordinary final prose is not UI state.
+    # Also reject the status band's job marker if π is visible during a repaint.
+    if re.search(r'(?:^|\s)⚙(?:\s|$)', lines[footers[-1]]):
+        raise ValueError('background job status visible; retirement withheld')
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
         raise ValueError('agent status inventory incomplete')

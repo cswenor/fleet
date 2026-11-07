@@ -403,9 +403,34 @@ class RetirementTests(unittest.TestCase):
                     'shell_ready': True, 'binding': binding}]
                 self.refused('multiple terminals')
 
-    def test_working_dialog_background_and_unknown_screens_refuse(self):
-        for screen in (['⠹ working > ◑ GPT >', '╰─'], ['Select permission', 'Approve / Deny'],
-                       ['Waiting for background job', ' π > ◑ GPT >', '╰─'], [], ['old working footer']):
+    def test_idle_approval_words_are_not_dialogs(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        self.screen = screens['idle']
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
+
+    def test_captured_interactive_and_background_screens_refuse(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        for name, screen in screens.items():
+            with self.subTest(surface=name):
+                if name == 'idle':
+                    continue
+                self.screen = screen
+                self.refused('idle|dialog|background')
+
+    def test_background_job_marker_with_idle_pi_still_refuses(self):
+        # Repaint boundary: the idle glyph alone cannot override the job segment.
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'omp-18.17-retirement.json').read_text())
+        footer = screens['background'][-2]
+        self.screen = ['finished', ' π' + footer[footer.index(' >'):], '╰─']
+        self.refused('background job status')
+
+    def test_working_and_unknown_screens_refuse(self):
+        for screen in (['⠹ working > ◑ GPT >', '╰─'], [], ['old working footer']):
             with self.subTest(screen=screen):
                 self.screen = screen
                 self.refused('idle|dialog|background')
