@@ -485,6 +485,23 @@ to isolate late replies from earlier questions/attempts. A different Pad task ge
 a different canonical thread. Session/terminal IDs are disposable; no supervised
 Task/Dispatch or `worker_done` is fabricated.
 
+If Main authorizes continuing after `thread result`, run
+`fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
+before any new question; never fall back to direct Run questions. This requires
+the latest attempt to be settled and the same authoritative launch, unbound
+terminal, live incarnation and worktree. It archives that attempt and creates a
+linked continuation with a new attempt ID/native primary subthread. Main receives
+a native status naming the prior attempt, supplied authorization ID and reason;
+Pad records the continuation and message ID. The ID records Main's authorization,
+not authenticated proof: obtain and record the actual ruling before calling.
+Repeating that ID returns the same current continuation; a different ID on an
+unsettled attempt refuses. A known send retries only its Pad recording; ambiguous
+sends require reconciliation, never resending or bypassing via `open`.
+Question/wait/result use the continuation; ready still requires settlement and
+a merge after the original launch plus a later concrete handoff. Supervisor
+completion/ready-report caches distinguish continuations on the same launch.
+
+
 Decision requests use **exactly one channel**: `fleet thread question`. It sends
 the native type `question` to `run:<coordinator.run>` itself. Never also send a
 direct `orca send`/`ask`/question for the same decision. Success JSON includes

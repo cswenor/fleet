@@ -238,6 +238,80 @@ class ReadyTests(unittest.TestCase):
         self.assertEqual(self.pads[0][0], 'TASK-1')
         self.assertIn('Ready report: ' + receipts[0]['message_id'], self.pads[0][1])
 
+    def test_reopen_continuation_is_idempotent_and_isolates_old_decisions(self):
+        first = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['one']
+        reopened = threads.reopen(self.c, 'TASK-1', 'msg_approval', 'Continue implementation')
+        self.assertNotEqual(reopened['attempt'], 'one')
+        self.assertEqual(reopened['previous_attempt'], 'one')
+        self.assertFalse(reopened['settled'])
+        repeated = threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        self.assertEqual(reopened['attempt'], repeated['attempt'])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('authorized by msg_approval', self.pads[0][1])
+        q = threads.question(self.c, 'TASK-1', 'new decision')
+        self.messages = [ThreadTests.answer(self, q)]
+        self.assertEqual(threads.wait(self.c, 'TASK-1', 1)['attempt'], reopened['attempt'])
+        threads.result(self.c, 'TASK-1', 'continuation complete')
+        ledger = state.read(self.c, 'threads-TASK-1')['TASK-1']
+        self.assertEqual(ledger['history']['one'], first)
+        next_attempt = threads.reopen(self.c, 'TASK-1', 'msg_second')
+        self.assertEqual(next_attempt['previous_attempt'], reopened['attempt'])
+        # An old authorization cannot reopen again or select its historical attempt.
+        with self.assertRaisesRegex(ValueError, 'already used'):
+            threads.reopen(self.c, 'TASK-1', 'msg_approval')
+
+    def test_reopen_refuses_unsettled_or_missing_authorization(self):
+        with self.assertRaisesRegex(ValueError, 'authorization'):
+            threads.reopen(self.c, 'TASK-1', ' ')
+        threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        with self.assertRaisesRegex(ValueError, 'unsettled'):
+            threads.reopen(self.c, 'TASK-1', 'msg_different')
+
+    def test_reopen_refuses_changed_launch_terminal_incarnation_or_binding(self):
+        for changes in ({'incarnationId': 'replacement'}, {'worktreeId': 'other'},
+                        {'connected': False}, {'writable': False}, {'orphaned': True}):
+            with self.subTest(changes=changes), patch.dict(self.terminal, changes):
+                with self.assertRaisesRegex(ValueError, 'terminal ownership'):
+                    threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        with patch.dict(os.environ, ORCA_TERMINAL_HANDLE='other'):
+            with self.assertRaisesRegex(ValueError, 'authoritative'):
+                threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        with patch.object(threads, 'request', return_value={'run': {'id': 'bound'}}):
+            with self.assertRaisesRegex(ValueError, 'Run-bound'):
+                threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        state.write(self.c, 'launches', {self.temp.name: dict(self.launch, id='replacement')})
+        with self.assertRaisesRegex(ValueError, 'settled'):
+            threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        self.assertEqual(self.sent, [])
+
+    def test_reopen_pad_retry_never_resends_and_ambiguous_send_blocks_questions(self):
+        with patch.object(threads, 'pad', side_effect=ValueError('pad unavailable')):
+            with self.assertRaisesRegex(ValueError, 'pad unavailable'):
+                threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        self.assertEqual(len(self.sent), 1)
+        threads.result(self.c, 'TASK-1', 'second boundary')
+        with patch.object(threads, 'request', side_effect=[{'run': None}, ValueError('transport')]):
+            with self.assertRaisesRegex(ValueError, 'transport'):
+                threads.reopen(self.c, 'TASK-1', 'msg_second')
+        with self.assertRaisesRegex(ValueError, 'ambiguous reopen'):
+            threads.reopen(self.c, 'TASK-1', 'msg_second')
+        with self.assertRaisesRegex(ValueError, 'reopen'):
+            threads.question(self.c, 'TASK-1', 'not yet notified')
+
+    def test_ready_after_reopen_requires_settlement_and_post_launch_merge(self):
+        continuation = threads.reopen(self.c, 'TASK-1', 'msg_approval')
+        with self.assertRaisesRegex(ValueError, 'settled'):
+            threads.ready(self.c, 'TASK-1')
+        threads.result(self.c, 'TASK-1', 'continued')
+        self.prs[0]['mergedAt'] = '2025-12-31T23:59:58Z'
+        with self.assertRaisesRegex(ValueError, 'merged after this launch'):
+            threads.ready(self.c, 'TASK-1')
+        self.prs[0]['mergedAt'] = '2026-01-01T00:00:00Z'
+        self.assertEqual(threads.ready(self.c, 'TASK-1')['handoff'], 'handoff-1')
+        self.assertIn('Attempt: ' + continuation['attempt'] + '\n', self.pads[-1][1])
+        self.assertIn('Fleet task thread: ' + continuation['thread_id'] + '\n', self.pads[-1][1])
+
     def test_pad_failure_retries_comment_not_native_send(self):
         with patch.object(threads, 'pad', side_effect=ValueError('pad unavailable')):
             with self.assertRaisesRegex(ValueError, 'pad unavailable'):

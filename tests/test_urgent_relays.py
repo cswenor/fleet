@@ -196,6 +196,15 @@ class CompletedIdleTests(unittest.TestCase):
         self.pad_calls.append(argv)
         return self.item if 'show' in argv else self.comments
 
+    def test_reopen_invalidates_completed_cache_and_settlement_restores_it(self):
+        self.assertTrue(supervisor._completed_idle(self.c, self.builder))
+        self.attempt.update(attempt_id='attempt/continuation', settled=False)
+        self.save_attempt()
+        self.assertFalse(supervisor._completed_idle(self.c, self.builder))
+        self.attempt.update(settled=True, result='Continuation published')
+        self.save_attempt()
+        self.assertTrue(supervisor._completed_idle(self.c, self.builder))
+
     def test_settled_done_suppresses_only_idle(self):
         self.builder['flags'] += ['wrong_model', 'provider_stalled']
         self.cycle(0)
@@ -477,6 +486,22 @@ class MissingReadyReportTests(unittest.TestCase):
         events = [event for event, _ in self.fallback_calls()]
         self.assertEqual(len(events), 2)
         self.assertNotEqual(events[0]['key'], events[1]['key'])
+    def test_reopened_attempt_restarts_ready_timer_and_invalidates_pending_report(self):
+        self.cycle(0)
+        with patch.object(supervisor.time, 'time', return_value=900):
+            supervisor.cycle(self.c, deliver=False)
+        self.attempt.update(attempt_id='attempt/continuation', settled=False)
+        self.save_attempt()
+        self.cycle(901)
+        self.assertEqual(self.fallback_calls(), [])
+        self.attempt.update(settled=True, settled_at=1000, result='Continued. Next TASK-38.')
+        self.save_attempt()
+        self.cycle(1000)
+        self.cycle(1899)
+        self.assertEqual(self.fallback_calls(), [])
+        self.cycle(1900)
+        self.assertEqual(len(self.fallback_calls()), 1)
+
 
     def test_pending_unknown_attempt_is_retained_without_delivery(self):
         self.cycle(0)

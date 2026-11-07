@@ -38,12 +38,13 @@ def _completed_idle(c, builder):
                 or not builder.get('incarnation_id')
                 or launch.get('terminal_incarnation_id') != builder['incarnation_id']):
             return False
-        cache = c.setdefault('_completed_idle_launches', {})
-        if cache.get(slot) == launch['id']:
-            return True
-        cache.pop(slot, None)
         task = state.read(c, 'threads-' + ref, {}).get(ref, {})
         attempt = task.get('attempts', {}).get(launch['id'], {})
+        cache = c.setdefault('_completed_idle_launches', {})
+        identity = (launch['id'], attempt.get('attempt_id', launch['id']))
+        if cache.get(slot) == identity:
+            return True
+        cache.pop(slot, None)
         if (not task.get('id') or attempt.get('settled') is not True
                 or not isinstance(attempt.get('result'), str) or not attempt['result'].strip()
                 or attempt.get('terminal') != builder['terminal'] or attempt.get('slot') != slot):
@@ -71,7 +72,7 @@ def _completed_idle(c, builder):
                     break
         if completed:
             # Process-local only. A replacement launch must earn its own proof.
-            cache[slot] = launch['id']
+            cache[slot] = identity
         return completed
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
         return False
@@ -86,6 +87,8 @@ def _ready_candidate(c, identity):
             return False
         task = state.read(c, 'threads-' + identity['ref'], {}).get(identity['ref'], {})
         attempt = task.get('attempts', {}).get(identity['id'], {})
+        if attempt.get('attempt_id', identity['id']) != identity.get('attempt_id', identity['id']):
+            return False
         if attempt.get('ready', {}).get('message_id'):
             return False
         if (not task.get('id') or attempt.get('settled') is not True
@@ -114,11 +117,16 @@ def missing_ready_reports(c, s, ledger, now):
             identity = {field: launch[field] for field in
                         ('id', 'ref', 'terminal', 'terminal_incarnation_id')}
             identity['slot'] = slot
+            task = state.read(c, 'threads-' + launch['ref'], {}).get(launch['ref'], {})
+            current = task.get('attempts', {}).get(launch['id'], {})
+            identity['attempt_id'] = current.get('attempt_id', launch['id'])
             attempt = _ready_candidate(c, identity)
             if not attempt:
                 continue
-            key = digest([slot, launch['id'], launch['terminal'],
-                          launch['terminal_incarnation_id']])
+            parts = [slot, launch['id'], launch['terminal'], launch['terminal_incarnation_id']]
+            if identity['attempt_id'] != launch['id']:
+                parts.append(identity['attempt_id'])
+            key = digest(parts)
             handoffs = c.setdefault('_verified_ready_handoffs', {})
             next_ref = handoffs.get(key)
             if not next_ref:

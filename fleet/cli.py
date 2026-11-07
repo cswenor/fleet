@@ -55,6 +55,10 @@ def main():
     t = commands.add_parser('open')
     t.add_argument('ref')
     t.add_argument('--slot')
+    t = commands.add_parser('reopen', help='continue a settled attempt with recorded Main authorization')
+    t.add_argument('ref')
+    t.add_argument('--authorized-by', required=True, help='Main authorization message ID')
+    t.add_argument('--reason', default='')
     t = commands.add_parser('question')
     t.add_argument('ref')
     t.add_argument('--body', required=True)
@@ -98,6 +102,8 @@ def main():
             from . import threads
             if args.thread_command == 'open':
                 result = threads.open_thread(c, args.ref, args.slot)
+            elif args.thread_command == 'reopen':
+                result = threads.reopen(c, args.ref, args.authorized_by, args.reason)
             elif args.thread_command == 'question':
                 result = threads.question(c, args.ref, args.body, args.subject)
                 result = {**result, 'sent': True,

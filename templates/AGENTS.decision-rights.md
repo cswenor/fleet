@@ -88,6 +88,11 @@ native message ID before its Pad message-ID comment; retry the same known-ID
 receipt to finish recording without another send. Ambiguous sends without an ID
 refuse duplicates and require reconciliation, not a raw-send workaround.
 Ready does not schedule launches; Main approves the fresh launch.
+If Main authorizes continuing after `thread result`, record that ruling and run
+`fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
+before any new question; never fall back to direct Run questions. This continues
+only the latest settled attempt on the same launch-owned unbound terminal/live
+incarnation/worktree; it does not authorize a new launch or waive publication gates.
 
 Keep project-specific rules in project AGENTS, `fleet.yml` (supported configuration
 only), or referenced templates, never project-name branches in fleet code. The

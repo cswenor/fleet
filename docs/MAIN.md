@@ -363,6 +363,19 @@ to Pad; restart/Pad-write retry reuses that private copy. Native terminal histor
 is capped and expires on close: do not close before an unseen reply is copied.
 `thread result REF --body 'publication receipts/outcome'` records the durable
 outcome and settles only that launch attempt, without fake Dispatch completion.
+If Main authorizes same-session continuation after settlement, the builder runs
+`fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
+before any new question; never fall back to direct Run questions. Record the
+actual Main ruling on Pad first; the supplied ID is audit evidence, not sender
+authentication. Reopen requires the settled latest attempt and the same launch,
+unbound terminal, live incarnation and worktree. It archives the prior attempt,
+opens a linked native primary subthread and reports the authorization/reason to
+Main and Pad. Repeating the current authorization returns that continuation.
+Unsettled attempts refuse a different authorization; ambiguous sends require
+reconciliation, while known-ID Pad retries never resend. Question/wait/result
+operate on the new attempt; ready's original launch/publication guards remain.
+Supervisor completion and ready-report memos are keyed by launch plus attempt.
+
 After settlement, `fleet --config CONFIG thread ready NEXT [--body TEXT]` verifies
 the current primary launch from its unbound caller terminal and the newer merge
 plus later concrete next-piece handoff. Its idempotent receipt stores the native

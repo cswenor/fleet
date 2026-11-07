@@ -254,6 +254,19 @@ retry the same wait, not a duplicate question. Retain terminal until unseen
 replies are copied; terminal history is capped and expires on closure. Ambiguous
 question sends require reconciliation, not resend. No fake Task/Dispatch IDs.
 
+If Main authorizes continuing after `thread result`, obtain and record the ruling,
+then run `fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
+before any new question; never fall back to direct Run questions. The supplied ID
+records authorization, not authenticated proof. Only the latest settled attempt
+on the same authoritative launch, unbound terminal, live incarnation and worktree
+may continue. Reopen archives it, creates a linked attempt/native primary subthread,
+and reports the authorization/reason to Main and Pad. Repeating the current ID
+returns that continuation; an unsettled attempt rejects a different ID. Known-ID
+Pad retries never resend; ambiguous sends require reconciliation. Question/wait/
+result use the continuation; ready still requires a merge after the original
+launch and a later handoff. Supervisor completion/ready memos distinguish attempts.
+
+
 Implement the assigned scope; escalate decisions before affected work. Preserve
 unexpected edits. Verify the actual changed CLI/service/browser path, not tests
 alone; include failure boundaries and source-bound evidence. Build/CI commands

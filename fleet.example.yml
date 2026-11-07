@@ -49,6 +49,9 @@ builder:
     direct orca send/ask/question for the same decision. Follow-ups use reply/status
     in the same pending native subthread, not a new direct question.
     Ordinary progress/PARK reports may still raw-send with --type status.
+    If Main authorizes continuing after thread result, run fleet --config CONFIG
+    thread reopen REF --authorized-by MSG_ID before any new question; never fall
+    back to direct Run questions. Use the same config as thread open.
     Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex

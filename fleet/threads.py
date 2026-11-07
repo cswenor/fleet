@@ -56,6 +56,81 @@ def authorized(c, launch, slot, ref):
     return not (reconciled.get('launch_id') == launch['id'] or
                 retirement.get('launch_id') == launch['id'])
 
+
+def _ownership(c, launch, slot, caller):
+    terminal = orca(c, 'terminal', 'show', '--terminal', caller)['terminal']
+    worktree = launch.get('worktree', {})
+    if (not launch.get('terminal_incarnation_id')
+            or terminal.get('handle') != caller
+            or terminal.get('incarnationId') != launch['terminal_incarnation_id']
+            or not worktree.get('id') or worktree.get('path') != slot
+            or terminal.get('worktreeId') != worktree['id']
+            or not terminal.get('connected') or not terminal.get('writable')
+            or terminal.get('orphaned')):
+        raise ValueError('thread terminal ownership is unknown or changed')
+
+
+def reopen(c, ref, authorized_by, reason=''):
+    """Continue a settled launch, retaining every earlier attempt and send receipt."""
+    name = _name(ref)
+    if not isinstance(authorized_by, str) or not authorized_by.strip():
+        raise ValueError('a recorded authorization message ID is required')
+    authorized_by = authorized_by.strip()
+    caller = identity(c)
+    with state.lock(c, 'launcher'):
+        matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
+                   if slot in c['builder']['slots'] and launch.get('terminal') == caller
+                   and authorized(c, launch, slot, ref)]
+        if len(matches) != 1:
+            raise ValueError('no unique authoritative launch for this task/terminal')
+        slot, launch = matches[0]
+        with state.lock(c, name):
+            ledger = state.read(c, name, {})
+            task = ledger.get(ref, {})
+            attempt = task.get('attempts', {}).get(launch['id'], {})
+            if (not task.get('id') or attempt.get('terminal') != caller
+                    or attempt.get('slot') != slot):
+                raise ValueError('reopen requires a settled attempt on this launch')
+            _ownership(c, launch, slot, caller)
+            if attempt.get('authorized_by') == authorized_by:
+                if not attempt.get('open_message_id'):
+                    raise ValueError('ambiguous reopen send; reconcile native inbox; never resend')
+            else:
+                if any(a.get('authorized_by') == authorized_by
+                       for a in task.get('history', {}).values()):
+                    raise ValueError('authorization already used by an older attempt')
+                if attempt.get('settled') is not True:
+                    raise ValueError('latest attempt is unsettled; use the existing thread')
+                previous = attempt.get('attempt_id', launch['id'])
+                task.setdefault('history', {})[previous] = attempt
+                attempt_id = launch['id'] + '/' + str(uuid.uuid4())
+                attempt = {'attempt_id': attempt_id, 'previous_attempt': previous,
+                           'thread_id': task['id'] + '/' + attempt_id,
+                           'authorized_by': authorized_by, 'reason': reason,
+                           'terminal': caller, 'slot': slot,
+                           'branch': run(['git', 'branch', '--show-current'], slot).strip(),
+                           'questions': {}, 'settled': False}
+                task['attempts'][launch['id']] = attempt
+                state.write(c, name, ledger)
+                body = (f"Pad-Ref: {ref}\nContinuation of settled attempt {previous}, "
+                        f"authorized by {authorized_by}, reason: {reason or '(not supplied)'}\n"
+                        f"Attempt: {attempt_id}\nFleet task thread: {attempt['thread_id']}")
+                message = request(c, 'send', '--from', caller,
+                                  '--to', 'run:' + c['coordinator']['run'],
+                                  '--type', 'status', '--thread-id', attempt['thread_id'],
+                                  '--subject', ref + ': thread reopened', '--body', body)['message']
+                attempt['open_message_id'] = message['id']
+                state.write(c, name, ledger)
+            if not attempt.get('recorded'):
+                pad(c, ref, f"Pad-Ref: {ref}\nFleet task thread: {attempt['thread_id']}\n"
+                            f"Attempt: {attempt['attempt_id']}\n"
+                            f"Continuation of settled attempt {attempt['previous_attempt']}, "
+                            f"authorized by {authorized_by}, reason: {attempt['reason']}\n"
+                            f"Native thread-open message: {attempt['open_message_id']}")
+                attempt['recorded'] = True
+                state.write(c, name, ledger)
+            return {'ref': ref, 'attempt': attempt['attempt_id'], **attempt}
+
 def open_thread(c, ref, slot=None):
     name = _name(ref)
     caller = identity(c)
@@ -71,14 +146,18 @@ def open_thread(c, ref, slot=None):
         task = ledger.setdefault(ref, {'id': 'fleet-' + str(uuid.uuid4()), 'attempts': {}})
         attempt = task['attempts'].setdefault(launch['id'], {
             'terminal': caller, 'slot': slot, 'branch': branch, 'questions': {}, 'settled': False})
+        attempt.setdefault('attempt_id', launch['id'])
         if attempt['settled']:
-            raise ValueError('task attempt is settled; a fresh launch is required')
+            raise ValueError('task attempt is settled; use thread reopen with Main authorization or a fresh launch')
+        if attempt.get('authorized_by') and not (attempt.get('open_message_id') and attempt.get('recorded')):
+            raise ValueError('finish thread reopen recording before continuing')
         state.write(c, name, ledger)
         if not attempt.get('recorded'):
             pad(c, ref, f"Pad-Ref: {ref}\nFleet task thread: {task['id']}\nAttempt: {launch['id']}\nBranch: {branch}\nSlot: {slot}\nTerminal (disposable): {caller}\nNo supervised Task/Dispatch for this terminal launch.")
             attempt['recorded'] = True
             state.write(c, name, ledger)
-        return {'ref': ref, 'thread_id': task['id'], 'attempt': launch['id'], **attempt}
+        return {'ref': ref, 'thread_id': attempt.get('thread_id', task['id']),
+                'attempt': attempt.get('attempt_id', launch['id']), **attempt}
 
 
 def current(c, ref, caller):
@@ -95,7 +174,9 @@ def current(c, ref, caller):
     if len(matches) != 1:
         raise ValueError('no unique current task attempt; old replies cannot authorize new work')
     key, attempt = matches[0]
-    return ledger, task, key, attempt
+    if attempt.get('authorized_by') and not (attempt.get('open_message_id') and attempt.get('recorded')):
+        raise ValueError('finish thread reopen recording before continuing')
+    return ledger, task, attempt.get('attempt_id', key), attempt
 
 
 def question(c, ref, body, subject=None):
@@ -163,13 +244,13 @@ def wait(c, ref, timeout=900):
                         pad(c, ref, f"Fleet task thread: {task['id']}\nAttempt: {key}\nQuestion: {q['message_id']}\nReply: {m['id']}\nNative subthread: {q['thread_id']}\nDecision: {m['body']}")
                         q['reply_recorded'] = True
                         state.write(c, name, ledger)
-                    return {'event': 'reply', 'thread_id': task['id'], 'attempt': key,
+                    return {'event': 'reply', 'thread_id': attempt.get('thread_id', task['id']), 'attempt': key,
                             'question': q['message_id'], 'reply': q['reply'],
                             'messages': list(attempt['inbox'].values()),
                             'readOnly': True, 'requestedLimit': 1000}
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return {'event': 'timeout', 'thread_id': task['id'], 'attempt': key,
+                return {'event': 'timeout', 'thread_id': attempt.get('thread_id', task['id']), 'attempt': key,
                         'question': q['message_id'], 'messages': list(attempt['inbox'].values()),
                         'readOnly': True, 'requestedLimit': 1000}
             # Terminal-only native ask requires a Dispatch. Inspect persistent history
@@ -186,11 +267,12 @@ def result(c, ref, body):
             raise ValueError('pending decision must be resolved and recorded before settlement')
         pad(c, ref, f"Pad-Ref: {ref}\nFleet task thread: {task['id']}\nAttempt: {key}\nBranch: {attempt['branch']}\nSlot: {attempt['slot']}\nResult: {body}")
         receipt = request(c, 'send', '--from', caller, '--to', 'run:' + c['coordinator']['run'],
-                          '--type', 'status', '--thread-id', task['id'],
+                          '--type', 'status', '--thread-id', attempt.get('thread_id', task['id']),
                           '--subject', ref + ': result', '--body', body)
         attempt.update(settled=True, settled_at=time.time(), result=body)
         state.write(c, name, ledger)
-        return {'thread_id': task['id'], 'attempt': key, 'receipt': receipt, 'settled': True}
+        return {'thread_id': attempt.get('thread_id', task['id']), 'attempt': key,
+                'receipt': receipt, 'settled': True}
 
 
 def ready(c, next_ref, body=''):
@@ -224,16 +306,7 @@ def ready(c, next_ref, body=''):
             else:
                 from .restart import _completion
                 proof = _completion(c, next_ref, ref, launch, require_handoff=True)
-                terminal = orca(c, 'terminal', 'show', '--terminal', caller)['terminal']
-                worktree = launch.get('worktree', {})
-                if (not launch.get('terminal_incarnation_id')
-                        or terminal.get('handle') != caller
-                        or terminal.get('incarnationId') != launch['terminal_incarnation_id']
-                        or not worktree.get('id') or worktree.get('path') != slot
-                        or terminal.get('worktreeId') != worktree['id']
-                        or not terminal.get('connected') or not terminal.get('writable')
-                        or terminal.get('orphaned')):
-                    raise ValueError('ready terminal ownership is unknown or changed')
+                _ownership(c, launch, slot, caller)
                 report = {'next_ref': next_ref, 'handoff': proof['handoff'],
                           'pr': proof['pr'], 'status': 'sending',
                           'body': f"Pad-Ref: {ref}\nFRESH-READY {next_ref}\n"
@@ -243,14 +316,15 @@ def ready(c, next_ref, body=''):
                 state.write(c, name, ledger)
                 message = request(c, 'send', '--from', caller,
                                   '--to', 'run:' + c['coordinator']['run'],
-                                  '--type', 'status', '--thread-id', task['id'],
+                                  '--type', 'status', '--thread-id', attempt.get('thread_id', task['id']),
                                   '--subject', f'{ref}: FRESH-READY {next_ref}',
                                   '--body', report['body'])['message']
                 report.update(message_id=message['id'], status='sent', at=time.time())
                 state.write(c, name, ledger)
             if not report.get('recorded'):
-                pad(c, ref, f"Fleet task thread: {task['id']}\nAttempt: {key}\n"
+                pad(c, ref, f"Fleet task thread: {attempt.get('thread_id', task['id'])}\n"
+                            f"Attempt: {attempt.get('attempt_id', key)}\n"
                             f"Ready report: {report['message_id']}\n{report['body']}")
                 report['recorded'] = True
                 state.write(c, name, ledger)
-            return {'ref': ref, 'attempt': key, **report}
+            return {'ref': ref, 'attempt': attempt.get('attempt_id', key), **report}

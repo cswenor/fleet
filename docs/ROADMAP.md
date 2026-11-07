@@ -113,6 +113,33 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-62 — Authorized same-session continuation
+
+`fleet thread reopen REF --authorized-by MSG_ID [--reason TEXT]` continues the
+latest settled attempt on its same authoritative launch-owned unbound terminal,
+live incarnation and worktree. The supplied Main authorization ID is audit
+evidence, not authenticated proof. The current snapshot stays under
+`attempts[launch_id]`; prior attempts are archived, and continuations have distinct
+attempt IDs/native primary subthreads. Existing ledgers lacking an attempt ID
+read as their original launch attempt. Native status and Pad record the link,
+authorization and reason. Same-ID retries reuse the continuation; known-ID Pad
+retries never resend; ambiguous sends block further work pending reconciliation.
+Question/wait/result use the continuation. Ready retains the original launch's
+newer-merge/later-handoff guard. Main approved minimal completion/ready cache
+invalidation per launch plus attempt in `msg_b45f2dd5f037`, superseding the
+launch-only memo lifetime below; alert policy is otherwise unchanged.
+
+The missing continuation API regression failed before implementation. Real
+source CLI drill on scratch Run `run_83a69b89849c` settled a seeded scratch launch,
+reopened with authorization `msg_4c8ef0d04068`, and repeated without another
+thread-open send (`msg_379b13726514`). A different authorization while unsettled
+refused exit 2. New question `msg_7f484219e0f0` received native in-thread reply
+`msg_8fa527e2d6ea`; the continuation settled with result `msg_8c6cbb25160d`.
+Real Pad writes and native transport were used; launch state was seeded, not a
+fresh model launch. Both owned scratch terminals closed with `ptyKilled: true`.
+No shared deployment or restart was performed. Publication receipts belong on
+TASK-62/PR; merge remains held for Main's exact-head GO.
+
 ### TASK-61 — Stalled builder turns
 
 Health now binds session progress to the current slot launch, terminal and
