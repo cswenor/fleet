@@ -44,6 +44,8 @@ def main():
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
     p.add_argument('--interval', type=int, default=60)
+    p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
+    p.add_argument('--include-seen', action='store_true', help='re-emit an already returned initial event')
     p = sub.add_parser('wait')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--wake-on', default='all',
@@ -152,7 +154,8 @@ def main():
             if args.timeout < 1 or args.interval < 1 or args.number < 1:
                 raise ValueError('watch-pr arguments must be positive')
             from .watcher import watch
-            print(json.dumps(watch(c, args.number, args.timeout, args.interval)))
+            print(json.dumps(watch(c, args.number, args.timeout, args.interval,
+                                   terminal=args.terminal, include_seen=args.include_seen)))
             return 0
         if args.command == 'install-service':
             from .service import install

@@ -113,6 +113,45 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-64 — Superseded workflow checks and watcher receipts
+
+Head check collection omits cancelled/completed non-success workflow checks only
+with linked same-workflow/head successor proof. Enrichment is bounded to three
+100-run pages, only on heads with cancelled/completed non-success checks.
+Main ruling `msg_ebb4be6eec04` requires this healthy/pending fast path and process-local
+memoization: unchanged head/check-suite/conclusion evidence reuses supersession
+proof (bounded to 512 head entries); status/linkage changes invalidate it.
+Unknown/ambiguous linkage and unavailable history retain checks.
+Legacy statuses and merge-group policy remain unchanged. `watch-pr` records
+initial-event keys per terminal/repo/PR in private state, including diagnoses
+returned through live transitions. Re-arm waits on unchanged keys; new head,
+PR update or failed-check occurrence re-emits. Native identity wins over the
+`--terminal` fallback; anonymous calls retain prior behavior. `--include-seen`
+forces re-emission.
+
+Receipt regressions failed before implementation. The consolidated false-wake
+module covers other-PR groups (PR38), superseded same-PR groups (PR55), cancelled
+workflow replacement and re-arm receipts. All 372 tests pass.
+Real source `fleet.cli:main watch-pr 2403 --timeout 20` against Project Alpha returned
+timeout, not the stale cancelled-run diagnosis. After quota/review corrections:
+32.06s wall time, 15 `gh` calls, one head-workflow read (second collection memoized).
+Only config loading/private state and a counting wrapper
+were injected; GitHub reads remained real. Real merged fleet PR58 returned its
+initial event, re-arm timed out (2s timeout, 3.87s wall), and `--include-seen`
+re-emitted it, using 2/4/2 `gh` calls. Identified calls used explicit fallback
+terminal identity; anonymous calls separately retained repeated initial delivery.
+Scratch state was removed. No shared installation/restart was performed.
+Quota-amended source supervisor cycles used the real Project Alpha config with private
+state, delivery disabled, push URL cleared and hooks disabled. Cold cycle: three
+open PRs, 28 GitHub calls including three extra workflow reads, 23.64s; warm cycle:
+25 GitHub calls, zero extra workflow reads, 19.79s. Both had no collection errors.
+Only config isolation/counting was injected; native/quota/GitHub collection was real.
+Independent review found transient history failures permanently memoized and
+URL-path-only linkage able to hide unrelated checks. Both regressions failed
+before correction: failed/truncated enrichment is now retried, URL linkage requires
+HTTPS GitHub authority, and conflicting run/suite evidence retains the failure.
+Publication receipts belong on TASK-64/PR; merge requires Main exact-head GO.
+
 ### TASK-63 — FRESH-READY wakes Main for a launch ruling
 
 `thread ready` now sends native `question`, not `status`, so Main's

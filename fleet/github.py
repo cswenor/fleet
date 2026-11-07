@@ -1,14 +1,104 @@
 """GitHub reads, pagination, and semantic event identities."""
 from datetime import datetime, timezone, timedelta
 import json
-from .commands import gh
+from urllib.parse import urlsplit
+from .commands import CommandError, gh
 from . import groups
+
+_workflow_check_cache = {}
 
 
 def pages(c, endpoint):
     # --slurp preserves page boundaries for array endpoints.
     data = gh(c, 'api', '--paginate', '--slurp', endpoint)
     return [row for page in data for row in page]
+
+
+def _workflow_checks(c, sha, checks):
+    if not any(r.get('conclusion') == 'cancelled' or
+               (r.get('status') == 'completed' and
+                r.get('conclusion') not in (None, 'success')) for r in checks):
+        return checks
+    signature = json.dumps(sorted(
+        ({k: r.get(k) for k in ('id', 'check_suite', 'workflow_run_id',
+                                'details_url', 'status', 'conclusion')}
+         for r in checks), key=lambda r: r['id']), sort_keys=True)
+    key = (c['repo'], sha)
+    cached = _workflow_check_cache.get(key)
+    if cached and cached[0] == signature:
+        removed = cached[1]
+        return [r for r in checks if r['id'] not in removed]
+    retained, complete = _uncached_workflow_checks(c, sha, checks)
+    removed = {r['id'] for r in checks} - {r['id'] for r in retained}
+    # One signature per head, bounded across long-running supervisor lifetimes.
+    _workflow_check_cache.pop(key, None)
+    if complete:
+        if len(_workflow_check_cache) >= 512:
+            _workflow_check_cache.pop(next(iter(_workflow_check_cache)))
+        _workflow_check_cache[key] = (signature, removed)
+    return retained
+
+
+def _uncached_workflow_checks(c, sha, checks):
+    runs = []
+    complete = False
+    # Bounded enrichment: missing history or unavailable Actions permissions must
+    # retain checks, never turn a failed check into an apparently healthy PR.
+    for page in range(1, 4):
+        try:
+            data = gh(c, 'api', f'repos/{c["repo"]}/actions/runs?head_sha={sha}&per_page=100&page={page}')
+        except CommandError:
+            return checks, False
+        rows = data.get('workflow_runs', [])
+        runs.extend(r for r in rows if r.get('head_sha') == sha)
+        if len(rows) < 100:
+            complete = True
+            break
+
+    def newer(candidate, old):
+        if candidate.get('id') == old.get('id'):
+            return False
+        for field in ('run_number', 'created_at', 'id'):
+            if candidate.get(field) is not None and old.get(field) is not None:
+                return candidate[field] > old[field]
+        return False
+
+    superseded = {
+        r['id'] for r in runs
+        if r.get('id') is not None and r.get('workflow_id') is not None
+        and (r.get('conclusion') == 'cancelled'
+             or (r.get('status') == 'completed'
+                 and r.get('conclusion') not in (None, 'success')))
+        and any(n.get('workflow_id') == r['workflow_id'] and newer(n, r) for n in runs)
+    }
+    by_suite = {}
+    for run in runs:
+        if run.get('check_suite_id') is not None and run.get('id') is not None:
+            by_suite.setdefault(run['check_suite_id'], set()).add(run['id'])
+
+    by_id = {r['id']: r for r in runs if r.get('id') is not None}
+
+    def obsolete(check):
+        suite = check.get('check_suite') or {}
+        run_id = check.get('workflow_run_id')
+        if run_id is None:
+            url = urlsplit(check.get('details_url') or '')
+            prefix = f'/{c["repo"]}/actions/runs/'
+            if url.scheme == 'https' and url.netloc == 'github.com' and url.path.startswith(prefix):
+                value = url.path[len(prefix):].split('/')[0]
+                if value.isdigit():
+                    run_id = int(value)
+        if run_id is not None:
+            run = by_id.get(run_id, {})
+            if suite.get('id') is not None and suite['id'] != run.get('check_suite_id'):
+                return False
+            return run_id in superseded
+        linked = by_suite.get(suite.get('id'), set())
+        # Ambiguous suite linkage (for example a rerun sharing a suite) is not
+        # proof that this particular check belongs to the obsolete attempt.
+        return bool(linked) and linked <= superseded
+
+    return [check for check in checks if not obsolete(check)], complete
 
 
 def collect(c, pr_number=None):
@@ -41,9 +131,10 @@ def collect(c, pr_number=None):
                 p = gh(c, 'api', f'repos/{repo}/pulls/{number}')
             sha = p['head']['sha']
             check_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/commits/{sha}/check-runs?per_page=100')
+            raw_checks = [r for page in check_pages for r in page['check_runs']]
             checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'],
                        'conclusion': r['conclusion'], 'completed_at': r.get('completed_at')}
-                      for page in check_pages for r in page['check_runs']]
+                      for r in _workflow_checks(c, sha, raw_checks)]
             statuses = pages(c, f'repos/{repo}/commits/{sha}/statuses?per_page=100')
             latest = {}
             for s in statuses:
@@ -87,9 +178,12 @@ def collect(c, pr_number=None):
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
 
 
+_FAILED_CONCLUSIONS = frozenset((
+    'failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'))
+
+
 def _failing_checks(p):
-    return sorted({x['name'] for x in p['checks'] if x.get('conclusion') in
-                   ('failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale')})
+    return sorted({x['name'] for x in p['checks'] if x.get('conclusion') in _FAILED_CONCLUSIONS})
 
 
 def initial_event(p):
@@ -105,7 +199,12 @@ def initial_event(p):
     if not reasons:
         return None
     detail = '; '.join(reasons)
-    return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{detail}',
+    failures = sorted(
+        ((x.get('id'), x['name'], x.get('conclusion'), x.get('completed_at'))
+         for x in p.get('checks', []) if x.get('conclusion') in _FAILED_CONCLUSIONS),
+        key=lambda x: (x[1], str(x[0]), x[2] or '', x[3] or ''))
+    evidence = json.dumps(failures, separators=(',', ':'))
+    return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{p["head"]}:{detail}:{evidence}',
             'subject': f'PR #{p["number"]} initial state: {detail}', 'pr': p['number'],
             'branch': p['branch'], 'body': p['url'] + '\n' + detail}
 

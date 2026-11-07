@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 from fleet import github, groups, watcher
@@ -14,6 +15,11 @@ def history(*prs, runs=()):
 
 
 class InitialStateTests(unittest.TestCase):
+    def setUp(self):
+        anonymous = patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''})
+        anonymous.start()
+        self.addCleanup(anonymous.stop)
+
     def test_watch_reports_actionable_initial_state_without_waiting(self):
         scenarios = [
             (pull(merge_state='DIRTY'), 'DIRTY'),
@@ -156,6 +162,11 @@ class InitialStateTests(unittest.TestCase):
 
 
 class GroupTests(unittest.TestCase):
+    def setUp(self):
+        anonymous = patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''})
+        anonymous.start()
+        self.addCleanup(anonymous.stop)
+
     def test_synthetic_chain_excludes_side_history_and_includes_every_group_member(self):
         commit = lambda sha, parent, number: {'sha': sha, 'parents': [{'sha': parent}, {'sha': 'side'}], 'commit': {'message': f'Title (#{number})'}}
         commits = [commit('group-b', 'group-a', 8), commit('group-a', 'base', 7), commit('side', 'other', 99)]

@@ -245,10 +245,16 @@ fleet --config ~/.config/fleet/fleet.yml watch-pr PR_NUMBER
 While owning an open PR, builders **MUST** keep this armed as an **async background
 command**. Process each event and re-arm after every completion (including
 timeout/error) until merged or closed; work on actionable items or use omp wait
-only when blocked. Initial failures can return immediately again: fix the
-reported failure, never treat inbox silence as success. CI Actions-only watches
-may additionally use `gh run watch` or run_watch, but never replace the full PR
-watcher with those or retired `pr-wait.sh` scripts. No model-turn polling.
+only when blocked. Unchanged initial events are deduped per caller terminal/repo/PR
+in private state; `--include-seen` re-emits them. Native `ORCA_TERMINAL_HANDLE` wins
+over the `--terminal` fallback; anonymous calls retain repeated initial delivery.
+Fix reported failures even if re-arm now waits; inbox silence is not success.
+Cancelled/non-success head workflow checks are omitted only with a proven newer
+same-workflow/head run; bounded or unknown linkage retains failures. Healthy or
+pending-only heads need no extra workflow reads; process-local memoization avoids
+repeat reads for unchanged head/check-suite/conclusion evidence.
+CI Actions-only watches may additionally use `gh run watch` or run_watch, but never
+replace the full PR watcher with those or retired `pr-wait.sh` scripts. No model-turn polling.
 
 Main inbox wait, also as an async background command from Main's own terminal:
 

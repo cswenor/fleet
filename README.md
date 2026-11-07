@@ -314,10 +314,16 @@ Builder handles are re-listed every cycle, never stored as durable identities.
 Terminal-only builder mailboxes expire when their terminal closes; the Run inbox
 is durable across terminal replacement. Fleet never promises replay into a new session.
 Inbox enqueue does not prove the agent woke or read it. `watch-pr` first reports
-an already-DIRTY, failing, merged or closed PR immediately. Otherwise it blocks
-on only the selected PR (including merge-group failures naming it) and exits
-on changes, timeout, or API failure, so async shell completion can wake a builder
-without polling model turns. Check-failure subjects name the failing checks.
+an already-DIRTY, failing, merged or closed PR immediately, unless that caller
+already received its current initial-event key. Receipts are private Fleet state,
+scoped to caller terminal, repository and PR. `ORCA_TERMINAL_HANDLE` takes precedence
+over the `--terminal HANDLE` fallback; without either, initial events always return.
+`--include-seen` forces initial re-emission. A new head, PR update or failed-check
+occurrence returns again. Live changes still wake normally; returned live failures
+also record their current initial diagnosis to avoid an immediate re-arm duplicate.
+Otherwise it blocks on only the selected PR (including merge-group failures naming
+it) and exits on changes, timeout, or API failure, so async shell completion can
+wake a builder without polling model turns. Check-failure subjects name the failing checks.
 Initial merge-group failures are omitted only when a newer, completely resolved
 group with a distinct synthetic head SHA also includes this PR, or a synthetic
 merge's second parent proves it tested an older PR head. Ordering uses creation
@@ -326,13 +332,23 @@ timestamps are missing. Unknown ordering, membership or lineage retains the fail
 Pending-group membership reads are bounded newest-first and stop at a proven
 successor; later live failures still wake immediately. Supervisor events are unchanged.
 A later pending/successful workflow on the same group cannot hide its failed workflow.
+Head checks from a cancelled or completed non-success workflow run are excluded
+when a newer run of that same workflow on that same head exists. Workflow history
+enrichment reads at most three pages of 100 runs per head per collection, only
+when a cancelled/completed non-success check exists. Process-local memoization
+reuses unchanged head/check-suite/conclusion evidence (up to 512 head entries);
+changed check status/linkage invalidates it. Healthy/pending-only heads add no reads.
+Unknown/ambiguous check linkage or unavailable history retains checks. Failed or
+truncated enrichment is not memoized, allowing recovery on the next collection.
+URL linkage requires the HTTPS GitHub authority and cannot override a conflicting
+check suite. A replacement that fails remains actionable; legacy statuses are unchanged.
 
 While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
 armed as an async background command. Process each event and re-arm after every
-completion, including timeout/error, until the PR merges or closes. An initial
-failure may return immediately again: fix the reported failure rather than
-ignoring it or treating a quiet inbox as success. Never rely on retired
-`pr-wait.sh` scripts or a single-workflow `gh run watch` alone.
+completion, including timeout/error, until the PR merges or closes. Fix reported
+failures even when re-arming suppresses their unchanged initial event; quiet inboxes
+are not success. Never rely on retired `pr-wait.sh` scripts or a single-workflow
+`gh run watch` alone.
 
 Failed native merge groups resolve all constituent PRs by walking the synthetic
 first-parent merge chain between the queue branch's base SHA and run head SHA.
