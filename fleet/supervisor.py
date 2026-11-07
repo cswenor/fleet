@@ -174,6 +174,8 @@ def alerts(s, c):
         result.append({'key': key, 'subject': subject, 'body': body, 'branch': None})
     for error in s.get('errors', []) + s.get('inventory', {}).get('errors', []):
         add('error:' + error, 'Fleet collection error', error)
+    for message in (s.get('github') or {}).get('unavailable', []):
+        add('github-unknown:' + digest(message), 'GitHub optional data unknown', message)
     for b in s.get('inventory', {}).get('builders', []):
         for flag in b['flags']:
             if flag == 'idle' and _completed_idle(c, b):
@@ -336,8 +338,18 @@ def cycle(c, deliver=True):
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
     pending = ledger['pending']
     current_g = s.get('github')
+    budget = s.get('github_budget', {})
+    if budget.get('blocked') and ledger.get('github_budget_window') != budget.get('reset'):
+        reset = budget['reset']
+        pending.append({'key': f'github-budget:{reset}', 'subject': 'github budget low',
+                        'body': f'GitHub reads deferred until {reset}; terminal and quota health continue.',
+                        'pr': None, 'branch': None})
+        ledger['github_budget_window'] = reset
     pr_alerts = []
     if current_g is not None:
+        if current_g.get('merge_group_unknown'):
+            # Missing permission is not supersession or recovery evidence.
+            current_g['merge_group_runs'] = ledger['github'].get('merge_group_runs', [])
         changes = github.events(ledger['github'], current_g)
         seen = set(ledger.get('seen_prs', []))
         initial = [github.initial_event(p) for p in current_g['prs'] if p['number'] not in seen]
@@ -455,7 +467,10 @@ def cycle(c, deliver=True):
         # External endpoint availability never disables local supervision; redact URL/token/errors.
         failures.append('snapshot push unavailable')
     state.write(c, 'supervisor', ledger)
-    return s, {'pending': len(remaining), 'delivery_failures': failures, 'delivery_enabled': deliver}
+    report = {'pending': len(remaining), 'delivery_failures': failures, 'delivery_enabled': deliver}
+    if c.get('_github_debug'):
+        report['github_requests'] = s.get('github_requests', {})
+    return s, report
 
 
 def serve(c, deliver=True, once=False):

@@ -372,6 +372,52 @@ truncated enrichment is not memoized, allowing recovery on the next collection.
 URL linkage requires the HTTPS GitHub authority and cannot override a conflicting
 check suite. A replacement that fails remains actionable; legacy statuses are unchanged.
 
+### GitHub read budget and token permissions
+
+Fleet uses stock `gh` authentication; supervisors and builder installation tokens
+can have separate rate-limit pools. Do not infer one token's budget from another.
+REST GETs revalidate each page with `If-None-Match`; HTTP 304 reuses its cached
+body and does not consume GitHub's authenticated primary rate limit. `watch-pr`
+keeps a bounded process-local cache; snapshot/supervisor collection persists a
+private, credential-fingerprinted cache (256 pages / 16 MiB) across cycles.
+Only the fingerprint, validators, response bodies and budget metadata are stored,
+never credentials or arbitrary headers. Changing credentials discards the cache.
+GraphQL reads remain uncached and use their separate GitHub budget.
+
+PR watches read PR/check data first. Cold polls discover historical group failures;
+unchanged nonqueued polls then omit group history unless an own-group or unresolved
+pending/failed group needs tracking. Queue entry and head/check/PR changes refresh it. Hour-bucketed
+history URLs enable revalidation while results retain the exact rolling 24-hour cutoff.
+Existing group and workflow supersession rules are unchanged.
+
+Below 10% REST remaining, or on a rate-limit 403/429, GitHub reads defer until reset
+(at most one hour; secondary limits honor `Retry-After`). Permission-denied 403s
+are not rate exhaustion. Watch sleep respects its timeout. Supervisors continue
+terminal/quota/disk collection and emit one nonurgent `github budget low` report
+per reset window instead of repeated collection errors; unavailable GitHub visibility
+still withholds launches. `watch-pr --debug` prints per-poll request/304 counts to
+stderr; `serve --debug` includes per-cycle counts in its report. `status --debug`
+and `may-start --debug` expose the same counters without printing credentials.
+
+GitHub Apps need repository access and the following read permissions:
+
+| Data | GitHub App permission | If unavailable |
+|---|---|---|
+| PRs, reviews, review comments, merge queue | Pull requests: read | Required PR reads fail; optional queue reads become unknown |
+| Issue comments | Issues: read | Required; fail loudly |
+| Check runs | Checks: read | Required; fail loudly |
+| Commit statuses | Commit statuses: read | Required; fail loudly |
+| Commits, synthetic group comparisons | Contents: read | Required commit reads fail; unresolved group lineage retains failures |
+| Actions workflow/group history | Actions: read | Optional; 403/404 retains failing checks and reports unknown history |
+
+Optional queue/group/workflow permission errors never certify a healthy result:
+checks remain actionable without supersession proof, and known group failures are
+retained. Watches emit sanitized unknown-data diagnostics and continue; supervisors
+relay unknown optional data without urgency. Required failures return watch error
+JSON with a sanitized endpoint path (no query) and bounded, credential-redacted
+`gh` stderr. Keep token EnvironmentFiles private; never copy another project's
+installation token to diagnose a lane.
+
 While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
 armed as an async background command. Process each event and re-arm after every
 completion, including timeout/error, until the PR merges or closes. Fix reported

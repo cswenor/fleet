@@ -1,8 +1,9 @@
 """Blocking process for async shell completion; no model-turn polling."""
 import json
 import os
+import sys
 import time
-from . import github, groups, state
+from . import github, github_api, groups, state
 
 
 def _initial_view(current, number):
@@ -42,20 +43,43 @@ def _receipt(c, caller, number, initial, include_seen=False, record_only=False):
 
 def watch(c, number, timeout=14400, interval=60, terminal=None, include_seen=False):
     caller = os.environ.get('ORCA_TERMINAL_HANDLE') or terminal
-
-    def view():
-        return github.collect(c, number)
-    before = view()
-    initial = _receipt(c, caller, number, _initial_events(before, number), include_seen)
-    if initial:
-        return {'pr': number, 'events': initial}
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        time.sleep(min(interval, max(0, deadline - time.monotonic())))
-        after = view()
-        changes = [e for e in github.events(before, after) if e.get('pr') == number]
-        if changes:
-            _receipt(c, caller, number, _initial_events(after, number), record_only=True)
-            return {'pr': number, 'events': changes}
-        before = after
-    return {'pr': number, 'event': 'timeout', 'seconds': timeout}
+    before = None
+    unknown = []
+    first = True
+    with github_api.Session(c) as session:
+        while first or time.monotonic() < deadline:
+            first = False
+            started = dict(session.stats)
+            try:
+                after = github.collect(c, number)
+            except github_api.BudgetLow:
+                after = None
+            if c.get('_github_debug'):
+                print(json.dumps({'github_poll': {key: value - started.get(key, 0)
+                                                  for key, value in session.stats.items()},
+                                  'blocked_until': session.blocked_until}), file=sys.stderr, flush=True)
+            if after is not None:
+                if after.get('unavailable', []) != unknown:
+                    unknown = after.get('unavailable', [])
+                    if unknown:
+                        print(json.dumps({'pr': number, 'github_unknown': unknown}),
+                              file=sys.stderr, flush=True)
+                if before is None:
+                    initial = _receipt(c, caller, number, _initial_events(after, number), include_seen)
+                    if initial:
+                        return {'pr': number, 'events': initial}
+                else:
+                    changes = [e for e in github.events(before, after) if e.get('pr') == number]
+                    if changes:
+                        _receipt(c, caller, number, _initial_events(after, number), record_only=True)
+                        return {'pr': number, 'events': changes}
+                before = after
+            delay = max(interval, session.blocked_until - time.time())
+            remaining = max(0, deadline - time.monotonic())
+            if remaining:
+                time.sleep(min(delay, remaining))
+    result = {'pr': number, 'event': 'timeout', 'seconds': timeout}
+    if unknown:
+        result['github_unknown'] = unknown
+    return result

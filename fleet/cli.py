@@ -14,10 +14,12 @@ def main():
         p = sub.add_parser(cmd)
         p.add_argument('--json', action='store_true')
         p.add_argument('--drill-usage-file', help='test-only quota fixture; disables central push')
+        p.add_argument('--debug', action='store_true', help='report GitHub request and 304 counts')
     p = sub.add_parser('serve')
     p.add_argument('--once', action='store_true')
     p.add_argument('--no-deliver', action='store_true')
     p.add_argument('--drill-usage-file', help='test-only quota fixture; disables central push')
+    p.add_argument('--debug', action='store_true', help='report GitHub request and 304 counts per cycle')
     p = sub.add_parser('next', help='propose a ready task and verified slot; never launches')
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('launch')
@@ -49,6 +51,7 @@ def main():
     p.add_argument('--interval', type=int, default=60)
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
     p.add_argument('--include-seen', action='store_true', help='re-emit an already returned initial event')
+    p.add_argument('--debug', action='store_true', help='report GitHub request and 304 counts per poll')
     p = sub.add_parser('wait')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--wake-on', default='all',
@@ -95,6 +98,8 @@ def main():
                 print(json.dumps(install_central(c, args.environment_file)))
             return 0
         c = load(args.config)
+        if getattr(args, 'debug', False):
+            c['_github_debug'] = True
         if args.command == 'orca-restart':
             from .orca_restart import conduct
             result = conduct(c, args.plan, args.dry_run)
@@ -169,6 +174,8 @@ def main():
             print(json.dumps(install(c, args.deliver, args.environment_file)))
             return 0
         s = snapshot.collect(c)
+        if c.get('_github_debug'):
+            print(json.dumps({'github_requests': s.get('github_requests', {})}), file=sys.stderr)
         if args.command == 'may-start':
             result = snapshot.may_start(c, s)
             print(json.dumps(result))
@@ -176,6 +183,10 @@ def main():
         print(json.dumps(s, indent=2) if args.json else snapshot.render(s))
         return 0 if not s['errors'] else 1
     except (ValueError, OSError, CommandError) as e:
+        if args.command == 'watch-pr':
+            print(json.dumps({'pr': args.number, 'event': 'error', 'error': str(e),
+                              'endpoint': getattr(e, 'endpoint', None)}))
+            return 2
         prefix = 'DRILL ' if getattr(args, 'drill_usage_file', None) else ''
         print(f'{prefix}fleet: {e}', file=sys.stderr)
         return 2

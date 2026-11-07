@@ -1,8 +1,10 @@
-"""Bounded subprocess calls. Never include stderr/argv in errors: they can contain secrets."""
+"""Bounded subprocess calls; only gh emits credential-sanitized diagnostics."""
 from functools import lru_cache
 import json
+import os
 import re
 import subprocess
+from urllib.parse import urlsplit
 
 
 class CommandError(RuntimeError):
@@ -10,6 +12,53 @@ class CommandError(RuntimeError):
         super().__init__(message)
         self.code = code
 
+
+def _gh_reason(text):
+    """Bound diagnostics without exposing credentials, auth headers, or URL queries."""
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text or '')
+    for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'):
+        token = os.environ.get(name)
+        if token:
+            text = text.replace(token, '[redacted]')
+    text = re.sub(r'(?i)(?:proxy-authorization|authorization|x-auth-token|x-github-token)\s*[:=][^\r\n]*',
+                  '[redacted auth header]', text)
+    text = re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b', '[redacted]', text)
+    text = re.sub(r'\b[0-9a-fA-F]{40}\b', '[redacted]', text)
+    text = re.sub(r'(?i)\b(?:bearer|token|basic)\s+[A-Za-z0-9_./+=-]+', '[redacted credential]', text)
+    text = re.sub(r'https?://[^\s<>]+', lambda m:
+                  '/' + m[0].split('://', 1)[1].partition('/')[2].split('?', 1)[0].split('#', 1)[0], text)
+    return ' '.join(text.split())[:300]
+
+
+def _gh_endpoint(endpoint):
+    path = urlsplit(endpoint).path
+    return re.sub(r'[^A-Za-z0-9/._\[\]-]', '_', _gh_reason(path))[:180] or 'GitHub'
+
+
+def _gh_target(args):
+    skip = False
+    for arg in args[1:]:
+        if skip:
+            skip = False
+        elif arg in ('-X', '--method', '-H', '--header', '-f', '--field', '-F', '--raw-field',
+                     '--hostname', '--jq', '-q', '--template', '-t', '--input', '--cache'):
+            skip = True
+        elif not arg.startswith('-'):
+            return arg
+    return 'GitHub'
+
+
+class GhError(CommandError):
+    def __init__(self, endpoint, status=None, stderr=''):
+        if status is None:
+            match = re.search(r'\bHTTP (\d{3})\b', stderr or '')
+            status = int(match[1]) if match else None
+        self.endpoint = _gh_endpoint(endpoint)
+        self.status = status
+        reason = _gh_reason(stderr)
+        detail = f'HTTP {status}' if status is not None else 'request failed'
+        super().__init__(f'GitHub {self.endpoint}: {detail}' + (f': {reason}' if reason else ''),
+                         code='github_request_failed')
 
 def _execute(argv, cwd=None, timeout=60):
     try:
@@ -73,4 +122,16 @@ def orca(c, *args):
 
 
 def gh(c, *args):
-    return json_run(['gh', *args], c['root'])
+    from .github_api import active_session
+    session = active_session()
+    if session is not None:
+        if session.handles(c, args):
+            return session.request(c, args)
+        session.observe(c, args)
+    process = _execute(['gh', *args], c['root'])
+    if process.returncode:
+        raise GhError(_gh_target(args), stderr=process.stderr)
+    try:
+        return json.loads(process.stdout)
+    except (ValueError, TypeError) as error:
+        raise CommandError('invalid command JSON') from error

@@ -138,6 +138,16 @@ head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
 only green+reviewed small PRs. Keep reusable lanes after merge; retire session,
 not slot. Update Pad result and roadmap evidence when acceptance is actually met.
 
+TASK-65 adds conditional REST reads and private supervisor caches. Use
+`watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.
+Compare budgets only within the same token pool; builder App tokens need the
+README's read permissions. Below 10% REST remaining, GitHub collection backs off
+without stopping local health; one nonurgent budget report marks the reset window.
+Optional Actions/queue permission failures retain check/group failures and report
+unknown data instead of terminating a watch. Required errors include sanitized
+endpoint paths and bounded diagnostics. Never transfer another project's token
+for a probe; its owning Main runs post-deployment installation-token acceptance.
+
 Completed idle builders do not alert when their exact current launch has a
 canonical thread result plus Pad done or a verified post-publication handoff on
 a different next item. Unknown evidence still alerts. Positive completion is

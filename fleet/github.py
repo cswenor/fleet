@@ -6,6 +6,29 @@ from .commands import CommandError, gh
 from . import groups
 
 _workflow_check_cache = {}
+_pr_group_cache = {}
+
+
+def _permission_unknown(error, unavailable):
+    if (getattr(error, 'status', None) in (403, 404) or
+            'Resource not accessible by integration' in str(error)):
+        unavailable.append(str(error))
+        return True
+    return False
+
+
+def _queued(c, number):
+    owner, name = c['repo'].split('/')
+    query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id}}}}'
+    data = gh(c, 'api', 'graphql', '-f', 'query=' + query,
+              '-f', 'owner=' + owner, '-f', 'name=' + name, '-F', f'number={number}')
+    if data.get('errors'):
+        raise ValueError('GitHub PR queue query failed')
+    return data['data']['repository']['pullRequest']['mergeQueueEntry'] is not None
+
+
+def _recent(timestamp, cutoff):
+    return not timestamp or datetime.fromisoformat(timestamp.replace('Z', '+00:00')) >= cutoff
 
 
 def pages(c, endpoint):
@@ -14,7 +37,7 @@ def pages(c, endpoint):
     return [row for page in data for row in page]
 
 
-def _workflow_checks(c, sha, checks):
+def _workflow_checks(c, sha, checks, unavailable=None):
     if not any(r.get('conclusion') == 'cancelled' or
                (r.get('status') == 'completed' and
                 r.get('conclusion') not in (None, 'success')) for r in checks):
@@ -28,7 +51,7 @@ def _workflow_checks(c, sha, checks):
     if cached and cached[0] == signature:
         removed = cached[1]
         return [r for r in checks if r['id'] not in removed]
-    retained, complete = _uncached_workflow_checks(c, sha, checks)
+    retained, complete = _uncached_workflow_checks(c, sha, checks, unavailable)
     removed = {r['id'] for r in checks} - {r['id'] for r in retained}
     # One signature per head, bounded across long-running supervisor lifetimes.
     _workflow_check_cache.pop(key, None)
@@ -39,7 +62,7 @@ def _workflow_checks(c, sha, checks):
     return retained
 
 
-def _uncached_workflow_checks(c, sha, checks):
+def _uncached_workflow_checks(c, sha, checks, unavailable=None):
     runs = []
     complete = False
     # Bounded enrichment: missing history or unavailable Actions permissions must
@@ -47,7 +70,9 @@ def _uncached_workflow_checks(c, sha, checks):
     for page in range(1, 4):
         try:
             data = gh(c, 'api', f'repos/{c["repo"]}/actions/runs?head_sha={sha}&per_page=100&page={page}')
-        except CommandError:
+        except CommandError as error:
+            if unavailable is not None:
+                _permission_unknown(error, unavailable)
             return checks, False
         rows = data.get('workflow_runs', [])
         runs.extend(r for r in rows if r.get('head_sha') == sha)
@@ -103,7 +128,12 @@ def _uncached_workflow_checks(c, sha, checks):
 
 def collect(c, pr_number=None):
     repo = c['repo']
-    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace('+00:00', 'Z')
+    unavailable = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    since = cutoff.isoformat().replace('+00:00', 'Z')
+    # Stable URLs within each hour let the REST session revalidate with ETags.
+    # The broader fetched window is trimmed to the exact cutoff below.
+    query_since = cutoff.replace(minute=0, second=0, microsecond=0).isoformat().replace('+00:00', 'Z')
     if pr_number is not None:
         p = gh(c, 'api', f'repos/{repo}/pulls/{pr_number}')
         by_number = {pr_number: p}
@@ -121,6 +151,7 @@ def collect(c, pr_number=None):
         by_number = {p['number']: p for p in prs}
         by_number.update({p['number']: p for p in open_prs})
     result = []
+    check_signatures = {}
     for p in by_number.values():
         number = p['number']
         checks = []
@@ -134,7 +165,7 @@ def collect(c, pr_number=None):
             raw_checks = [r for page in check_pages for r in page['check_runs']]
             checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'],
                        'conclusion': r['conclusion'], 'completed_at': r.get('completed_at')}
-                      for r in _workflow_checks(c, sha, raw_checks)]
+                      for r in _workflow_checks(c, sha, raw_checks, unavailable)]
             statuses = pages(c, f'repos/{repo}/commits/{sha}/statuses?per_page=100')
             latest = {}
             for s in statuses:
@@ -142,6 +173,7 @@ def collect(c, pr_number=None):
             checks += [{'id': s['id'], 'name': s['context'], 'status': s['state'],
                         'conclusion': s['state'], 'completed_at': s.get('updated_at')}
                        for s in latest.values()]
+            check_signatures[number] = {'raw': raw_checks, 'statuses': latest}
             comments = pages(c, f'repos/{repo}/pulls/{number}/comments?per_page=100')
             comments += pages(c, f'repos/{repo}/issues/{number}/comments?per_page=100')
             reviews = pages(c, f'repos/{repo}/pulls/{number}/reviews?per_page=100')
@@ -154,27 +186,74 @@ def collect(c, pr_number=None):
                        'checks': sorted(checks, key=lambda x: (x['name'], x['id'])),
                        'comments': sorted([{'id': x['id'], 'updated_at': x.get('updated_at', x.get('submitted_at')), 'url': x.get('html_url')} for x in comments], key=lambda x: (x['id'], x['url'] or '')),
                        'reviews': [{'id': x['id'], 'state': x['state'], 'submitted_at': x.get('submitted_at')} for x in reviews]})
-    run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{since}&per_page=100')
-    runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
-                             'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
-                             'created_at': r.get('created_at'),
-                             'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
-                            for page in run_pages for r in page['workflow_runs']], pr_number=pr_number)
+    cached = None
+    signature = None
+    merge_group_unknown = False
     if pr_number is not None:
-        return {'prs': result, 'merge_group_runs': runs}
+        signature = json.dumps({'prs': [
+            {k: p[k] for k in ('head', 'state', 'updated_at', 'merge_state', 'checks')}
+            for p in result], 'checks': check_signatures}, sort_keys=True)
+        cached = _pr_group_cache.get((repo, pr_number))
+    # A cold read is necessary even for a healthy, nonqueued PR: a previous
+    # same-head group may have failed after leaving the queue. Once discovered,
+    # own-group evidence keeps history live for failure and supersession changes.
+    try:
+        refresh = (cached is None or cached[0] != signature or
+                   any(pr_number in r.get('prs', []) or
+                       (not r.get('membership_complete') and
+                        (r.get('status') != 'completed' or
+                         r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')))
+                       for r in cached[1]) or
+                   _queued(c, pr_number))
+    except CommandError as error:
+        if not _permission_unknown(error, unavailable):
+            raise
+        refresh = True
+    if refresh:
+        try:
+            run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100')
+            runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
+                                     'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
+                                     'created_at': r.get('created_at'),
+                                     'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
+                                    for page in run_pages for r in page['workflow_runs']
+                                    if _recent(r.get('created_at'), cutoff)], pr_number=pr_number)
+        except CommandError as error:
+            if not _permission_unknown(error, unavailable):
+                raise
+            runs = cached[1] if cached else []
+            merge_group_unknown = True
+    else:
+        runs = [r for r in cached[1] if _recent(r.get('created_at'), cutoff)]
+    if pr_number is not None and not unavailable:
+        key = (repo, pr_number)
+        _pr_group_cache.pop(key, None)
+        if len(_pr_group_cache) >= 512:
+            _pr_group_cache.pop(next(iter(_pr_group_cache)))
+        _pr_group_cache[key] = (signature, runs)
+    if pr_number is not None:
+        return {'prs': result, 'merge_group_runs': runs, 'unavailable': unavailable,
+                'merge_group_unknown': merge_group_unknown}
     owner, name = repo.split('/')
     default_branch = gh(c, 'api', f'repos/{repo}')['default_branch']
     query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{state pullRequest{number}} pageInfo{hasNextPage}}}}}'
-    queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
-    if queue.get('errors'):
-        raise ValueError('GitHub queue query failed')
-    repository = queue['data']['repository']
-    mq = repository.get('mergeQueue')
-    if mq and mq['entries']['pageInfo']['hasNextPage']:
-        raise ValueError('merge queue exceeds 100 entries')
-    commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={since}&per_page=100')
+    try:
+        queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
+        if queue.get('errors'):
+            raise ValueError('GitHub queue query failed')
+        repository = queue['data']['repository']
+        mq = repository.get('mergeQueue')
+        if mq and mq['entries']['pageInfo']['hasNextPage']:
+            raise ValueError('merge queue exceeds 100 entries')
+    except CommandError as error:
+        if not _permission_unknown(error, unavailable):
+            raise
+        mq = None
+    commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
+    commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]
     return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': mq['entries']['nodes'] if mq else [],
-            'merge_group_runs': runs, 'default_branch': default_branch,
+            'merge_group_runs': runs, 'merge_group_unknown': merge_group_unknown,
+            'default_branch': default_branch, 'unavailable': unavailable,
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
 
 

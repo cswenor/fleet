@@ -113,6 +113,60 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-65 — Conditional GitHub reads and budget deferral
+
+REST reads now use per-page ETags through stock `gh`; 304 responses reuse cached
+bodies without authenticated primary-rate charges. Watches keep process-local
+state; snapshot/supervisor cycles persist private credential-fingerprinted state,
+bounded to 256 entries / 16 MiB. GraphQL remains uncached and separately metered.
+Warm unchanged nonqueued watches omit group history unless own/unresolved group
+evidence needs tracking; cold discovery and existing supersession rules remain.
+History URLs use hourly buckets with exact local rolling-window filtering.
+
+REST remaining below 10% or actual rate-limit 403/429 defers reads until reset
+(one-hour bound, `Retry-After` for secondary limits). Watch sleep respects timeout;
+supervisor local health continues, emitting one nonurgent budget relay per window.
+Permission-denied optional workflow/group/queue reads become explicit unknown,
+retaining failing checks and known group failures; required reads fail loudly
+with sanitized path/error JSON. Main ruling `msg_89b9269b0bfc` defers the real
+installation-token repro to Project Alpha Main/lane2187 after deployment; no cross-project
+credential is provided. Synthetic 403 fixtures cover degradation, not live app proof.
+
+All 416 tests pass after integration with TASK-66. Real source CLI measurements used the live Project Alpha config,
+private scratch state, delivery disabled, push URL cleared and hooks disabled.
+Only configuration isolation and request-counting wrappers were injected; native,
+quota and GitHub reads remained real. Baseline frozen `origin/main` supervisor:
+49 cold / 38 warm `gh api` invocations, zero 304s, 33.95 / 27.00s. Updated supervisor:
+53 cold / 41 warm calls, 0 / 39 HTTP 304s, 34.47 / 25.80s; warm calls include one
+GraphQL and one charged REST response. Explicit pagination accounts for additional
+request counts. Baseline PR2403 cold poll: 19 calls; unchanged warm polls: 7 calls,
+zero 304s, 5.49–5.92s. Updated cold poll: 20 calls; warm polls: 8 calls, all eight
+304s, 5.77–5.82s. PR2403 retains group evidence, so its two history pages remain
+conditional reads; regressions separately prove nonqueued history omission.
+At those observed unchanged rates, three supervisors plus eight watches would
+consume approximately 180 primary REST requests/hour, excluding cold starts,
+actual changes, other clients and separate GraphQL usage; not a load-test guarantee.
+Measurements used stock `gh` auth, not a builder App pool. No shared installation
+or restart was performed. `--debug` exposes request/304 counts per poll/cycle.
+Independent review caught supervisor history loss during optional Actions denial.
+The regression failed before correction: unknown history now retains the previous
+supervisor group baseline across repeated denials, without recovery/re-notification.
+Source CLI fault smoke primed real Project Alpha history, then injected only an Actions
+group-history permission 403: all 100 saved group runs remained, with explicit
+unknown status. Other GitHub/native/quota reads stayed real; delivery/push/hooks
+were disabled and state private. This is fault injection, not a live App-token denial.
+A second independent review caught Enterprise pagination authority mismatch.
+The regression failed before correction; Link validation now uses stock `GH_HOST`
+while still refusing unrelated hosts. Live GitHub pagination over five open
+Project Alpha PRs used three pages twice: six requests, three 304s. Enterprise-host
+acceptance is fixture-based, not a live Enterprise-server claim.
+A third independent review caught unresolved pending groups being skipped before
+they could fail. The regression failed before correction; unresolved pending
+groups now keep conditional history refresh active until their outcome is known.
+A source `watch-pr` CLI smoke using synthetic gh HTTP responses observed pending
+then failure and returned exactly `Merge group 1 failure` after two group reads.
+Publication receipts belong on TASK-65/PR; merge requires Main exact-head GO.
+
 ### TASK-66 — Obsolete cooperative PARK resolution
 
 Active parks become `superseded` only with a newer same-slot launch and exact

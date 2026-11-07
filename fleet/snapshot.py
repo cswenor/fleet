@@ -3,18 +3,34 @@ import json
 from pathlib import Path
 import shutil
 import time
-from . import github, health, quota
+from . import github, github_api, health, quota
 from .commands import CommandError
 from .display import duration
+
+
+def _github(c, result):
+    with github_api.Session(c, persistent=True) as session:
+        try:
+            return github.collect(c)
+        finally:
+            result['github_requests'] = dict(session.stats)
+            if session.budget:
+                result['github_budget'] = dict(session.budget)
+            if session.blocked_until > time.time():
+                result['github_budget'] = {**result.get('github_budget', {}),
+                                           'blocked': True, 'reset': session.blocked_until}
 
 
 def collect(c):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
-    for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: github.collect(c)),
+    for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: _github(c, result)),
                     ('quota', lambda: quota.collect(c))):
         try:
             result[key] = fn()
+        except github_api.BudgetLow as error:
+            result['github_budget'] = {**result.get('github_budget', {}), 'reset': error.reset,
+                                       'blocked': True}
         except (CommandError, ValueError, KeyError, TypeError):
             result['errors'].append(key + ' collection unavailable')
     if result.get('inventory') is not None and result.get('github') is not None:
@@ -35,6 +51,8 @@ def may_start(c, s):
     reasons = []
     if s.get('errors'):
         reasons.extend(s['errors'])
+    if s.get('github_budget', {}).get('blocked'):
+        reasons.append('github budget low; visibility deferred until reset')
     if not s.get('quota', {}).get('may_start'):
         reasons.append(s.get('quota', {}).get('reason', 'quota unavailable'))
     if c.get('_drill_usage_file') and not s.get('real_quota', {}).get('may_start'):

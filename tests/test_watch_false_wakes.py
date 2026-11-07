@@ -1,5 +1,6 @@
 """PR38/PR55/TASK-64 watcher false-wake regression scenarios."""
 import os
+from datetime import datetime, timezone
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -97,3 +98,170 @@ class WatchFalseWakeTests(unittest.TestCase):
         result = self.watch(history(failed))
         self.assertIn('failing checks: CI', result['events'][0]['subject'])
         self.assertEqual(self.watch(history(failed))['event'], 'timeout')
+
+
+class SelectiveMergeGroupReadTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.c = {'repo': 'owner/repo', '_state': self.temp.name}
+        github._pr_group_cache.clear()
+        github._workflow_check_cache.clear()
+        self.pr = {'number': 7, 'title': 'Feature', 'html_url': 'https://example/pr/7',
+                   'head': {'sha': 'pr-head', 'ref': 'feature'}, 'state': 'open',
+                   'mergeable_state': 'clean', 'created_at': '2026-11-06T00:00:00Z',
+                   'updated_at': '2026-11-07T12:00:00Z', 'closed_at': None}
+        self.checks = []
+        self.runs = []
+        self.queued = False
+        self.calls = []
+        self.now = datetime(2026, 11, 7, 12, 30, tzinfo=timezone.utc)
+        clock = patch.object(github, 'datetime')
+        self.clock = clock.start()
+        self.clock.now.side_effect = lambda zone: self.now
+        self.clock.fromisoformat.side_effect = datetime.fromisoformat
+        self.addCleanup(clock.stop)
+        api = patch.object(github, 'gh', side_effect=self.response)
+        api.start()
+        self.addCleanup(api.stop)
+        group_api = patch.object(github.groups, 'gh', side_effect=self.response)
+        group_api.start()
+        self.addCleanup(group_api.stop)
+
+    def response(self, c, *args):
+        self.calls.append(args)
+        endpoint = args[-1]
+        if args[1] == 'graphql':
+            entry = {'id': 'queue-entry'} if self.queued else None
+            return {'data': {'repository': {'pullRequest': {'mergeQueueEntry': entry}}}}
+        if endpoint == 'repos/owner/repo/pulls/7':
+            return self.pr
+        if '/check-runs?' in endpoint:
+            return [{'check_runs': self.checks}]
+        if '/statuses?' in endpoint:
+            return [[]]
+        if '/actions/runs?event=merge_group' in endpoint:
+            return [{'workflow_runs': self.runs}]
+        if '/compare/' in endpoint:
+            sha = endpoint.split('...')[1].split('?')[0]
+            return [{'commits': [{'sha': sha, 'parents': [
+                {'sha': 'a' * 40}, {'sha': self.pr['head']['sha']}],
+                'commit': {'message': 'Merge pull request #7'}}]}]
+        if endpoint.endswith('/comments?per_page=100') or endpoint.endswith('/reviews?per_page=100'):
+            return [[]]
+        raise AssertionError(args)
+
+    def group_reads(self):
+        return [args[-1] for args in self.calls if '/actions/runs?event=merge_group' in args[-1]]
+
+    def group_run(self, number, conclusion='failure'):
+        return {'id': number, 'head_branch': 'gh-readonly-queue/main/pr-7-' + 'a' * 40,
+                'head_sha': f'group-{number}', 'pull_requests': [],
+                'created_at': f'2026-11-07T12:0{number}:00Z',
+                'status': 'completed' if conclusion else 'in_progress',
+                'conclusion': conclusion, 'html_url': f'https://example/runs/{number}'}
+
+    def test_unchanged_nonqueued_pr_skips_merge_group_history_after_cold_read(self):
+        first = github.collect(self.c, 7)
+        self.assertEqual(len(self.group_reads()), 1)
+        self.assertEqual(github.collect(self.c, 7), first)
+        self.assertEqual(github.collect(self.c, 7), first)
+        self.assertEqual(len(self.group_reads()), 1)
+        self.assertEqual(sum(args[1] == 'graphql' for args in self.calls), 2)
+
+    def test_changes_and_queue_entry_refresh_history(self):
+        github.collect(self.c, 7)
+        self.checks = [{'id': 1, 'name': 'CI', 'status': 'in_progress', 'conclusion': None}]
+        github.collect(self.c, 7)
+        self.assertEqual(len(self.group_reads()), 2)
+        self.pr['head']['sha'] = 'new-head'
+        github.collect(self.c, 7)
+        self.assertEqual(len(self.group_reads()), 3)
+        self.pr['updated_at'] = '2026-11-07T12:01:00Z'
+        github.collect(self.c, 7)
+        self.assertEqual(len(self.group_reads()), 4)
+        self.queued = True
+        github.collect(self.c, 7)
+        github.collect(self.c, 7)
+        self.assertEqual(len(self.group_reads()), 6)
+
+    def test_cold_same_head_failure_and_warm_supersession_remain_visible(self):
+        self.runs = [self.group_run(1)]
+        first = github.collect(self.c, 7)
+        self.assertEqual([e['subject'] for e in watcher._initial_events(first, 7)],
+                         ['Merge group 1 failure'])
+        self.runs.append(self.group_run(2, None))
+        pending = github.collect(self.c, 7)
+        self.assertEqual(watcher._initial_events(pending, 7), [])
+        self.runs[-1] = self.group_run(2)
+        failed = github.collect(self.c, 7)
+        self.assertEqual([e['subject'] for e in watcher._initial_events(failed, 7)],
+                         ['Merge group 2 failure'])
+        self.assertEqual(len(self.group_reads()), 3)
+
+    def test_nonqueued_pr_discovers_failure_of_initially_pending_unresolved_group(self):
+        self.runs = [self.group_run(1, None)]
+        first = github.collect(self.c, 7)
+        self.assertEqual(watcher._initial_events(first, 7), [])
+        self.assertEqual(first['merge_group_runs'][0]['prs'], [])
+        self.runs[0] = self.group_run(1)
+        failed = github.collect(self.c, 7)
+        self.assertEqual([e['subject'] for e in watcher._initial_events(failed, 7)],
+                         ['Merge group 1 failure'])
+
+    def test_bucket_url_is_stable_but_exact_cutoff_is_not(self):
+        self.runs = [self.group_run(1) | {'created_at': '2026-11-06T12:40:00Z'}]
+        self.assertEqual(len(github.collect(self.c, 7)['merge_group_runs']), 1)
+        self.now = self.now.replace(minute=45)
+        self.assertEqual(github.collect(self.c, 7)['merge_group_runs'], [])
+        self.assertEqual(self.group_reads()[0], self.group_reads()[1])
+
+    def test_queue_lookup_errors_are_not_treated_as_absent_membership(self):
+        github.collect(self.c, 7)
+        def unavailable(c, *args):
+            if args[1] == 'graphql':
+                return {'errors': [{'message': 'unavailable'}]}
+            return self.response(c, *args)
+
+        with patch.object(github, 'gh', side_effect=unavailable):
+            with self.assertRaisesRegex(ValueError, 'queue query failed'):
+                github.collect(self.c, 7)
+
+    def test_unresolved_failure_is_retried_without_pr_changes(self):
+        self.runs = [self.group_run(1) | {
+            'head_branch': 'gh-readonly-queue/main/pr-8-' + 'a' * 40}]
+        with patch.object(github.groups, 'gh', side_effect=github.CommandError('unavailable')):
+            first = github.collect(self.c, 7)
+        self.assertEqual(watcher._initial_events(first, 7), [])
+        second = github.collect(self.c, 7)
+        self.assertEqual([e['subject'] for e in watcher._initial_events(second, 7)],
+                         ['Merge group 1 failure'])
+        self.assertEqual(len(self.group_reads()), 2)
+
+    def test_global_commit_query_bucket_preserves_exact_window(self):
+        commit_urls = []
+
+        def global_response(c, *args):
+            endpoint = args[-1]
+            if args[1] == 'graphql':
+                return {'data': {'repository': {'mergeQueue': None}}}
+            if endpoint == 'repos/owner/repo':
+                return {'default_branch': 'main'}
+            if '/pulls?state=all' in endpoint:
+                return []
+            if '/pulls?state=open' in endpoint:
+                return [[]]
+            if '/actions/runs?event=merge_group' in endpoint:
+                return [{'workflow_runs': []}]
+            if '/commits?' in endpoint:
+                commit_urls.append(endpoint)
+                return [[{'sha': str(minute), 'html_url': 'https://example/commit',
+                          'commit': {'committer': {'date': f'2026-11-06T12:{minute}:00Z'}}}
+                         for minute in (20, 40)]]
+            raise AssertionError(args)
+
+        with patch.object(github, 'gh', side_effect=global_response):
+            self.assertEqual([x['sha'] for x in github.collect(self.c)['commits']], ['40'])
+            self.now = self.now.replace(minute=45)
+            self.assertEqual(github.collect(self.c)['commits'], [])
+        self.assertEqual(commit_urls[0], commit_urls[1])

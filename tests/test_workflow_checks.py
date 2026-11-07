@@ -27,6 +27,7 @@ class WorkflowChecksTests(unittest.TestCase):
     def collect(self, checks, runs, statuses=()):
         # Each fixture represents independent remote history, not a cached cycle.
         github._workflow_check_cache.clear()
+        github._pr_group_cache.clear()
         pr = {'number': 7, 'title': 'Feature', 'html_url': 'https://example/pr/7',
               'head': {'sha': 'sha', 'ref': 'feature'}, 'state': 'open',
               'mergeable_state': 'clean', 'created_at': '2026-11-06T00:00:00Z',
