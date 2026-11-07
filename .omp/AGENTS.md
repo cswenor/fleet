@@ -28,8 +28,11 @@ apply here. Record approvals in the assigned fleet Pad task comments.
 - Owner decides budgets, saved-reset spend (approval recorded BEFORE spending),
   rollout projects/order, production/shared-runtime restarts and dispatcher
   automation mode. Main's cost decisions do not grant budget/reset permission.
-- Escalate builder -> Main via a durable question/message to
-  `run:run_ca3dd4d80c5a`, with Pad ref, proposal, risk and decision needed. Reply
+- Escalate builder -> Main through exactly one channel: `fleet thread question`,
+  with Pad ref, proposal, risk and decision needed. It sends the native question
+  to `run:run_ca3dd4d80c5a` itself. Never also send a direct orca send/ask/question
+  for the same decision. Follow-ups use reply/status in the same pending native
+  subthread, not a new direct question. Reports use `--type status`. Reply
   in-thread and record the ruling on Pad; Main escalates owner-only decisions
   to the owner. Enqueue is not approval or proof of wake. Pending a decision,
   proceed only with unaffected in-scope work.

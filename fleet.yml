@@ -15,7 +15,8 @@ builder:
   - /home/dev/orca/workspaces/fleet/fleet-lane2
   rules_file: .omp/AGENTS.md
   idle_seconds: 2700
-  footer: Self-publish small PRs after a fresh independent read-only unadvised Sol
+  footer: |
+    Self-publish small PRs after a fresh independent read-only unadvised Sol
     review and green CI (no fleet review bot). Use fleet watch-pr asynchronously,
     never model-turn polling. This session is already fresh for its assigned task;
     never signal FRESH-READY for an inherited handoff. Pick the next piece by plan
@@ -28,8 +29,11 @@ builder:
     On PARK finish the current step, commit and push WIP, write a Pad handoff,
     report PARKED to the configured Run, then stop yourself; resume requires
     a Main-confirmed fresh session.
-    Decision requests MUST use --type question to run:<coordinator.run>;
-    reports use --type status. Never bind a builder terminal to any Run.
+    Decision requests use EXACTLY ONE channel: fleet thread question. It sends
+    the native type question to run:<coordinator.run> itself; never also send a
+    direct orca send/ask/question for the same decision. Follow-ups use reply/status
+    in the same pending native subthread, not a new direct question.
+    Reports use --type status. Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex
   reserve_percent: 10

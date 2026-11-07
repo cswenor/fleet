@@ -228,8 +228,14 @@ fleet --config /private/project/fleet.yml thread wait TASK-N --timeout 900
 ```
 
 Run thread waits asynchronously. Do not bind a builder terminal to **any** Run.
-Questions target `run:<coordinator.run>` as type `question`; reports are `status`.
-Main replies to the original message ID. Thread wait privately caches all observed
+Decision requests use **exactly one channel**: `fleet thread question`, which
+sends native type `question` to `run:<coordinator.run>` itself. Never also send a
+direct orca send/ask/question for the same decision. Success output confirms the
+native message ID and subthread: no separate direct send is needed. A pending
+question refuses with its ID/subthread; resume the wait, never resend. Follow-ups
+use reply/status in that same pending native subthread, not a new direct question.
+Reports are `status`. Main replies to the original message ID.
+Thread wait privately caches all observed
 mail types and copies the matching decision to Pad; after timeout/Pad failure,
 retry the same wait, not a duplicate question. Retain terminal until unseen
 replies are copied; terminal history is capped and expires on closure. Ambiguous

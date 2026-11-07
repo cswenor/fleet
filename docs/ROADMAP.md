@@ -113,6 +113,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-49 — One builder decision channel
+
+Builder decisions use exactly one channel: `fleet thread question` sends the
+native question to the configured Run itself. Never also send a direct Orca
+send/ask/question for the same decision; follow-ups use reply/status in the same
+pending native subthread. Launcher/default/project footers, local/adoption
+policy, workflow skill and README/Main guidance now state this explicitly.
+CLI success adds `sent: true` and a no-separate-send notice alongside native
+message/subthread IDs; pending refusal exposes those IDs (unknown message ID for
+ambiguous sends). Transport and whole-batch delivery/ack remain unchanged.
+Main approved omitting optional duplicate heuristics in `msg_d33d1496fa45`.
+
+Real source CLI drill (2026-11-07): Main-created fixture TASK-50, private
+config/state, seeded scratch receipt, separate owned scratch terminals, no model
+start. Run `run_bdd983068006` delivered exactly one native question
+`msg_2b12986a78f0` in `delivery_5113f8eabd07`. Success printed the sent notice and
+IDs; a second invocation refused exit 2 with the same pending message/subthread,
+without another row. Reply `msg_f4d40cd176fe` was copied to Pad; whole-batch ack
+then timed out (exit 3, no rows). Both scratch terminals closed with
+`ptyKilled: true`; TASK-50 cancelled. All 276 local tests passed; the CLI receipt
+regression failed before the change and passed after. Review/CI and exact-head
+Main GO are required before publication; shared deployment stays Main-owned.
+
 ### TASK-41 — Explicit prerequisite carry approvals
 
 Main approved `fleet carry --slot PATH --launch EXACT_ID --ref TASK-N --evidence TEXT`:

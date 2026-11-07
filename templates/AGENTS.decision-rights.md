@@ -30,11 +30,13 @@ This is agent policy, not additional `fleet.yml` schema.
 
 ## Escalation and safety
 
-Builder -> Main: decision requests MUST use `--type question` addressed to
-`run:<coordinator.run>`; reports use `--type status`. Identify the Pad task,
-proposal, risk, and decision needed. Use `fleet thread question REF --body '...'`
-and run `fleet thread wait REF` as an async background command for terminal
-builders. Reply in the original question thread with `orchestration reply --id`;
+Builder -> Main: decision requests use **exactly one channel**:
+`fleet thread question REF --body '...'`. It sends native type `question` to
+`run:<coordinator.run>` itself. Never also send a direct orca send/ask/question for
+the same decision. Follow-ups use reply/status in the same pending native
+subthread, not a new direct question. Reports use `--type status`. Identify the
+Pad task, proposal, risk, and decision needed. Run `fleet thread wait REF` as an
+async background command. Reply in the original question thread with `orchestration reply --id`;
 the builder wait records the ruling on Pad before returning. Main escalates
 owner-only decisions to the owner and records approval before action.
 Enqueue is not approval or proof of wake. Proceed only with unaffected in-scope

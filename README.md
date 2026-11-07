@@ -435,10 +435,16 @@ to isolate late replies from earlier questions/attempts. A different Pad task ge
 a different canonical thread. Session/terminal IDs are disposable; no supervised
 Task/Dispatch or `worker_done` is fabricated.
 
-Decision requests MUST be `--type question` to `run:<coordinator.run>`; reports
-use `status`. Main answers the emitted question message ID with native
-`orchestration reply --id`. Native `ask`, including resume, requires a Dispatch
-and cannot serve terminal builders. One background `thread wait` process reads
+Decision requests use **exactly one channel**: `fleet thread question`. It sends
+the native type `question` to `run:<coordinator.run>` itself. Never also send a
+direct `orca send`/`ask`/question for the same decision. Success JSON includes
+`sent: true`, the native `message_id`, unique `thread_id` subthread and a `notice`
+that no separate direct send is needed. A pending question refuses with its
+message ID and subthread (an ambiguous send has no known message ID).
+Follow-ups use reply/status in that same pending native subthread, not a new
+direct question. Reports use `status`. Main answers the emitted question message
+ID with native `orchestration reply --id`. Native `ask`, including resume, requires
+a Dispatch and cannot serve terminal builders. One background `thread wait` process reads
 non-consuming terminal history every two seconds (requested 1000, native cap
 applies), caches **all observed message types** privately, and copies only the
 question, matching Main decision and final outcome to Pad. It returns only after

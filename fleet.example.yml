@@ -32,8 +32,11 @@ builder:
     that merge, report FRESH-READY with the next ref to the coordinator, and stop.
     On PARK: finish current step, commit+push WIP, write Pad handoff, report PARKED
     to the configured Run, then stop yourself. Resume only as a confirmed fresh session.
-    Decision requests MUST use --type question to run:<coordinator.run>;
-    reports use --type status. Never bind a builder terminal to any Run.
+    Decision requests use EXACTLY ONE channel: fleet thread question. It sends
+    the native type question to run:<coordinator.run> itself; never also send a
+    direct orca send/ask/question for the same decision. Follow-ups use reply/status
+    in the same pending native subthread, not a new direct question.
+    Reports use --type status. Never bind a builder terminal to any Run.
 quota:
   provider: openai-codex
   reserve_percent: 10
