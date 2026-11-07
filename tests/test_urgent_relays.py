@@ -61,6 +61,7 @@ class UrgentRelayTests(unittest.TestCase):
         self.s['inventory']['builders'][0]['flags'] = []
         self.s['inventory']['stray_worktrees'] = []
         self.cycle(2)
+        self.cycle(2.5)
         self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
         self.cycle(3)
         self.assertEqual(len(self.urgent_calls()), 5)
@@ -273,7 +274,8 @@ class CompletedIdleTests(unittest.TestCase):
         self.cycle(0)
         self.item['fields']['status'] = 'done'
         self.cycle(1)
-        self.assertNotIn('health:w:idle', state.read(self.c, 'supervisor')['active_alerts'])
+        self.cycle(2)
+        self.assertEqual(len(self.urgent_calls()), 1)
         self.assertEqual(len([argv for argv in self.pad_calls if 'show' in argv]), 2)
 
     def test_handoff_requires_later_publication_evidence_on_next_item(self):

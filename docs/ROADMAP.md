@@ -140,6 +140,32 @@ fresh model launch. Both owned scratch terminals closed with `ptyKilled: true`.
 No shared deployment or restart was performed. Publication receipts belong on
 TASK-62/PR; merge remains held for Main's exact-head GO.
 
+### TASK-59 — Terminal-scoped health alert recovery
+
+Health occurrences now key worktree, terminal handle, terminal incarnation and
+flag. A persisted absence counter requires `builder.alert_recovery_cycles`
+consecutive absent cycles (positive integer, default 2) before recovery; changed
+content and replacement incarnations still alert immediately. Old worktree/flag
+signatures transfer only to matching current content, then retire. Non-health
+alert recovery, health classification and urgency policy remain unchanged.
+
+Regressions reproduced alternating-terminal resends, flicker, missed replacement
+incarnations and old-ledger migration failures before correction. Coverage also
+checks consecutive absence, configured recovery, recurrence and changed evidence.
+Four real source `fleet.cli:main serve --once` cycles used private config/state
+and scratch Run `run_b976fb2fbb1c`. Inventory allowlisted this live Sol builder
+and one owned sleep-based scratch terminal in the same worktree. A deliberately
+mismatching expected model and absent scratch launch ledger exercised real
+classification: one wrong-model, one model-unknown and two terminal-distinct
+progress-unknown relays, each delivered exactly once across all four cycles.
+All cycles exited 0 without collection errors, pending deliveries or delivery
+failures. Real GitHub/quota/disk collection and native transport were unchanged.
+Both FIFO batches (including initial GitHub/stray status) were processed and
+acknowledged; both owned scratch terminals closed with `ptyKilled: true`.
+This proves source supervisor delivery, not shared installation or a fresh
+guarded model launch. Publication receipts belong on TASK-59/PR; shared behavior
+is held for Main's exact-head merge GO and separate deployment coordination.
+
 ### TASK-61 — Stalled builder turns
 
 Health now binds session progress to the current slot launch, terminal and

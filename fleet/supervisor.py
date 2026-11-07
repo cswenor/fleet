@@ -186,7 +186,9 @@ def alerts(s, c):
                          f'last JSONL event age={progress.get("event_age_seconds", "unknown")}s; '
                          f'UI={b.get("ui_state", "unknown")}; '
                          f'PRs/failed checks={json.dumps(prs, sort_keys=True)}')
-            add(f'health:{b["worktree"]}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}', body)
+            identity = digest([b['worktree'], b['terminal'], b.get('incarnation_id')])
+            add(f'health:{identity}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}', body)
+            result[-1]['legacy_key'] = f'health:{b["worktree"]}:{flag}'
             if flag in ('stalled', 'progress_unknown'):
                 # Ages change every cycle; only evidence changes or recovery re-alert.
                 result[-1]['occurrence'] = [b['terminal'], b.get('incarnation_id'),
@@ -367,15 +369,31 @@ def cycle(c, deliver=True):
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.
     prior = prior if isinstance(prior, dict) else {}
+    missing = ledger.get('health_absent_cycles', {})
+    next_active = dict(active_stuck)
+    legacy_keys = set()
     for a in active:
         signature = event_signature(a)
-        if prior.get(a['key']) != signature:
+        legacy_key = a.pop('legacy_key', None)
+        previous = prior.get(a['key'])
+        if legacy_key:
+            legacy_keys.add(legacy_key)
+            if previous is None:
+                previous = prior.get(legacy_key)
+        if previous != signature:
             # Content changes and every recovery→recurrence receive a new identity.
-            a = {**a, 'key': a['key'] + ':' + str(time.time_ns())}
-            pending.append(a)
-    ledger['active_alerts'] = {
-        a['key']: event_signature(a) for a in active}
-    ledger['active_alerts'].update(active_stuck)
+            pending.append({**a, 'key': a['key'] + ':' + str(time.time_ns())})
+        next_active[a['key']] = signature
+    next_missing = {}
+    recovery_cycles = c.get('builder', {}).get('alert_recovery_cycles', 2)
+    for key, signature in prior.items():
+        if key.startswith('health:') and key not in next_active and key not in legacy_keys:
+            absent = missing.get(key, 0) + 1
+            if absent < recovery_cycles:
+                next_active[key] = signature
+                next_missing[key] = absent
+    ledger['active_alerts'] = next_active
+    ledger['health_absent_cycles'] = next_missing
     pending.extend(missing_ready_reports(c, s, ledger, time.time()))
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)

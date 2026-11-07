@@ -265,6 +265,13 @@ on state, head, merge-state, checks or review progress, not comments or
 `updated_at`. Urgency is advisory and unauthenticated, never authority or
 permission to restart, stop, merge or deploy.
 
+Health alert identities include worktree, terminal handle, terminal incarnation
+and flag. Recovery requires `builder.alert_recovery_cycles` consecutive absent
+cycles (positive integer, default 2); a one-cycle flicker does not resend.
+Changed content or a new terminal incarnation still alerts immediately.
+Existing worktree/flag ledger signatures migrate only when current content
+matches, avoiding an upgrade duplicate burst without hiding changed evidence.
+
 `stalled` uses the newest event timestamp in the authoritative launch's dedicated
 OMP session JSONL, never terminal output age (spinners repaint continuously).
 Working UI with no event for `builder.stall_minutes` (default 60) alerts.

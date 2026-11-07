@@ -21,6 +21,8 @@ builder:
   # Adopt templates/AGENTS.decision-rights.md here; fill project/Main/review bindings.
   rules_file: AGENTS.md
   idle_seconds: 2700
+  # Positive integer; consecutive absent health cycles before recurrence re-alerts.
+  alert_recovery_cycles: 2
   # Positive finite minutes without durable session events (not spinner output).
   stall_minutes: 60
   stall_after_ci_minutes: 20
