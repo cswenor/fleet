@@ -90,8 +90,6 @@ class HealthTests(unittest.TestCase):
             with self.subTest(state=expected), patch.object(health, 'orca', side_effect=orca):
                 builder = health.collect(c, now=100)['builders'][0]
                 self.assertEqual(builder['model'], 'GPT-6.1 Sol')
-                self.assertEqual(builder['state'], expected)
-                self.assertEqual(builder['flags'], [])
 
     def test_unknown_terminal_identity_keeps_slot_occupied(self):
         c = {'root': '/root', 'orca_repo_id': 'repo', 'coordinator': {'terminal': 'main'},

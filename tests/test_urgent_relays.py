@@ -537,16 +537,18 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'urgent'):
                         config.load(path)
             c.pop('urgent')
-            for minutes in (0.5, 15):
-                c['builder']['ready_report_minutes'] = minutes
-                path.write_text(yaml.safe_dump(c))
-                self.assertEqual(config.load(path)['builder']['ready_report_minutes'], minutes)
-            for minutes in (0, -1, True, '15', None, float('inf'), float('nan')):
-                with self.subTest(ready_report_minutes=minutes):
-                    c['builder']['ready_report_minutes'] = minutes
+            for key in ('ready_report_minutes', 'stall_minutes', 'stall_after_ci_minutes'):
+                for minutes in (0.5, 15):
+                    c['builder'][key] = minutes
                     path.write_text(yaml.safe_dump(c))
-                    with self.assertRaisesRegex(ValueError, 'builder.ready_report_minutes'):
-                        config.load(path)
+                    self.assertEqual(config.load(path)['builder'][key], minutes)
+                for minutes in (0, -1, True, '15', None, float('inf'), float('nan')):
+                    with self.subTest(key=key, minutes=minutes):
+                        c['builder'][key] = minutes
+                        path.write_text(yaml.safe_dump(c))
+                        with self.assertRaisesRegex(ValueError, 'builder.' + key):
+                            config.load(path)
+                c['builder'].pop(key)
 
 
 if __name__ == '__main__':

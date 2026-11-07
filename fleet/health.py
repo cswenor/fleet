@@ -1,7 +1,11 @@
 """Read-only Orca inventory and conservative ownership mapping."""
+from datetime import datetime
+import json
+from pathlib import Path
 import re
 import time
 from .commands import orca
+from . import state
 
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 REF = re.compile(r'\b([A-Z]+-\d+)\b', re.I)
@@ -131,6 +135,85 @@ def binding(c, handle):
     return unknown
 
 
+def _event_time(value):
+    stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if stamp.tzinfo is None:
+        raise ValueError('event timestamp has no timezone')
+    return stamp.timestamp()
+
+
+def _progress(c, terminal, slot, now):
+    """Require the authoritative launch and one complete, slot-bound session."""
+    try:
+        record = state.read(c, 'launches', {}).get(slot, {})
+        if (not record.get('id') or record.get('terminal') != terminal['handle']
+                or not terminal.get('incarnationId')
+                or record.get('terminal_incarnation_id') != terminal['incarnationId']
+                or record.get('worktree', {}).get('path') != slot
+                or not record.get('session_dir')):
+            raise ValueError('launch binding unavailable')
+        logs = list(Path(record['session_dir']).glob('*.jsonl'))
+        if len(logs) != 1:
+            raise ValueError('session log absent or ambiguous')
+        newest = None
+        headers = 0
+        with logs[0].open() as stream:
+            for line in stream:
+                event = json.loads(line)
+                # OMP writes a timestamp-free title preamble before the header.
+                if event.get('type') == 'title' and 'timestamp' not in event:
+                    continue
+                if event.get('type') == 'session':
+                    headers += 1
+                    if event.get('cwd') != slot:
+                        raise ValueError('session slot mismatch')
+                stamp = _event_time(event['timestamp'])
+                newest = stamp if newest is None else max(newest, stamp)
+        if headers != 1 or newest is None:
+            raise ValueError('session header unavailable')
+        # Collection's snapshot clock precedes remote inventory reads. Events
+        # appended during those reads are healthy, not future-dated corruption.
+        if newest > max(now, time.time()):
+            raise ValueError('future event timestamp')
+        return {'last_event_at': newest, 'event_age_seconds': max(0, int(now - newest)),
+                'launch_id': record['id'], 'task': record.get('ref')}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def add_pr_stalls(c, inventory, github, now):
+    """Join only uniquely owned open PRs to the session's last durable progress."""
+    for pr in github.get('prs', []):
+        if pr['state'] != 'open':
+            continue
+        handle = owner(inventory, pr['branch'])
+        if not handle:
+            continue
+        builder = next(b for b in inventory['builders'] if b['terminal'] == handle)
+        failed_checks = [check for check in pr['checks'] if check.get('conclusion') in
+                         ('failure', 'error', 'timed_out', 'cancelled', 'action_required',
+                          'startup_failure', 'stale')]
+        builder.setdefault('owned_prs', []).append({
+            'number': pr['number'], 'head': pr.get('head'),
+            'failed_checks': sorted({check['name'] for check in failed_checks}),
+            'failure_events': [{key: check.get(key) for key in ('id', 'name', 'completed_at')}
+                               for check in failed_checks]})
+        progress = builder.get('progress')
+        if not progress or builder.get('ui_state') not in ('working', 'idle', 'draft'):
+            continue
+        failures = []
+        for check in failed_checks:
+            try:
+                finished = _event_time(check['completed_at'])
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if (progress['last_event_at'] <= finished <= now
+                    and now - finished >= c['builder'].get('stall_after_ci_minutes', 20) * 60):
+                failures.append(check['name'])
+        if failures and 'stalled' not in builder['flags']:
+            builder['flags'].append('stalled')
+
+
 def collect(c, now=None):
     now = time.time() if now is None else now
     trees = orca(c, 'worktree', 'list', '--repo', 'id:' + c['orca_repo_id'])
@@ -156,6 +239,14 @@ def collect(c, now=None):
         ready = (t.get('connected', False) and not t.get('orphaned') and
                  t.get('writable', False) and shell_ready(text))
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
+        ui = omp_ui(text)
+        progress = None if ready else _progress(c, t, w['path'], now)
+        if not ready:
+            if progress is None:
+                flags.append('progress_unknown')
+            elif (ui == 'working' and
+                  now - progress['last_event_at'] >= c['builder'].get('stall_minutes', 60) * 60):
+                flags.append('stalled')
         if ready:
             model, flags, idle = None, [], None
         terminal_binding = binding(c, t['handle'])
@@ -171,6 +262,7 @@ def collect(c, now=None):
                          'idle_seconds': idle, 'state': flags[0] if flags else ('shell' if ready else state),
                          'shell_ready': ready, 'binding': terminal_binding,
                          'incarnation_id': t.get('incarnationId'),
+                         'ui_state': ui, 'progress': progress,
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]

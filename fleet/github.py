@@ -41,12 +41,16 @@ def collect(c, pr_number=None):
                 p = gh(c, 'api', f'repos/{repo}/pulls/{number}')
             sha = p['head']['sha']
             check_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/commits/{sha}/check-runs?per_page=100')
-            checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'], 'conclusion': r['conclusion']} for page in check_pages for r in page['check_runs']]
+            checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'],
+                       'conclusion': r['conclusion'], 'completed_at': r.get('completed_at')}
+                      for page in check_pages for r in page['check_runs']]
             statuses = pages(c, f'repos/{repo}/commits/{sha}/statuses?per_page=100')
             latest = {}
             for s in statuses:
                 latest.setdefault(s['context'], s)
-            checks += [{'id': s['id'], 'name': s['context'], 'status': s['state'], 'conclusion': s['state']} for s in latest.values()]
+            checks += [{'id': s['id'], 'name': s['context'], 'status': s['state'],
+                        'conclusion': s['state'], 'completed_at': s.get('updated_at')}
+                       for s in latest.values()]
             comments = pages(c, f'repos/{repo}/pulls/{number}/comments?per_page=100')
             comments += pages(c, f'repos/{repo}/issues/{number}/comments?per_page=100')
             reviews = pages(c, f'repos/{repo}/pulls/{number}/reviews?per_page=100')

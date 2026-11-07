@@ -137,6 +137,16 @@ settlement. For legacy attempts without a settlement timestamp, the timer starts
 at the first verified handoff observation and persists in supervisor state.
 This fallback does not write Pad or authorize/schedule a launch.
 
+`stalled` is urgent by default: working UI without a new canonical session JSONL
+event for `builder.stall_minutes` (60), or an owned open PR's terminal failed/
+cancelled CI older than `builder.stall_after_ci_minutes` (20) with no later event
+in working/idle/draft UI. Both thresholds are per-project config. Background UI
+(live async-job ⚙ indicator) counts as progress and never raises stalled under
+either rule. Spinner output alone is not progress. Unknown launch/log evidence
+reports nonurgent `progress_unknown`; inspect task, PR/check names, event age and
+UI before deciding. No lane input, Esc or automatic restart is authorized.
+
+
 ### Carry a prerequisite
 
 TASK-41 permits an explicit Main-approved prerequisite within a live session,

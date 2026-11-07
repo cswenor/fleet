@@ -256,14 +256,31 @@ inventory retains owner delivery for a later successful lookup. Health and
 collector errors never restart or stop lanes.
 
 Urgent supervisor relays use native type `question` and subject prefix
-`[urgent] `; Orca has no native `urgent` type. `urgent.events` defaults to all six
+`[urgent] `; Orca has no native `urgent` type. `urgent.events` defaults to seven
 kinds: `provider_stalled`, `idle`, `wrong_model`, `stray_worktree`,
-`merge_group_failure`, `pr_stuck`; set it to `[]` to disable urgent upgrades.
+`merge_group_failure`, `pr_stuck`, `stalled`; set it to `[]` to disable urgent upgrades.
 Other relays remain `status`. `urgent.pr_stuck_minutes` is a positive finite
 number, default 45. The persisted PR timer starts on first observation and resets
 on state, head, merge-state, checks or review progress, not comments or
 `updated_at`. Urgency is advisory and unauthenticated, never authority or
 permission to restart, stop, merge or deploy.
+
+`stalled` uses the newest event timestamp in the authoritative launch's dedicated
+OMP session JSONL, never terminal output age (spinners repaint continuously).
+Working UI with no event for `builder.stall_minutes` (default 60) alerts.
+A uniquely owned open PR in working/idle/draft UI also alerts after a terminal
+failed/cancelled check is `builder.stall_after_ci_minutes` old (default 20), if
+no session event followed that failure. Both settings are per-project config
+and require positive finite minutes. Background UI (the live async-job ⚙
+indicator) counts as progress and is exempt from both stall rules, even for
+long quiet jobs. Check-run completion/status update timestamps are retained
+locally for this comparison.
+Missing, ambiguous, unreadable or mismatched launch/session evidence produces
+nonurgent `progress_unknown`; a verified ready shell needs no session progress.
+Reports include task, owned PRs, failed checks, JSONL event age and UI state.
+Changing age alone does not re-alert; recovery and new evidence do. These are
+read-only coordinator alerts, not an interrupt, a nudge, or proof of deadlock.
+
 
 Idle alerts are omitted only when the exact current launch/terminal incarnation
 has a canonical thread result and its Pad task is done, or a post-publication

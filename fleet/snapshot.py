@@ -17,6 +17,8 @@ def collect(c):
             result[key] = fn()
         except (CommandError, ValueError, KeyError, TypeError):
             result['errors'].append(key + ' collection unavailable')
+    if result.get('inventory') is not None and result.get('github') is not None:
+        health.add_pr_stalls(c, result['inventory'], result['github'], now)
     if c.get('_drill_usage_file'):
         result['drill'] = True
         result['real_quota'] = result.get('quota', {})

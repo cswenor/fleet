@@ -11,7 +11,7 @@ STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
                    'terminal': ['done', 'cancelled']}
 
 URGENT_EVENTS = ('provider_stalled', 'idle', 'wrong_model', 'stray_worktree',
-                 'merge_group_failure', 'pr_stuck')
+                 'merge_group_failure', 'pr_stuck', 'stalled')
 
 
 def validate_statuses(statuses, *, allow_no_progress=False):
@@ -61,10 +61,12 @@ def load(path):
         raise ValueError('builder.orca_status_extension must be an absolute path or null')
     b.setdefault('footer', 'This session is already fresh for the assigned task. Do not signal FRESH-READY for an inherited handoff or boundary. Pick the next piece by plan priority, usually the same feature; the same ref is allowed. Never switch to an unrelated task just to get a different ref. Only after publishing your NEXT piece of work (merged after your launch) and writing its concrete next-piece handoff after that merge, settle the primary thread with fleet --config CONFIG thread result REF, then make fleet --config CONFIG thread ready NEXT [--body TEXT] your last lane action and stop. Same-ref readiness requires the newer merge and later concrete handoff on that ref; Pad done alone is insufficient. Never raw-send FRESH-READY. Never resume context or silently switch provider/model. While you own an open PR, MUST keep fleet watch-pr PR armed as an async background command; process each event and re-arm after every completion (including timeout/error) until merged or closed. Never rely on retired pr-wait.sh scripts or single-workflow gh run watch alone; never poll with model turns. Decision requests use EXACTLY ONE channel: fleet thread question. It sends the native type question to run:<coordinator.run> itself; never also send a direct orca send/ask/question for the same decision. Follow-ups use reply/status in the same pending native subthread, not a new direct question. Ordinary progress/PARK reports may still use raw native send with --type status.')
     b.setdefault('idle_seconds', 2700)
-    b.setdefault('ready_report_minutes', 15)
-    minutes = b['ready_report_minutes']
-    if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
-        raise ValueError('builder.ready_report_minutes must be a positive finite number')
+    for key, default in (('ready_report_minutes', 15), ('stall_minutes', 60),
+                         ('stall_after_ci_minutes', 20)):
+        b.setdefault(key, default)
+        minutes = b[key]
+        if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
+            raise ValueError(f'builder.{key} must be a positive finite number')
     if b['thinking'] not in ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'):
         raise ValueError('invalid builder.thinking')
     if not isinstance(b['max'], int) or b['max'] < 1:

@@ -113,6 +113,44 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-61 — Stalled builder turns
+
+Health now binds session progress to the current slot launch, terminal and
+incarnation, then reads the single slot-bound OMP JSONL's newest event timestamp.
+Working UI without an event for `builder.stall_minutes` (default 60) raises
+urgent-by-default `stalled`, even with fresh spinner output. An owned open PR's
+failed/cancelled checks also raise it after `builder.stall_after_ci_minutes`
+(default 20), with no later event, in working/idle/draft UI. Main ruling
+`msg_871468e9c542` supersedes the original background threshold: live async-job
+background UI is progress and exempt from both rules regardless of event age.
+Both thresholds are per-project config. Unknown launch/log
+evidence raises nonurgent `progress_unknown`. Alert context includes task, PRs,
+failed checks, event age and UI; changing age alone does not repeat an occurrence.
+No terminal input/nudge command, watch-pr change or shared deployment is included.
+
+Regressions reproduced missing spinner/stale-session, failed-PR and unknown
+progress detection. New stale-90-minute-background and background-failed-PR
+regressions reproduced the amended contract's violation before its correction.
+Repeated real scratch Sol-medium sessions ran foreground `sleep 40` and async
+`sleep 45`: source collection showed working/event age 25s/`stalled`, versus
+background/event age 24s/no flags, both at a 6s threshold. Drills used private
+state and seeded launch bindings to actual scratch terminal incarnations/session
+files; inventory filtering excluded all other builders. They do not claim
+guarded fleet launch or deployed-service proof. Earlier original-contract
+evidence is retained on Pad but superseded by this Main ruling.
+All 337 tests pass. Actual model/thinking events for both repeated drills were
+Sol/medium; both owned terminals closed with `ptyKilled: true`, overlay removed.
+Independent review found snapshot-clock false unknowns during concurrent log
+writes and suppressed same-name CI rerun failures. Both regressions failed
+before correction. Read-completion wall clock now validates event timestamps,
+snapshot-relative age clamps to zero, and stable PR-head/check-ID/completion
+evidence distinguishes new failures without age-driven repeats.
+The real source `fleet.cli:main status --json` entrypoint returned no collection
+errors, bound this launch to TASK-61/PR56, and showed background UI, event age 0s,
+and no flags; the other idle lane retained its existing idle flag.
+Publication receipts belong on TASK-61/PR; Main exact-head merge GO is required.
+
+
 ### TASK-57 — Durable end-of-task ready reports
 
 `fleet thread ready NEXT [--body TEXT]` reports FRESH-READY after the current

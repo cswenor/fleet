@@ -18,6 +18,8 @@ def digest(value):
 
 
 def event_signature(event):
+    if 'occurrence' in event:
+        return digest([event['subject'], event['occurrence'], event.get('type', 'status')])
     content = [event['subject'], event['body'], event.get('branch')]
     if event.get('type', 'status') != 'status':
         content.append(event['type'])
@@ -168,8 +170,20 @@ def alerts(s, c):
         for flag in b['flags']:
             if flag == 'idle' and _completed_idle(c, b):
                 continue
-            add(f'health:{b["worktree"]}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}',
-                f'{b["terminal"]} {b["path"]}; model={b["model"] or "unknown"}; flag={flag}')
+            body = f'{b["terminal"]} {b["path"]}; model={b["model"] or "unknown"}; flag={flag}'
+            if flag in ('stalled', 'progress_unknown'):
+                progress = b.get('progress') or {}
+                prs = b.get('owned_prs', [])
+                body += (f'; task={progress.get("task") or b["task"]}; '
+                         f'last JSONL event age={progress.get("event_age_seconds", "unknown")}s; '
+                         f'UI={b.get("ui_state", "unknown")}; '
+                         f'PRs/failed checks={json.dumps(prs, sort_keys=True)}')
+            add(f'health:{b["worktree"]}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}', body)
+            if flag in ('stalled', 'progress_unknown'):
+                # Ages change every cycle; only evidence changes or recovery re-alert.
+                result[-1]['occurrence'] = [b['terminal'], b.get('incarnation_id'),
+                                           progress.get('launch_id'), progress.get('last_event_at'),
+                                           prs]
     for path in s.get('inventory', {}).get('stray_worktrees', []):
         add('stray:' + path, 'Stray project worktree', path)
     if not s.get('quota', {}).get('may_start', False):
