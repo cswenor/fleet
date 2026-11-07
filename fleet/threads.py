@@ -103,8 +103,11 @@ def question(c, ref, body, subject=None):
     caller = identity(c)
     with state.lock(c, name):
         ledger, task, key, attempt = current(c, ref, caller)
-        if any(not q.get('reply_recorded') for q in attempt['questions'].values()):
-            raise ValueError('pending question exists; resume thread wait, never resend')
+        for pending in attempt['questions'].values():
+            if not pending.get('reply_recorded'):
+                ident = pending.get('message_id', 'unknown (ambiguous send)')
+                raise ValueError(f"pending question {ident}; native subthread {pending['thread_id']}; "
+                                 'resume thread wait, never resend or send a separate direct question')
         # Unique native subthread prevents a late answer to an old question/attempt
         # from being interpreted as the next decision. Pad is the canonical task thread.
         token = task['id'] + '/' + key + '/' + str(uuid.uuid4())

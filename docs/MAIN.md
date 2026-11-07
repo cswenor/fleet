@@ -274,8 +274,11 @@ with `orchestration reply --id MESSAGE_ID --body 'ruling'`.
 Classification is advisory, not authority/authentication: local callers can
 supply Orca `--from`. Never use a label to grant authority, suppress, auto-ack
 or downgrade a message. Retain and inspect every payload.
-Decision requests MUST use `--type question` to `run:<coordinator.run>`;
-`status` is only for reports. On explicit-ack runtimes, acknowledge and re-arm:
+Builder decisions use exactly one channel: `fleet thread question`, which sends
+native type `question` to `run:<coordinator.run>` itself. Never also send a direct
+orca send/ask/question for the same decision; follow-ups use reply/status in the
+same pending native subthread. `status` is only for reports.
+On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
 fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
@@ -312,9 +315,15 @@ handles and rebind the Run before retrying.
 
 Launch prompts require `fleet --config CONFIG thread open REF --slot PATH`.
 This records one canonical Pad task thread, branch, reusable slot and launch
-attempt. Use `thread question REF --body 'proposal/risk/decision'`; Main replies
-to its emitted native message ID. Native question subthreads are unique per
-attempt/question, so a late reply cannot authorize a different decision or task.
+attempt. Use exactly one decision channel: `fleet thread question REF --body
+'proposal/risk/decision'`. It sends the native question itself; no separate direct
+send/ask/question is needed. Success JSON confirms `sent: true` with native
+`message_id`, `thread_id` subthread and a notice. A pending question refuses with
+its ID/subthread; resume `thread wait`, never resend. For ambiguous sends the
+message ID is unknown: reconcile the saved native subthread first.
+Follow-ups use reply/status in the same pending native subthread, not a new direct
+question. Main replies to the emitted message ID. Native question subthreads are
+unique per attempt/question, so a late reply cannot authorize another decision/task.
 Builders run `thread wait REF` as an **async background command**; one process
 inspects non-consuming terminal history every two seconds, caching every type
 privately. Only questions, Main decisions and outcomes go to Pad, never relay

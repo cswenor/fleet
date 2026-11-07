@@ -97,6 +97,10 @@ def main():
                 result = threads.open_thread(c, args.ref, args.slot)
             elif args.thread_command == 'question':
                 result = threads.question(c, args.ref, args.body, args.subject)
+                result = {**result, 'sent': True,
+                          'notice': 'Question sent to the configured Run; no separate direct send '
+                                    'is needed. Use fleet thread wait for the reply; follow up '
+                                    'with reply/status in this same native subthread, not a new question.'}
             elif args.thread_command == 'wait':
                 result = threads.wait(c, args.ref, args.timeout)
             else:

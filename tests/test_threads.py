@@ -1,10 +1,13 @@
+import contextlib
+import io
+import json
 import os
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
-from fleet import state, threads
+from fleet import cli, state, threads
 
 
 class ThreadTests(unittest.TestCase):
@@ -140,6 +143,25 @@ class ThreadTests(unittest.TestCase):
             threads.wait(self.c, 'TASK-1', 1)
         state.write(self.c, 'launches', {self.temp.name: {'id': 'two', 'ref': 'TASK-1', 'terminal': 'term_builder'}})
         self.assertEqual(self.open()['thread_id'], opened['thread_id'])
+
+    def test_question_cli_confirms_send_and_refuses_pending_id_without_resending(self):
+        self.open()
+        argv = ['fleet', 'thread', 'question', 'TASK-1', '--body', 'approve?']
+        output = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), patch('sys.argv', argv):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+            receipt = json.loads(output.getvalue())
+            self.assertTrue(receipt['sent'])
+            self.assertEqual(receipt['message_id'], 'q1')
+            self.assertIn(receipt['thread_id'], self.sent[0])
+            self.assertIn('no separate direct send', receipt['notice'])
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                self.assertEqual(cli.main(), 2)
+            self.assertIn(receipt['message_id'], error.getvalue())
+            self.assertIn(receipt['thread_id'], error.getvalue())
+        self.assertEqual(len(self.sent), 1)
 
     def test_pending_or_ambiguous_question_is_never_resent(self):
         self.open()
