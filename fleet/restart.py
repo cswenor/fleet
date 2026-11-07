@@ -1,5 +1,5 @@
 """Retire one proven finished idle session, never interrupt or retry uncertain input."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -70,25 +70,86 @@ def _timestamp(value):
     raise ValueError('publication/handoff timestamp is missing, malformed, or lacks timezone')
 
 
+def _merged_prs(c, finished, date_filter):
+    """Search is only a prefilter; prove every page arrived before using it."""
+    query = '''
+    query($search: String!, $cursor: String) {
+      search(query: $search, type: ISSUE, first: 100, after: $cursor) {
+        issueCount
+        pageInfo { hasNextPage endCursor }
+        nodes { ... on PullRequest { number title body mergedAt url } }
+      }
+    }'''
+    search = f'repo:{c["repo"]} is:pr is:merged in:title,body "{finished}" merged:{date_filter}'
+    prs, numbers, cursors = [], set(), set()
+    cursor, total = None, None
+    while True:
+        args = ['api', 'graphql', '-f', 'query=' + query, '-f', 'search=' + search]
+        if cursor is not None:
+            args += ['-f', 'cursor=' + cursor]
+        try:
+            response = gh(c, *args)
+        except CommandError as exc:
+            raise ValueError('completion PR search API failed; retirement withheld') from exc
+        try:
+            if response.get('errors'):
+                raise ValueError
+            page = response['data']['search']
+            count, nodes, info = page['issueCount'], page['nodes'], page['pageInfo']
+            if type(count) is not int or count < 0:
+                raise ValueError
+            if count >= 1000:
+                raise ValueError('completion PR search reaches GitHub 1000-result cap; retirement withheld')
+            if total is None:
+                total = count
+            if count != total or not isinstance(nodes, list) or len(nodes) > 100:
+                raise ValueError
+            for pr in nodes:
+                number = pr['number']
+                if (type(number) is not int or number in numbers or not pr['mergedAt']
+                        or not isinstance(pr['title'], str) or not isinstance(pr['body'], str)
+                        or not isinstance(pr['url'], str) or not pr['url']):
+                    raise ValueError
+                _timestamp(pr['mergedAt'])
+                numbers.add(number)
+                prs.append(pr)
+            more, end = info['hasNextPage'], info['endCursor']
+            if type(more) is not bool or len(prs) > total:
+                raise ValueError
+            if not more:
+                if len(prs) != total:
+                    raise ValueError
+                return prs
+            if not nodes or len(prs) >= total or not isinstance(end, str) or not end or end in cursors:
+                raise ValueError
+            cursors.add(end)
+            cursor = end
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            if '1000-result cap' in str(exc):
+                raise
+            raise ValueError('completion PR search incomplete or inconsistent; retirement withheld') from exc
+
+
 def _completion(c, ref, finished, record):
     item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
-    prs = gh(c, 'pr', 'list', '--repo', c['repo'], '--state', 'merged', '--search', finished,
-             '--limit', '100', '--json', 'number,title,body,mergedAt,url')
-    if len(prs) >= 100:
-        raise ValueError('completion PR search truncated; retirement withheld')
+    same_ref = ref == finished
+    started = record.get('at')
+    if isinstance(started, bool) or not isinstance(started, (int, float)):
+        raise ValueError('restart requires a valid launch timestamp')
+    try:
+        launched = datetime.fromtimestamp(started, timezone.utc)
+        boundary = (launched - timedelta(days=1)).date().isoformat()
+    except (ValueError, OverflowError, OSError) as exc:
+        raise ValueError('restart requires a valid launch timestamp') from exc
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
-    prs = [p for p in prs if p.get('mergedAt') and pattern.search(p.get('title', '') + '\n' + (p.get('body') or ''))]
+    def matches(prs):
+        return [p for p in prs if pattern.search(p['title'] + '\n' + (p['body'] or ''))]
+    prs = matches(_merged_prs(c, finished, '>=' + boundary))
+    if not prs and not same_ref:
+        prs = matches(_merged_prs(c, finished, '<' + boundary))
     if not prs:
         raise ValueError('finished task has no merged PR carrying its Pad ref')
-    same_ref = ref == finished
     if same_ref:
-        started = record.get('at')
-        if isinstance(started, bool) or not isinstance(started, (int, float)):
-            raise ValueError('same-ref restart requires a valid launch timestamp')
-        try:
-            launched = datetime.fromtimestamp(started, timezone.utc)
-        except (ValueError, OverflowError, OSError) as exc:
-            raise ValueError('same-ref restart requires a valid launch timestamp') from exc
         prs = [p for p in prs if _timestamp(p['mergedAt']) > launched]
         if not prs:
             raise ValueError('same-ref restart requires a new PR merged after this launch')

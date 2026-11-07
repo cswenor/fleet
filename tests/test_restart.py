@@ -54,7 +54,7 @@ class RetirementTests(unittest.TestCase):
         proc_patch.start()
         self.addCleanup(proc_patch.stop)
         self.item = {'fields': '{"status":"done"}'}
-        self.prs = [{'title': 'TASK-1 fix', 'body': '', 'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
+        self.prs = [{'number': 1, 'title': 'TASK-1 fix', 'body': '', 'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
         self.comments = []
         self.sent = []
         self.exited = False
@@ -70,7 +70,7 @@ class RetirementTests(unittest.TestCase):
         self.patches = [patch.object(restart.health, 'collect', side_effect=lambda c: copy.deepcopy(self.inventory)),
                         patch.object(restart, 'orca', side_effect=self.orca),
                         patch.object(restart, 'json_run', side_effect=self.pad),
-                        patch.object(restart, 'gh', side_effect=lambda *a: self.prs),
+                        patch.object(restart, 'gh', side_effect=lambda *a: self.search_page(self.prs)),
                         patch.object(restart.snapshot, 'collect', side_effect=lambda c: {
                             'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True}, 'disk': {'low': False}}),
                         patch.object(restart.dispatcher, 'pad', side_effect=self.dispatcher_pad),
@@ -80,6 +80,51 @@ class RetirementTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         self.launch = restart.launcher.launch
+
+    @staticmethod
+    def search_page(prs, total=None, more=False, cursor=None):
+        return {'data': {'search': {
+            'issueCount': len(prs) if total is None else total, 'nodes': prs,
+            'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}
+
+    def test_many_unrelated_refs_paginate_to_body_only_completion(self):
+        unrelated = [{**self.prs[0], 'number': n, 'title': f'TASK-{n} unrelated'}
+                     for n in range(2, 102)]
+        correct = {**self.prs[0], 'title': 'Fix restart', 'body': 'Pad-Ref: TASK-1'}
+        with patch.object(restart, 'gh', side_effect=[
+                self.search_page(unrelated, 101, True, 'next'),
+                self.search_page([correct], 101)]):
+            self.assertEqual(self.run_restart()['retirement']['completion']['pr'], correct['url'])
+
+    def test_different_ref_historical_completion_survives_launch_date_bound(self):
+        self.record['at'] = 1794010000
+        state.write(self.c, 'launches', {self.slot: self.record})
+        with patch.object(restart, 'gh', side_effect=[
+                self.search_page([]), self.search_page(self.prs)]):
+            self.assertEqual(self.run_restart()['retirement']['completion']['pr'], self.prs[0]['url'])
+
+    def test_incomplete_search_never_sends_retirement_input(self):
+        for response in (
+                self.search_page(self.prs, 1000),
+                self.search_page(self.prs, 2),
+                self.search_page([], 2, True, 'next'),
+                {'errors': [{'message': 'API failed'}], **self.search_page(self.prs)},
+                {'data': None}):
+            with self.subTest(response=response):
+                with patch.object(restart, 'gh', return_value=response):
+                    self.refused('completion PR search')
+
+    def test_search_page_changes_and_repeated_rows_refuse(self):
+        first = self.search_page(self.prs, 3, True, 'next')
+        for second in (self.search_page(self.prs, 3, True, 'next'),
+                       self.search_page([], 2)):
+            with self.subTest(second=second):
+                with patch.object(restart, 'gh', side_effect=[first, second]):
+                    self.refused('incomplete or inconsistent')
+
+    def test_search_api_error_refuses_without_historical_fallback(self):
+        with patch.object(restart, 'gh', side_effect=CommandError('unavailable')):
+            self.refused('search API failed')
 
     def write_log(self):
         self.log.write_text('\n'.join(json.dumps(e) for e in self.events) + '\n')

@@ -113,6 +113,25 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-51 — Complete restart publication search
+
+Completion lookup uses quoted title/body ref search and a merge-date window from
+launch start minus one day. GraphQL cursor pagination must finish consistently;
+API errors, missing/duplicate/changing pages and the 1000-result search cap
+withhold retirement explicitly. Exact word-boundary title/body matching remains
+the authority. Different-ref lookup falls back to earlier merge dates only when
+the recent window has no exact match; same-ref still requires a merge strictly
+after launch and a later concrete handoff. Main approved this boundary in
+`msg_793affbccfda`.
+
+Read-only source CLI proof against `example-org/project-beta`: `_completion` for
+NEXT TASK-162 / finished TASK-160, with supplied launch boundary `1794010000`,
+returned [PR516](https://github.com/example-org/project-beta/pull/516) and actual Pad
+status `done`. No restart, retirement input, config/state writes or deployment.
+Restart regressions cover >100 unrelated candidates, body-only ref, historical
+completion, unchanged same-ref ordering and fail-closed incomplete/API results.
+Publication/review/CI receipts belong on TASK-51; shared deployment stays Main-gated.
+
 ### TASK-49 — One builder decision channel
 
 Builder decisions use exactly one channel: `fleet thread question` sends the
