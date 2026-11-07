@@ -35,6 +35,9 @@ def main():
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
     p.add_argument('--evidence', required=True, help='non-secret positive exit evidence; absence is not exit')
+    p = sub.add_parser('park-reconcile', help='Main records evidence to resolve an exact active park next cycle')
+    p.add_argument('--launch', required=True, dest='launch_id')
+    p.add_argument('--evidence', required=True, help='non-secret explicit Main reconciliation evidence')
     p = sub.add_parser('carry', help='Main approves a prerequisite ref on an exact live launch')
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
@@ -137,6 +140,10 @@ def main():
         if args.command == 'reconcile':
             from .dispatcher import reconcile
             print(json.dumps(reconcile(c, args.slot, args.launch_id, args.evidence), indent=2))
+            return 0
+        if args.command == 'park-reconcile':
+            from .governor import reconcile
+            print(json.dumps(reconcile(c, args.launch_id, args.evidence), indent=2))
             return 0
         if args.command == 'carry':
             from .dispatcher import carry

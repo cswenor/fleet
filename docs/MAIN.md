@@ -61,6 +61,16 @@ one lowest-priority lane on known reserve; unknown usage never parks. Main must
 reconcile WIP/Pad handoff and confirm a fresh session before resuming parked work
 (see README quota contract and roadmap TASK-11).
 
+Settled canonical attempts are not PARK candidates. A verified retirement plus
+newer guarded slot launch supersedes an obsolete park; unknown incarnation alone
+still blocks. Each new blocked quota episode relays once as ordinary status.
+To resolve an active park explicitly, from Main's configured terminal:
+`fleet --config CONFIG park-reconcile --launch EXACT_ID --evidence 'non-secret proof'`.
+The private append-only receipt takes effect on the next supervisor cycle.
+Inspect `supervisor.json` → `governor.reconciliations[receipt_id]` for
+`consumed`/`ignored`; stale receipts never clear later parks. This is not launch
+admission reconciliation and never authorizes stopping a builder.
+
 ## Brief and launch builders
 
 Run `fleet --config ~/.config/fleet/fleet.yml next --json` for a read-only

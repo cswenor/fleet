@@ -97,6 +97,99 @@ class GovernorTests(unittest.TestCase):
         self.builders[1]['incarnation_id'] = 'replacement'
         self.assertFalse(governor.deliverable(self.c, event, self.s, self.ledger))
 
+    def test_guarded_replacement_supersedes_park_and_allows_another_lane(self):
+        self.history()
+        self.advance()
+        launches = state.read(self.c, 'launches')
+        launches['/b'].update(id='new', at=5)
+        state.write(self.c, 'launches', launches)
+        state.write(self.c, 'retirements', {'/b': {
+            'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
+            'at': 4, 'stage': 'launched', 'next_launch_id': 'new'}})
+        self.builders[1]['shell_ready'] = True
+        events = self.advance(6)
+        parked = self.ledger['governor']['parked']
+        self.assertEqual(parked[0]['status'], 'superseded')
+        self.assertEqual(parked[0]['resolution']['next_launch_id'], 'new')
+        self.assertEqual([e['recipients'][0] for e in events if e.get('park')], ['a'])
+        self.assertEqual(self.ledger['governor']['active']['launch_id'], 'a')
+
+    def test_incomplete_retirement_never_supersedes_unknown_identity(self):
+        self.history()
+        self.advance()
+        launches = state.read(self.c, 'launches')
+        launches['/b'].update(id='new', at=5)
+        state.write(self.c, 'launches', launches)
+        for stage in ('exit-attempted', 'exit-sent', 'shell-verified-with-residue'):
+            state.write(self.c, 'retirements', {'/b': {
+                'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
+                'at': 4, 'stage': stage}})
+            self.assertTrue(all(not e.get('park') for e in self.advance(6)))
+            self.assertEqual(self.ledger['governor']['active']['launch_id'], 'b')
+
+    def test_settled_current_attempt_skipped_but_continuation_is_eligible(self):
+        self.history()
+        task = {'TASK-2': {'id': 'thread', 'attempts': {'b': {
+            'settled': True, 'terminal': 'b', 'slot': '/b'}}}}
+        state.write(self.c, 'threads-TASK-2', task)
+        self.assertEqual(self.advance()[0]['recipients'][0], 'a')
+        self.ledger = {}
+        task['TASK-2']['attempts']['b'].update(settled=False, attempt_id='continuation')
+        state.write(self.c, 'threads-TASK-2', task)
+        self.assertEqual(self.advance()[0]['recipients'][0], 'b')
+
+    def test_unresolved_park_reports_once_per_new_quota_episode(self):
+        self.history()
+        self.advance()
+        self.s['quota']['may_start'] = True
+        self.advance(1)
+        self.s['quota']['may_start'] = False
+        events = self.advance(2)
+        self.assertEqual(len(events), 1)
+        self.assertIn('park blocked by unresolved TASK-2', events[0]['subject'])
+        self.assertEqual(events[0].get('type', 'status'), 'status')
+        self.assertEqual(self.advance(3), [])
+
+    def test_reconcile_requires_main_exact_active_launch_and_evidence(self):
+        self.history()
+        self.advance()
+        state.write(self.c, 'supervisor', self.ledger)
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'builder'}):
+            with self.assertRaisesRegex(ValueError, 'Main terminal'):
+                governor.reconcile(self.c, 'b', 'observed retirement')
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'coordinator'}):
+            with self.assertRaisesRegex(ValueError, 'non-empty evidence'):
+                governor.reconcile(self.c, 'b', '  ')
+            with self.assertRaisesRegex(ValueError, 'exact active'):
+                governor.reconcile(self.c, 'wrong', 'observed retirement')
+            receipt = governor.reconcile(self.c, 'b', 'observed retirement')
+            self.assertEqual(governor.reconcile(self.c, 'b', 'retry')['id'], receipt['id'])
+        self.assertEqual(self.ledger['governor']['active']['launch_id'], 'b')
+        self.s['quota']['may_start'] = True
+        self.advance(1)
+        g = self.ledger['governor']
+        self.assertIsNone(g['active'])
+        self.assertEqual(g['parked'][0]['status'], 'reconciled')
+        self.assertEqual(g['parked'][0]['resolution']['evidence'], 'observed retirement')
+        self.assertEqual(g['reconciliations'][receipt['id']]['status'], 'consumed')
+        self.assertIn(receipt['id'], state.read(self.c, 'park-reconciliations'))
+        self.assertEqual(self.advance(2), [])
+
+    def test_stale_reconciliation_never_clears_later_park(self):
+        self.history()
+        self.advance()
+        state.write(self.c, 'supervisor', self.ledger)
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'coordinator'}):
+            receipt = governor.reconcile(self.c, 'b', 'observed exit')
+        active = self.ledger['governor']['active']
+        active['key'] += ':later-episode'
+        events = self.advance(1)
+        self.assertEqual(len(events), 1)
+        self.assertIn('ignored', events[0]['subject'])
+        self.assertIs(self.ledger['governor']['active'], active)
+        self.assertEqual(self.ledger['governor']['reconciliations'][receipt['id']]['status'], 'ignored')
+        self.assertEqual(self.advance(2), [])
+
     def test_shell_exit_keeps_failed_run_and_pad_copies_retryable(self):
         received = []
         fail = True

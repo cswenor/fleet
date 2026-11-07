@@ -118,6 +118,8 @@ alerted after `quota.unknown_alert_cycles` consecutive unknown supervisor cycles
 (positive integer, default 3); known usage resets the persisted streak. Quota
 collection errors use the same debounce; other collection/health errors and
 known reserve alerts remain immediate.
+Launches whose current canonical task-thread attempt is already settled are
+excluded from PARK selection; a reopened unsettled continuation is eligible again.
 The owner-builder inbox, coordinator Run and Pad task receive the request.
 The builder finishes its step, commits/pushes WIP, records a Pad handoff,
 reports PARKED, and exits itself. Fleet never injects exit/interrupt/kill input.
@@ -134,6 +136,33 @@ Main-confirmed and fresh. Terminal-only inboxes have Orca's lifetime limitation;
 the Run/Pad copies preserve the request after terminal closure. Send is enqueue,
 not proof the builder woke or read it. Saved resets require an explicit owner
 Pad DECISION **before** spending; Fleet invokes no reset/spend command.
+
+An obsolete active park becomes `superseded` only when `launches.json` records a
+newer launch in the same slot and `retirements.json` proves the exact parked
+launch/terminal/incarnation reached a verified shell before that replacement.
+Changed/unknown identity alone still blocks. Each new reserve episode blocked
+by an older unresolved park emits one ordinary status relay.
+
+Main can queue explicit non-secret reconciliation evidence without stopping the
+supervisor:
+
+```sh
+fleet --config /private/project/fleet.yml park-reconcile --launch EXACT_LAUNCH_ID \
+  --evidence 'exact old attempt retired; supporting non-secret evidence'
+```
+
+Only the configured Main terminal and exact active park launch ID are accepted;
+empty evidence refuses. The CLI returns a receipt ID and states that it takes
+effect on the next supervisor cycle. Requests are append-only in private
+`park-reconciliations.json`; retries for the same park return the same receipt.
+The supervisor records `consumed` or `ignored` under
+`governor.reconciliations[receipt_id]` in `supervisor.json`, never deletes requests,
+and reports each outcome once. A stale receipt never clears a later park, even
+for the same launch. Resolved requests move from `active` to `parked`: status
+`parked` means verified shell exit, `superseded` verified guarded replacement,
+and `reconciled` explicit Main evidence. This command neither stops a builder
+nor reconciles launch-slot admission; `fleet reconcile` remains separate.
+
 Builder launch overlays and the stock `.omp/unadvised-review.yml` review overlay
 pin `codexResets.autoRedeem: 'no'` and `claudeResets.autoRedeem: 'no'`, preventing
 native automatic spending even when inherited user settings allow it.

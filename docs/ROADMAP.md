@@ -113,6 +113,39 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-66 — Obsolete cooperative PARK resolution
+
+Active parks become `superseded` only with a newer same-slot launch and exact
+verified retirement evidence for the old launch/terminal/incarnation. Unknown
+identity still blocks. Settled current canonical task-thread attempts are skipped
+when selecting PARK candidates; unsettled continuations remain eligible.
+Each new reserve episode blocked by an older park emits one ordinary status relay.
+
+Main-approved `park-reconcile --launch ID --evidence TEXT` requires the configured
+Main identity, exact active park launch and nonempty evidence. Its private
+append-only receipt takes effect next cycle, avoiding races with the service's
+in-memory supervisor ledger. `governor.reconciliations[receipt_id]` records
+`consumed`/`ignored` atomically with the supervisor transition; stale receipts
+report once and never clear later parks. Resolved requests remain in `parked`
+with status `parked` (verified shell exit), `superseded` (guarded replacement), or
+`reconciled` (Main evidence). Launch admission reconciliation is unchanged.
+Contract rulings: `msg_ec5d082e8116`, `msg_0a67577d7613`.
+
+Three regressions failed before correction; all 378 tests pass. Main approved a
+seeded replay, not a fresh guarded restart: actual TASK-64→TASK-65 launch/
+retirement evidence replayed through source CLI `serve --once` with private
+state/config and an inventory fixture restricted to owned scratch identities.
+Real GitHub/quota/disk collection and native delivery stayed intact; quota used
+the existing drill fixture. Run `run_458169af88d0` received supersession
+`msg_05aca6561017`, exactly one blocked-episode relay `msg_db25f137c717`, and
+reconciliation `msg_b78c0d89214c`. Settled selection skipped; unknown incarnation
+remained active. Real CLI receipt `3872dddd-6993-4570-b4fd-4f6735c9bcd0` was mode
+0600 and consumed next cycle. Candidate PARK selection ran without delivery;
+no scratch PARK was sent to a live builder or Pad. All FIFO batches processed
+and acknowledged; both owned scratch terminals closed with `ptyKilled: true`.
+No live supervisor changes, fresh model launch or shared deployment claimed.
+Publication receipts belong on TASK-66/PR; merge is held for Main's exact-head GO.
+
 ### TASK-64 — Superseded workflow checks and watcher receipts
 
 Head check collection omits cancelled/completed non-success workflow checks only
