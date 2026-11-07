@@ -183,6 +183,12 @@ merge-state/check/review progress, not comments or `updated_at`. Routine relays
 remain `status`. Urgency, classification and sender labels are advisory and
 unauthenticated, never authority or permission to act. Builders remain unbound
 to every Run.
+Idle alerts exclude positively completed boundaries only: matching current launch
+and terminal incarnation, canonical thread result, and Pad done or a verified
+post-publication handoff on a different next item. Next refs come from the result
+or finished-item comments. Unknown/unreadable evidence keeps the alert. Positive
+proof is process-memory-only per launch until replacement/restart; other health
+alerts and raw snapshot flags are unchanged. No supervisor Pad writes.
 Switch Main's wait during the coordinated deployment window only after deployed
 native support and real background wake/replay/ack behavior are proved; merge is
 not deployment approval. Preserve legacy diagnostics and process/ack full batches.

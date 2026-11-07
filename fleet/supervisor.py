@@ -3,11 +3,12 @@ from contextlib import nullcontext
 import hashlib
 import json
 import os
+import re
 import signal
 import time
 import urllib.request
 from . import github, health, snapshot, state, governor
-from .commands import orca, run, CommandError
+from .commands import orca, run, json_run, CommandError
 from .config import URGENT_EVENTS
 
 
@@ -22,7 +23,58 @@ def event_signature(event):
     return digest(content)
 
 
-def alerts(s):
+def _completed_idle(c, builder):
+    """Suppress only positively settled current attempts; uncertainty keeps alerts."""
+    try:
+        slot = builder['path']
+        launch = state.read(c, 'launches', {}).get(slot, {})
+        ref = launch.get('ref')
+        if (not launch.get('id') or not isinstance(ref, str)
+                or not re.fullmatch(r'[A-Z]+-\d+', ref)
+                or launch.get('terminal') != builder['terminal']
+                or not builder.get('incarnation_id')
+                or launch.get('terminal_incarnation_id') != builder['incarnation_id']):
+            return False
+        cache = c.setdefault('_completed_idle_launches', {})
+        if cache.get(slot) == launch['id']:
+            return True
+        cache.pop(slot, None)
+        task = state.read(c, 'threads-' + ref, {}).get(ref, {})
+        attempt = task.get('attempts', {}).get(launch['id'], {})
+        if (not task.get('id') or attempt.get('settled') is not True
+                or not isinstance(attempt.get('result'), str) or not attempt['result'].strip()
+                or attempt.get('terminal') != builder['terminal'] or attempt.get('slot') != slot):
+            return False
+        item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show',
+                         ref, '--format', 'json'], c['root'])
+        fields = item.get('fields', {})
+        if isinstance(fields, str):
+            fields = json.loads(fields)
+        completed = fields.get('status') == 'done'
+        if not completed:
+            # Match the retirement publication/handoff convention, not prose alone.
+            from . import restart
+            comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item',
+                                 'comments', ref, '--format', 'json'], c['root'])
+            text = attempt['result'] + '\n' + '\n'.join(row['body'] for row in comments)
+            refs = set(re.findall(r'(?<![\w-])[A-Z]+-\d+(?![\w-])', text)) - {ref}
+            for next_ref in sorted(refs):
+                try:
+                    proof = restart._completion(c, next_ref, ref, launch)
+                except ValueError:
+                    continue
+                if proof.get('handoff'):
+                    completed = True
+                    break
+        if completed:
+            # Process-local only. A replacement launch must earn its own proof.
+            cache[slot] = launch['id']
+        return completed
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def alerts(s, c):
     result = []
     def add(key, subject, body):
         result.append({'key': key, 'subject': subject, 'body': body, 'branch': None})
@@ -30,6 +82,8 @@ def alerts(s):
         add('error:' + error, 'Fleet collection error', error)
     for b in s.get('inventory', {}).get('builders', []):
         for flag in b['flags']:
+            if flag == 'idle' and _completed_idle(c, b):
+                continue
             add(f'health:{b["worktree"]}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}',
                 f'{b["terminal"]} {b["path"]}; model={b["model"] or "unknown"}; flag={flag}')
     for path in s.get('inventory', {}).get('stray_worktrees', []):
@@ -189,7 +243,7 @@ def cycle(c, deliver=True):
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
-    active = alerts(s) + pr_alerts
+    active = alerts(s, c) + pr_alerts
     if current_g is None:
         # Unknown collection is not recovery: keep stuck occurrences deduplicated.
         active_stuck = {key: value for key, value in ledger.get('active_alerts', {}).items()

@@ -156,6 +156,145 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertTrue(all(e['key'].startswith('group:') for e, _ in self.urgent_calls()))
 
 
+class CompletedIdleTests(unittest.TestCase):
+    enqueue = UrgentRelayTests.enqueue
+    cycle = UrgentRelayTests.cycle
+    urgent_calls = UrgentRelayTests.urgent_calls
+
+    def setUp(self):
+        UrgentRelayTests.setUp(self)
+        self.c.update(root='/project', pad_workspace='workspace')
+        self.builder = self.s['inventory']['builders'][0]
+        self.builder.update(flags=['idle'], incarnation_id='incarnation')
+        self.launch = {'id': 'attempt', 'ref': 'TASK-37', 'terminal': 'builder',
+                       'terminal_incarnation_id': 'incarnation', 'at': 1767225600}
+        state.write(self.c, 'launches', {'/slot': self.launch})
+        self.attempt = {'slot': '/slot', 'terminal': 'builder', 'settled': True,
+                        'result': 'Published. Next TASK-38.'}
+        self.save_attempt()
+        self.item = {'fields': {'status': 'done'}}
+        self.comments = []
+        self.pad_calls = []
+        pad = patch.object(supervisor, 'json_run', side_effect=self.pad)
+        pad.start()
+        self.addCleanup(pad.stop)
+
+    def save_attempt(self):
+        state.write(self.c, 'threads-TASK-37',
+                    {'TASK-37': {'id': 'thread', 'attempts': {'attempt': self.attempt}}})
+
+    def pad(self, argv, cwd):
+        self.pad_calls.append(argv)
+        return self.item if 'show' in argv else self.comments
+
+    def test_settled_done_suppresses_only_idle(self):
+        self.builder['flags'] += ['wrong_model', 'provider_stalled']
+        self.cycle(0)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder wrong_model: TASK-37',
+                          '[urgent] Builder provider_stalled: TASK-37'])
+
+    def test_unsettled_or_resultless_attempt_keeps_idle_urgent(self):
+        for change in ({'settled': False}, {'result': ''}):
+            with self.subTest(change=change):
+                self.attempt.update(settled=True, result='Published')
+                self.attempt.update(change)
+                self.save_attempt()
+                state.write(self.c, 'supervisor', {'github': {}, 'pending': [], 'sent': {},
+                                                  'active_alerts': []})
+                self.calls.clear()
+                self.cycle(0)
+                self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                                 ['[urgent] Builder idle: TASK-37'])
+        self.assertEqual(self.pad_calls, [])
+
+    def test_unknown_settlement_keeps_idle_urgent(self):
+        for raw in ('{', '[]', '{"TASK-37": null}'):
+            with self.subTest(raw=raw):
+                (Path(self.c['_state']) / 'threads-TASK-37.json').write_text(raw)
+                state.write(self.c, 'supervisor', {'github': {}, 'pending': [], 'sent': {},
+                                                  'active_alerts': []})
+                self.calls.clear()
+                self.cycle(0)
+                self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                                 ['[urgent] Builder idle: TASK-37'])
+
+    def test_replacement_terminal_or_launch_does_not_inherit_settlement(self):
+        for change in ({'terminal': 'replacement'}, {'id': 'new-attempt'},
+                       {'terminal_incarnation_id': 'replacement'}):
+            with self.subTest(change=change):
+                state.write(self.c, 'launches', {'/slot': {**self.launch, **change}})
+                state.write(self.c, 'supervisor', {'github': {}, 'pending': [], 'sent': {},
+                                                  'active_alerts': []})
+                self.calls.clear()
+                self.cycle(0)
+                self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                                 ['[urgent] Builder idle: TASK-37'])
+
+    def test_unreadable_pad_keeps_idle_urgent(self):
+        with patch.object(supervisor, 'json_run', side_effect=CommandError('offline')):
+            self.cycle(0)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+
+    def test_positive_completion_is_cached_only_until_launch_changes(self):
+        self.cycle(0)
+        with patch.object(supervisor, 'json_run', side_effect=CommandError('offline')):
+            self.cycle(1)
+            self.assertEqual(self.urgent_calls(), [])
+            state.write(self.c, 'launches', {'/slot': {**self.launch, 'id': 'new'}})
+            self.cycle(2)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+        self.assertEqual(len(self.pad_calls), 1)
+
+    def test_negative_completion_is_retried(self):
+        self.item['fields']['status'] = 'in-progress'
+        self.attempt['result'] = 'Published without next ref'
+        self.save_attempt()
+        self.cycle(0)
+        self.item['fields']['status'] = 'done'
+        self.cycle(1)
+        self.assertNotIn('health:w:idle', state.read(self.c, 'supervisor')['active_alerts'])
+        self.assertEqual(len([argv for argv in self.pad_calls if 'show' in argv]), 2)
+
+    def test_handoff_requires_later_publication_evidence_on_next_item(self):
+        from fleet import restart
+        self.item['fields']['status'] = 'in-progress'
+        for body, created, suppress in (
+                ('TASK-37 handoff: next CLI piece', '2026-01-02T00:00:00Z', True),
+                ('TASK-37 handoff: next CLI piece', '2025-12-31T00:00:00Z', False),
+                ('TASK-370 handoff: unrelated', '2026-01-02T00:00:00Z', False)):
+            with self.subTest(body=body, created=created):
+                self.c.pop('_completed_idle_launches', None)
+                self.calls.clear()
+                state.write(self.c, 'supervisor', {'github': {}, 'pending': [], 'sent': {},
+                                                  'active_alerts': []})
+                comments = [{'id': 'handoff', 'body': body, 'created_at': created}]
+                def pad(argv, cwd):
+                    return self.item if 'show' in argv else comments
+                pr = {'number': 1, 'title': 'TASK-37', 'body': '',
+                      'url': 'https://example/pr/1', 'mergedAt': '2026-01-01T00:00:00Z'}
+                page = {'data': {'search': {'issueCount': 1, 'nodes': [pr],
+                        'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}
+                with patch.object(restart, 'json_run', side_effect=pad), \
+                        patch.object(restart, 'gh', return_value=page):
+                    self.cycle(0)
+                self.assertEqual(self.urgent_calls() == [], suppress)
+
+    def test_finished_comments_can_supply_next_ref_but_api_failure_keeps_alert(self):
+        from fleet import restart
+        self.item['fields']['status'] = 'in-progress'
+        self.attempt['result'] = 'Published'
+        self.save_attempt()
+        self.comments = [{'body': 'Next TASK-38 handoff'}]
+        with patch.object(restart, 'json_run', side_effect=self.pad), \
+                patch.object(restart, 'gh', side_effect=CommandError('offline')):
+            self.cycle(0)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+
+
 class UrgentConfigAndDeliveryTests(unittest.TestCase):
     def test_native_type_is_question_only_for_explicit_urgent_events(self):
         c = {'coordinator': {'terminal': 'main', 'run': 'r'}, 'repo': 'owner/project'}

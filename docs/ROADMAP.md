@@ -113,6 +113,28 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-52 — Completed-boundary idle alerts
+
+Idle emission now requires checking the authoritative slot launch and terminal
+incarnation, then its canonical settled thread result. Pad done suppresses idle;
+otherwise next refs from the result/finished-item comments are checked using the
+existing retirement publication/handoff proof on the different next item.
+Unknown/malformed/unreadable evidence retains the alert. Main approved this
+boundary and positive-only process-memory memoisation per exact launch in
+`msg_045c30a72de5`; negative results retry normally. Raw health and all other
+urgent kinds remain unchanged; no new status event or supervisor Pad write.
+
+The settled+done regression failed before the fix. All 299 local tests pass.
+Real source supervisor cycles used private config/state, scratch Run
+`run_f3d5b6a90660`, one owned sleep-based idle terminal, and an inventory-only
+filter excluding all real builders. Seeded settled TASK-54/PR51 evidence was
+verified against real Pad done: no idle alert. An unsettled replacement emitted
+one native question, `msg_367bfe9e596d`, in delivery `delivery_0b61d2ef7c76`;
+both cycles had zero pending deliveries/failures and no collection errors.
+Real GitHub/quota/disk collection and native transport were unchanged. This is
+supervisor emission proof, not a fresh model launch or deployment. Publication
+receipts belong on TASK-52/PR; shared rollout requires Main's exact-head GO.
+
 ### TASK-56 — Shared structural health UI detection
 
 Health and retirement now share `health.omp_ui`: the current composer/status band

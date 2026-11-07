@@ -265,6 +265,15 @@ on state, head, merge-state, checks or review progress, not comments or
 `updated_at`. Urgency is advisory and unauthenticated, never authority or
 permission to restart, stop, merge or deploy.
 
+Idle alerts are omitted only when the exact current launch/terminal incarnation
+has a canonical thread result and its Pad task is done, or a post-publication
+handoff is verified on a different next item. Next refs are discovered from the
+result and finished-item comments; publication/handoff proof uses the retirement
+convention. Missing/unreadable evidence keeps the idle alert. Positive completion
+is memoised per launch in supervisor process memory until replacement/restart;
+negative/unknown results retry each cycle. Raw health flags and all other alerts
+are unchanged. The supervisor never writes Pad to establish completion.
+
 Coordinator messages target `run:<id>`; owning builders receive durable terminal
 inbox messages, **not terminal keystrokes**. The service uses the explicitly
 configured coordinator handle as message sender; its body identifies fleet.

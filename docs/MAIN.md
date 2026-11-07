@@ -119,6 +119,12 @@ head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
 only green+reviewed small PRs. Keep reusable lanes after merge; retire session,
 not slot. Update Pad result and roadmap evidence when acceptance is actually met.
 
+Completed idle builders do not alert when their exact current launch has a
+canonical thread result plus Pad done or a verified post-publication handoff on
+a different next item. Unknown evidence still alerts. Positive completion is
+cached only in supervisor memory per launch; replacement/restart rechecks it.
+Raw health flags and other urgent kinds remain unchanged.
+
 ### Carry a prerequisite
 
 TASK-41 permits an explicit Main-approved prerequisite within a live session,
