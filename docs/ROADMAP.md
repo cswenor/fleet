@@ -156,7 +156,8 @@ the cooperative PARK message wording addition in `msg_77312071802b`.
 Read-only launcher harness rendered the complete rule with an empty override
 (4,364 bytes), default footer (7,163 bytes) and repository footer (7,605 bytes),
 with native transport mocked and no builder launch. Scratch governor rendering
-also produced the corrected PARK message without native sends. All 443 tests pass;
+also produced the corrected PARK message without native sends. All 445 tests pass
+after integrating current main (443 before integration);
 no permanent wording tests added. No obsolete self-exit wording remains in
 builder-facing source/policy. Publication requires fresh final-head independent review, green CI and
 Main exact-head GO. Merge does not deploy shared policy; supervisors must be
