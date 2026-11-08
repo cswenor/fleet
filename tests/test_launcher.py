@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -263,24 +264,41 @@ class RestartTests(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 self.assertFalse(health.shell_ready(prompt))
 
+    def test_captured_screen_wrap_metadata(self):
+        # Orca --screen captures, 2026-11-08: scratch terminal at 120 columns
+        # and the live Email lane-2 omp UI. wrapped marks the continuation row.
+        captures = json.loads((Path(__file__).parent / 'fixtures' /
+                               'orca-wrapped-screens.json').read_text())
+        for name, ready in (
+                ('wrapped_prompt', True),
+                ('clean_prompt_after_wrapped_command', True),
+                ('wrapped_output', False),
+                ('omp_ui', False)):
+            with self.subTest(capture=name):
+                self.assertEqual(health.shell_ready(captures[name]), ready)
+
+    def test_clipped_wrapped_prompt_is_not_complete_shell_evidence(self):
+        for tail in (['dev@host:~$'], ['dev@host:~/path/', 'continuation$']):
+            with self.subTest(tail=tail):
+                self.assertFalse(health.shell_ready({
+                    'tail': tail, 'tailRows': [{'wrapped': True} for _ in tail]}))
+
     def test_screen_wrap_metadata_is_authoritative(self):
+        # Email's original 51-column prompt and the command reported on TASK-78.
         tail = ['dev@devhost:~/orca/workspaces/project-beta/task-17-fle', 'et-lane-2$']
+        rows = [{'wrapped': False}, {'wrapped': True}]
+        self.assertTrue(health.shell_ready({'tail': tail, 'tailRows': rows}))
         self.assertTrue(health.shell_ready({
-            'tail': tail, 'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+            'tail': [tail[0], tail[1] + ' cd ~', 'dev@devhost:~$'],
+            'tailRows': rows + [{'wrapped': False}]}))
         self.assertFalse(health.shell_ready({
             'tail': tail, 'tailRows': [{'wrapped': False}, {'wrapped': False}]}))
         self.assertTrue(health.shell_ready({'tail': tail}))
         self.assertTrue(health.shell_ready({
-            'tail': tail + [''], 'tailRows': [
-                {'wrapped': True}, {'wrapped': False}, {'wrapped': False}]}))
-        self.assertTrue(health.shell_ready({
-            'tail': ['dev@host:~$'], 'tailRows': [{'wrapped': False}]}))
-        self.assertFalse(health.shell_ready({
-            'tail': ['output ending', 'in $'],
-            'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+            'tail': tail + [''], 'tailRows': rows + [{'wrapped': False}]}))
         self.assertFalse(health.shell_ready({
             'tail': ['dev@host:~$', '16;8t'],
-            'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+            'tailRows': [{'wrapped': False}, {'wrapped': True}]}))
         for rows in ([], [{'wrapped': True}], [{'wrapped': 'false'}, {'wrapped': False}]):
             with self.subTest(rows=rows):
                 self.assertFalse(health.shell_ready({'tail': tail, 'tailRows': rows}))

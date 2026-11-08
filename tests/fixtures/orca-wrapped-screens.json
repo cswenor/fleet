@@ -1,0 +1,292 @@
+{
+  "wrapped_prompt": {
+    "handle": "term_acdf46b3-ebc9-4366-9a42-e4051fdadf0b",
+    "status": "running",
+    "tail": [
+      "dev@devhost:~/orca/workspaces/project-beta/task-17-fleet-lane-2/capture/capture/capture/capture/capture/capture/captur",
+      "e/capture$"
+    ],
+    "truncated": false,
+    "limited": false,
+    "oldestCursor": "0",
+    "nextCursor": "2",
+    "latestCursor": "2",
+    "returnedLineCount": 2,
+    "tailRows": [
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": true,
+        "trailingSpaces": 1
+      }
+    ],
+    "source": "screen"
+  },
+  "clean_prompt_after_wrapped_command": {
+    "handle": "term_acdf46b3-ebc9-4366-9a42-e4051fdadf0b",
+    "status": "running",
+    "tail": [
+      "dev@devhost:~/orca/workspaces/project-beta/task-17-fleet-lane-2/capture/capture/capture/capture/capture/capture/captur",
+      "e/capture$ cd ~; PS1='dev@devhost:~$ '",
+      "dev@devhost:~$"
+    ],
+    "truncated": false,
+    "limited": false,
+    "oldestCursor": "0",
+    "nextCursor": "3",
+    "latestCursor": "3",
+    "returnedLineCount": 3,
+    "tailRows": [
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": true,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 1
+      }
+    ],
+    "source": "screen"
+  },
+  "wrapped_output": {
+    "handle": "term_acdf46b3-ebc9-4366-9a42-e4051fdadf0b",
+    "status": "running",
+    "tail": [
+      "output ending xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx$"
+    ],
+    "truncated": false,
+    "limited": false,
+    "oldestCursor": "0",
+    "nextCursor": "4",
+    "latestCursor": "4",
+    "returnedLineCount": 2,
+    "tailRows": [
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": true,
+        "trailingSpaces": 0
+      }
+    ],
+    "source": "screen"
+  },
+  "omp_ui": {
+    "handle": "term_aed8ec54-ab84-48bd-948b-7cbe8dc33231",
+    "status": "running",
+    "tail": [
+      "│         \"isBare\": false,                             │",
+      "│         \"isMainWorktree\": false                      │",
+      "│       }                                              │",
+      "│     }                                                │",
+      "│   },                                                 │",
+      "│   \"_meta\": {                                         │",
+      "│     \"runtimeId\":                                     │",
+      "│ \"0bce356b-d517-4353-bfb0-4ffbd1ddda22\"               │",
+      "│   }                                                  │",
+      "│ }                                                    │",
+      "╰─── Wall: 1.28s · Timeout: 120s ──────────────────────╯",
+      " • Read (2)",
+      "   ├─ src/server/decision-budget.ts:1-155",
+      "   └─ scripts/triage-eval/capture.ts:264-310",
+      "🔍 Grep: pre.empt|backfill|priority|live in",
+      "src/server/model-credentials.pg.test.ts 22 matches",
+      "├─ *1466│test(\"a queued live waiter is served before ear",
+      "│  *1471│  const backfill = acquireModelCredentialPermit",
+      "│  *1473│    lane: \"backfill\",",
+      "│  *1475│  }).then((value) => (order.push(\"backfill\"), v",
+      "│  *1483│  const live = acquireModelCredentialPermit({ .",
+      "└─ … 17 more matches",
+      " • Read (2)",
+      "   ├─ scripts/flow-eval/export-evidence.ts:128-182",
+      "   └─ scripts/operator-model-secret.ts:1-170",
+      " TODO",
+      "  ├─ Tasks · 0/4",
+      "  │  ├─ ☐ Prepare bounded real-request concurrency",
+      " benchmark and send Main the execution command",
+      "  │  ├─ ☐ Select and implement measured credential cap",
+      " with priority proof",
+      "  │  ├─ ☐ Run required checks and publish independently",
+      " reviewed PR",
+      "  │  └─ ☐ Observe CI and bot merge; record deployment",
+      " evidence and handoff",
+      "  └─────",
+      "  ⎋ Reading stdin secret adapter",
+      " ⠋ 1m > ◑ GPT-6.1 Sol > 🌳 …ne-2 ▶──14%─╎┃─────────500K─",
+      "╰─"
+    ],
+    "truncated": true,
+    "limited": true,
+    "oldestCursor": "618697",
+    "nextCursor": "620697",
+    "latestCursor": "620697",
+    "returnedLineCount": 39,
+    "tailRows": [
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 45
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 15
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 12
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 13
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 6
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 26
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 36
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 45
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 6
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 12
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 51
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 40
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 6
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 10
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 2
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 36
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 1
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 44
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 3
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 35
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 48
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 24
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 54
+      }
+    ],
+    "source": "screen"
+  }
+}

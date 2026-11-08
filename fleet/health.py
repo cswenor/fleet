@@ -44,11 +44,14 @@ def shell_ready(text):
         end = len(lines) - 1
         while end >= 0 and not lines[end].strip():
             end -= 1
-        if end < 0 or rows[end]['wrapped']:
+        if end < 0:
             return False
         start = end
-        while start > 0 and rows[start - 1]['wrapped']:
+        # xterm isWrapped describes this row continuing the previous row.
+        while start > 0 and rows[start]['wrapped']:
             start -= 1
+        if rows[start]['wrapped']:
+            return False  # The logical line begins outside this screen receipt.
         prompt = ''.join(lines[start:end + 1]).strip()
         return bool(re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', prompt))
     while lines and not lines[-1].strip():

@@ -145,23 +145,31 @@ execution without capture/restart. All 445 tests pass. Publication and real
 three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
 
 
-### TASK-76 — Soft-wrapped shell prompts
+### TASK-76 / TASK-78 — Soft-wrapped shell prompts
 
-Shell readiness accepts the full rendered screen receipt: `tailRows[].wrapped`
-authoritatively joins soft-wrapped rows into the final logical line before the
-existing supported-POSIX-prompt regex runs. All screen consumers preserve that
-metadata. Older text-only receipts use at most four contiguous trailing rows;
-blank rows never bridge that fallback. Malformed metadata refuses readiness.
-Main approved this boundary in `msg_cd4a5f34614d`.
+Shell readiness accepts the full rendered screen receipt. TASK-78 corrects
+PR71's inverted interpretation: `tailRows[i].wrapped` means row i continues
+row i-1 (xterm `isWrapped`), not that row i continues onto the next row.
+Starting at the last non-blank row, walk backward while the current row is
+wrapped, join that logical line, then apply the unchanged strict prompt regex.
+A final wrapped row is valid; a new unwrapped prompt never absorbs prior output.
+All screen consumers preserve metadata. Older text-only receipts retain the
+bounded four-row fallback; malformed metadata still refuses readiness. A logical
+line starting before the captured rows also refuses, even if its suffix matches
+the prompt regex (independent review caught this clipped-line boundary).
 
-The reported Email lane-2 prompt passes with its first row marked wrapped.
-Read-only live screen checks accept an existing shell and reject the narrow
-Email pane's working omp UI; no live narrow shell was available after Email
-resumed its builder. Wrapped reply residue remains blocked: residue recognition
-and restart's exact line-kill verification stay single-line, intentionally
-unchanged. No terminal input or runtime restart was performed.
-Publication requires independent final-head review, green CI and Main exact-head
-GO. Merge does not deploy shared health behavior.
+Real Orca screen captures from an owned 120-column scratch terminal supply
+regressions for wrapped prompts (`false,true`), a clean prompt after a wrapped
+command (`false,true,false`), and wrapped non-prompt output ending in `$`.
+The original reported 51-column Email prompt and `cd ~` transition are covered
+too. The captured positive cases failed before correction; all 452 tests pass
+afterward, including clipped-line refusals. Live CLI screen reads accept the
+scratch wrapped prompt and reject
+Email lane 2's resumed omp UI. The scratch terminal was closed; no input was
+sent to Email. Captures are retained in `tests/fixtures/orca-wrapped-screens.json`.
+Wrapped reply residue and restart's single-line line-kill verification remain
+unchanged. Publication requires independent final-head review, green CI and
+Main exact-head GO. Merge does not deploy shared health behavior.
 
 ### TASK-73 — Restart CLI idle diagnostics
 
