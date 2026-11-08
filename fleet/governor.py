@@ -211,7 +211,11 @@ def advance(c, s, ledger, now=None):
                        launch_record_id=launches.get(b['path'], {}).get('id'))
     body = (f"PARK {b['task']} (request {key}). Finish your current step, commit and push WIP to your task branch, "
             f"write a Pad handoff comment in workspace {c['pad_workspace']}, report PARKED with WIP/handoff evidence "
-            f"to run:{c['coordinator']['run']}, then stop this session yourself. Do not start another task or signal FRESH-READY. "
+            f"to run:{c['coordinator']['run']}. After reporting PARKED, end your turn with a final message and do nothing else: "
+            "no further tool calls, no background jobs, and never a job that waits on your own terminal/idle state "
+            "or sends input to your own terminal. Main (or the owner) retires the idle session via the documented "
+            "retirement path (fleet restart for eligible finished work, or manual idle-proof /exit + fleet reconcile). "
+            "Do not start another task or signal FRESH-READY. "
             f"Resume only as a Main-confirmed fresh session. Fleet never sends exit/interrupt/kill input. {CONSENT}")
     events.append({'key': key, 'subject': 'Fleet cooperative PARK: ' + b['task'], 'body': body,
                    'branch': None, 'park': key, 'attempt': dict(g['active']),

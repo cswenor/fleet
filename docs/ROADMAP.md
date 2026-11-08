@@ -141,6 +141,50 @@ tests pass; no wording-pinning tests added. Publication requires fresh final-hea
 independent review, green CI and Main exact-head GO; merge does not deploy shared
 policy or authorize service changes.
 
+### TASK-75 — End turns without self-exit jobs
+
+Builder PARK and successful FRESH-READY instructions now explicitly end with a
+final message and no further tools/background jobs, especially no job waiting
+on the builder's own terminal/idle state or sending input to that terminal.
+Main (or the owner) retires the idle session: guarded `fleet restart` for eligible
+finished work; otherwise positively proven idle, one manual `/exit`, verified
+same-incarnation foreground shell and `fleet reconcile`. Unfinished PARK does
+not bypass restart's publication gate; resume remains fresh and Main-confirmed.
+Governor logic, PARK protocol and reconciliation are unchanged. Main approved
+the cooperative PARK message wording addition in `msg_77312071802b`.
+
+Read-only launcher harness rendered the complete rule with an empty override
+(4,364 bytes), default footer (7,163 bytes) and repository footer (7,605 bytes),
+with native transport mocked and no builder launch. Main's pre-merge check caught
+the adoption example footer still carrying the obsolete instruction; it is now
+updated too, with a 6,882-byte read-only rendered-prompt smoke.
+Scratch governor rendering
+also produced the corrected PARK message without native sends. All 445 tests pass
+after integrating current main (443 before integration);
+no permanent wording tests added. Repository-wide search excluding only roadmap
+history finds no obsolete self-exit wording. Publication requires fresh final-head
+independent review, green CI and
+Main exact-head GO. Merge does not deploy shared policy; supervisors must be
+reinstalled for the cooperative PARK message change to take effect.
+
+### TASK-74 — Bounded async builder jobs
+
+Builder default and project footers, the unconditional launch prompt, workflow
+skill, decision-rights template and README now require jobs that can exceed a
+few minutes to run asynchronously with an explicit expected-runtime-plus-margin
+timeout. Builders process completion wakes, never spend more than ~10 minutes
+in one foreground wait, and inspect output size, stack/py-spy or logs before
+re-running a timed-out/non-progressing job. Background jobs remain exempt from
+`stalled`; their explicit timeout is the hang detector. No supervisor heuristic
+or CPU/output monitoring changed.
+
+Read-only launcher harness rendered the complete rule with an empty custom
+footer (3,686 bytes), default footer (6,059 bytes) and repository footer
+(6,521 bytes), with native transport mocked and no builder launch. All 443
+tests pass; no wording-pinning tests added. Publication requires fresh final-head
+independent review, green CI and Main exact-head GO; merge does not deploy shared
+policy or authorize service changes.
+
 ### TASK-72 — Explain shared-restart idle gates
 
 Main idle recognition now delegates to `health.omp_ui`, sharing its complete

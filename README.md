@@ -122,7 +122,12 @@ Launches whose current canonical task-thread attempt is already settled are
 excluded from PARK selection; a reopened unsettled continuation is eligible again.
 The owner-builder inbox, coordinator Run and Pad task receive the request.
 The builder finishes its step, commits/pushes WIP, records a Pad handoff,
-reports PARKED, and exits itself. Fleet never injects exit/interrupt/kill input.
+reports PARKED, then ends its turn with a final message and does nothing else:
+no further tool calls, no background jobs, and never a job that waits on its own
+terminal/idle state or sends input to its own terminal. Main (or the owner)
+retires the idle session via the [documented retirement path](docs/MAIN.md#guarded-retirement):
+`fleet restart` for eligible finished work, or manual idle-proof `/exit` +
+`fleet reconcile`. Fleet never injects exit/interrupt/kill input for PARK.
 An exact connected terminal at a verified shell prompt permits re-evaluation;
 absence/disconnection never does. `quota.park_timeout_seconds` (default 1800,
 maximum 86400) escalates once without authorizing another park.
@@ -692,8 +697,11 @@ or approval. Ready does not schedule, restart or launch anything; Main still
 approves the fresh launch.
 Existing sent `status` receipts remain valid and are never resent on upgrade.
 Main processes FRESH-READY as a `builder_decision_request` and replies in its
-native thread with the launch ruling. The builder stops after sending; it does
-not wait for that reply.
+native thread with the launch ruling. After a successful ready report, the builder
+ends its turn with a final message and does nothing else: no further tool calls
+or background jobs, never a job that waits on its own terminal/idle state or sends
+input to its own terminal. It does not wait for the reply or arrange self-exit;
+Main (or the owner) retires the idle session via the documented retirement path.
 
 Main may approve a prerequisite in the existing session (Pad relations alone
 never authorize it). Record the decision on Pad, then from the configured Main

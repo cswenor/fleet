@@ -45,8 +45,13 @@ builder:
     Ready sends a native question for Main's launch ruling; Main replies in-thread.
     Stop after sending without waiting for that reply; never resend an existing receipt.
     On PARK finish the current step, commit and push WIP, write a Pad handoff,
-    report PARKED to the configured Run, then stop yourself; resume requires
-    a Main-confirmed fresh session.
+    report PARKED to the configured Run; resume requires a Main-confirmed fresh session.
+    After reporting PARKED or successfully sending thread ready, end your turn with
+    a final message and do nothing else: no further tool calls, no background jobs,
+    and never a job that waits on your own terminal/idle state or sends input to
+    your own terminal. Main (or the owner) retires the idle session via the documented
+    retirement path (fleet restart for eligible finished work, or manual idle-proof
+    /exit + fleet reconcile).
     Decision requests use EXACTLY ONE channel: fleet thread question. It sends
     the native type question to run:<coordinator.run> itself; never also send a
     direct orca send/ask/question for the same decision. Follow-ups use reply/status
