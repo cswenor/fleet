@@ -562,9 +562,10 @@ project-local config/service updates for the fleet, Project Alpha and Project Be
 Per-project JSON `idle_checks` and `main_idle_checks` identify the exact failed
 gate, including footer/composer, background job, pane state, final session stop,
 lease, foreground process group and each builder lane; no raw exception text.
-At T-10 each Main stops its own async waits/background jobs, sends its final
-safe-idle confirmation, ends its turn and leaves an empty composer. Send the
-nominal T-5 confirmation before going quiet, not from a still-running wait.
+At T-10 each Main stops **ALL of its own** async/background jobs (inbox waits,
+wake timers, PR watches and deploy checks), confirms none remain, sends its
+final safe-idle confirmation, ends its turn and leaves an empty composer.
+Send the nominal T-5 confirmation before going quiet, not from a running job.
 All thinking glyphs use `health.omp_ui`; background jobs remain blockers.
 
 The conductor retains BEFORE/AFTER read-only capture and resumable journal

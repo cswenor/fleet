@@ -121,8 +121,9 @@ block; builder retirement semantics and conductor execution are unchanged.
 Per-project `idle_checks` and `main_idle_checks` report bounded reasons for
 binding, footer/composer, background job, pane state, final session stop, lease,
 foreground process group and each builder lane. The runbook requires each Main
-to stop its own async waits/jobs at T-10, confirm before going quiet and end its
-turn with an empty composer.
+to stop ALL of its own async/background jobs (inbox waits, timers, PR watches,
+deploy checks) at T-10, confirm none remain, send its confirmation before going
+quiet and end its turn with an empty composer.
 
 All 443 tests pass, including all-glyph idle acceptance, background/working/draft
 refusals and distinct pane/lease/foreground diagnostics. Read-only `_main_idle`

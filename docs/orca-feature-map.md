@@ -234,10 +234,11 @@ stash or extra worktree is authorized.
    pending IDs for replay comparison without discarding/acking real work.
    No bodies, subjects, payloads, prompts or credentials. Orca 1.4.242's read-only
    API cannot recover native unacked Delivery identity; inbox `read` is not ack.
-   At T-10, each Main stops **its own** async inbox waits and other background
-   jobs, sends its final safe-idle confirmation, ends its turn and leaves an
-   empty composer. Send the nominal T-5 confirmation before going quiet (or
-   confirm then immediately go quiet); do not leave a wait running to send it.
+   At T-10, each Main stops **ALL of its own** async/background jobs (inbox
+   waits, wake timers, PR watches and deploy checks), confirms none remain,
+   sends its final safe-idle confirmation, ends its turn and leaves an empty
+   composer. Send the nominal T-5 confirmation before going quiet (or confirm
+   then immediately go quiet); do not leave any job running to send it.
    No other agent injects interrupts. Keep project supervisors running.
    Main idle proof accepts the shared `health.omp_ui` thinking-glyph set but
    still rejects every background job, working pane, draft and pending dialog.
