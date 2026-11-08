@@ -234,6 +234,14 @@ stash or extra worktree is authorized.
    pending IDs for replay comparison without discarding/acking real work.
    No bodies, subjects, payloads, prompts or credentials. Orca 1.4.242's read-only
    API cannot recover native unacked Delivery identity; inbox `read` is not ack.
+   At T-10, each Main stops **ALL of its own** async/background jobs (inbox
+   waits, wake timers, PR watches and deploy checks), confirms none remain,
+   sends its final safe-idle confirmation, ends its turn and leaves an empty
+   composer. Send the nominal T-5 confirmation before going quiet (or confirm
+   then immediately go quiet); do not leave any job running to send it.
+   No other agent injects interrupts. Keep project supervisors running.
+   Main idle proof accepts the shared `health.omp_ui` thinking-glyph set but
+   still rejects every background job, working pane, draft and pending dialog.
 5. Main supplies the approved private plan at exactly
    `/home/dev/.local/state/fleet/orca-restart/plan.yml`, pins the reviewed fleet
    checkout, verifies a live user systemd manager and uses an **external shell**
@@ -373,6 +381,15 @@ fleet --config /home/dev/.config/fleet/fleet.yml orca-restart \
 Dry run is strictly read-only: no journal creation, waiting/scheduling, stop,
 launch, terminal/config/service updates or mail consumption. It reports
 blockers rather than bypassing missing confirmations, timing or evidence.
+Per-project JSON `idle_checks` identifies health inventory, coordinator binding,
+Main process/idle proof and each `builder lane PATH`. For a matched Main,
+`main_idle_checks` separately reports terminal identity, footer/composer,
+background job, dialog, pane agent state, session final stop, lease and foreground
+process group. Each result is `passed`, `failed` with a bounded source-defined
+reason, or `skipped` with its missing prerequisite; raw exception text is omitted.
+The existing `PROJECT_idle_binding_unproven` blocker remains fail-closed.
+Check these reasons well before the window against a deliberately idle scratch
+Main: an “expected pre-window” blocker is not evidence that its gate can clear.
 Execution also refuses before `execute_after` or after `expires_at`; it never
 waits until the appointed time. External systemd scheduling provides that wait.
 Preflight checks the exact same-user target `/proc` executable, complete argv,

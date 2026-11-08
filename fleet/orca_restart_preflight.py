@@ -1,4 +1,5 @@
 """Read-only, fail-closed proof for an explicitly approved shared Orca restart."""
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -392,35 +393,69 @@ def _idle_session(record):
     return {'id': headers[0]['id']}
 
 
-def _main_idle(c, record, terminal, row):
+@contextmanager
+def _idle_check(checks, name, reason):
+    """Keep diagnostics bounded and source-defined; exceptions may contain secrets."""
+    checks[name] = {'status': 'failed', 'reason': reason}
+    try:
+        yield
+    except FAILURES:
+        return
+    checks[name] = {'status': 'passed'}
+
+
+def _main_idle(c, record, terminal, row, checks=None):
     """The same positive idle proof as restart._idle, without builder argv policy."""
-    detail = orca(c, 'terminal', 'show', '--terminal', record['terminal'])['terminal']
-    if any(detail.get(key) != terminal.get(key) for key in ('handle', 'incarnationId', 'worktreeId')) or not detail.get('connected') or not detail.get('writable') or detail.get('orphaned') or detail.get('agentIdentity') != 'omp':
-        raise ValueError('Main terminal identity changed')
-    screen = orca(c, 'terminal', 'read', '--terminal', record['terminal'], '--screen')['terminal']
-    lines = health.ANSI.sub('', '\n'.join(screen.get('tail', []))).splitlines()
-    footers = [i for i, line in enumerate(lines) if re.match(r' π >\s*◑', line)]
-    if (not footers or footers[-1] != len(lines) - 2 or not re.fullmatch(r'╰─\s*', lines[-1]) or
-            re.search(r'waiting for|background job|permission|approve|deny|ask \d* question', '\n'.join(lines[max(0, footers[-1] - 3):]), re.I)):
-        raise ValueError('Main composer not positively idle and empty')
-    ps = orca(c, 'worktree', 'ps')
-    if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
-        raise ValueError('agent inventory incomplete')
-    pane = detail.get('tabId', '') + ':' + detail.get('leafId', '')
-    agents = [a for w in ps['worktrees'] if w['worktreeId'] == record['worktree']['id']
-              for a in w.get('agents', []) if a.get('paneKey') == pane and not a.get('parentPaneKey')]
-    if (len(agents) != 1 or agents[0].get('agentType') != 'omp' or
-            agents[0].get('state') not in ('idle', 'done') or agents[0].get('interrupted') or
-            agents[0].get('programStatus', {}).get('state') not in ('idle', 'done')):
-        raise ValueError('Main exact pane is not idle')
-    proof = _idle_session(record)
-    lease = json_run(['omp', 'session', 'lease', '--json', '--', proof['id']], c['root'])
-    if lease.get('held') != [proof['id']] or lease.get('unknown') != []:
-        raise ValueError('Main session lease unknown')
-    observed = _process(row['pid'])
-    if (observed['start_ticks'] != row['start_ticks'] or observed['tty'] == 0 or
-            observed['pgrp'] != observed['foreground_pgrp']):
-        raise ValueError('Main foreground identity unknown')
+    checks = checks if checks is not None else {}
+    with _idle_check(checks, 'terminal_identity', 'Main terminal identity changed'):
+        detail = orca(c, 'terminal', 'show', '--terminal', record['terminal'])['terminal']
+        if any(detail.get(key) != terminal.get(key) for key in ('handle', 'incarnationId', 'worktreeId')) or not detail.get('connected') or not detail.get('writable') or detail.get('orphaned') or detail.get('agentIdentity') != 'omp':
+            raise ValueError
+    text, ui = '', 'unknown'
+    with _idle_check(checks, 'footer_composer', 'glyph/footer, working/background UI or nonempty composer'):
+        screen = orca(c, 'terminal', 'read', '--terminal', record['terminal'], '--screen')['terminal']
+        text = '\n'.join(screen.get('tail', []))
+        ui = health.omp_ui(text)
+        if ui != 'idle':
+            raise ValueError
+    with _idle_check(checks, 'background_job', 'background job'):
+        if ui == 'background' or re.search(r'waiting for|background job', '\n'.join(
+                health.ANSI.sub('', text).splitlines()[-5:]), re.I):
+            raise ValueError
+    with _idle_check(checks, 'dialog', 'permission or question dialog'):
+        if ui == 'dialog' or re.search(r'permission|approve|deny|ask \d* question',
+                                      '\n'.join(health.ANSI.sub('', text).splitlines()[-5:]), re.I):
+            raise ValueError
+    with _idle_check(checks, 'pane_agent_state', 'Main exact pane is not idle or inventory incomplete'):
+        if checks['terminal_identity']['status'] != 'passed':
+            raise ValueError
+        ps = orca(c, 'worktree', 'ps')
+        if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
+            raise ValueError
+        pane = detail.get('tabId', '') + ':' + detail.get('leafId', '')
+        agents = [a for w in ps['worktrees'] if w['worktreeId'] == record['worktree']['id']
+                  for a in w.get('agents', []) if a.get('paneKey') == pane and not a.get('parentPaneKey')]
+        if (len(agents) != 1 or agents[0].get('agentType') != 'omp' or
+                agents[0].get('state') not in ('idle', 'done') or agents[0].get('interrupted') or
+                agents[0].get('programStatus', {}).get('state') not in ('idle', 'done')):
+            raise ValueError
+    proof = None
+    with _idle_check(checks, 'session_final_stop', 'session identity or final assistant stop unproven'):
+        proof = _idle_session(record)
+    checks['lease'] = {'status': 'skipped', 'reason': 'session final stop unproven'}
+    if proof is not None:
+        with _idle_check(checks, 'lease', 'Main session lease unknown'):
+            lease = json_run(['omp', 'session', 'lease', '--json', '--', proof['id']], c['root'])
+            if lease.get('held') != [proof['id']] or lease.get('unknown') != []:
+                raise ValueError
+    with _idle_check(checks, 'foreground_pgrp', 'Main foreground identity unknown'):
+        observed = _process(row['pid'])
+        if (observed['start_ticks'] != row['start_ticks'] or observed['tty'] == 0 or
+                observed['pgrp'] != observed['foreground_pgrp']):
+            raise ValueError
+    if any(check['status'] != 'passed' for check in checks.values()):
+        raise ValueError('Main idle proof failed')
+    return checks
 
 
 def inspect(plan, c):
@@ -512,49 +547,61 @@ def inspect(plan, c):
     known_terminals = set()
     for entry, pc in loaded:
         name = entry['name']
-        try:
+        checks = entry['idle_checks'] = {}
+        with _idle_check(checks, 'health_inventory', 'health inventory incomplete'):
             inventory = health.collect(pc)
             if inventory['errors']:
-                raise ValueError('health incomplete')
+                raise ValueError
+        with _idle_check(checks, 'coordinator_binding', 'coordinator identity or Run binding invalid'):
             coordinators = [t for t in terminals if t.get('handle') == entry['terminal']]
             if len(coordinators) != 1:
-                raise ValueError('coordinator terminal ambiguous')
+                raise ValueError
             terminal = coordinators[0]
             entry['terminal_metadata'] = terminal
             if (terminal.get('worktreePath') != entry['worktree'] or not terminal.get('incarnationId') or
                     not terminal.get('connected') or not terminal.get('writable') or terminal.get('orphaned') or
                     not isinstance(terminal.get('binding'), dict) or terminal['binding'].get('id') != entry['run']):
-                raise ValueError('coordinator identity or binding invalid')
+                raise ValueError
             known_terminals.add(entry['terminal'])
+        if checks['coordinator_binding']['status'] == 'passed':
             if entry['mode'] == 'main':
-                record, row = matched[entry['terminal']]
-                entry['main_process'] = dict(row)
-                _main_idle(pc, record, terminal, row)
+                with _idle_check(checks, 'main_process', 'Main launch/process binding unproven'):
+                    record, row = matched[entry['terminal']]
+                    entry['main_process'] = dict(row)
+                if checks['main_process']['status'] == 'passed':
+                    main_checks = entry['main_idle_checks'] = {}
+                    with _idle_check(checks, 'main_idle', 'Main idle sub-check failed'):
+                        _main_idle(pc, record, terminal, row, main_checks)
             else:
-                screen = orca(pc, 'terminal', 'read', '--terminal', entry['terminal'], '--screen')['terminal']
-                if entry['terminal'] in matched or not health.shell_ready('\n'.join(screen.get('tail', []))):
-                    raise ValueError('reserved coordinator shell is not proven')
-            for slot in pc['builder']['slots']:
+                with _idle_check(checks, 'coordinator_shell', 'reserved coordinator shell is not proven'):
+                    screen = orca(pc, 'terminal', 'read', '--terminal', entry['terminal'], '--screen')['terminal']
+                    if entry['terminal'] in matched or not health.shell_ready('\n'.join(screen.get('tail', []))):
+                        raise ValueError
+        for slot in pc['builder']['slots']:
+            if checks['health_inventory']['status'] != 'passed':
+                checks['builder lane ' + slot] = {'status': 'skipped', 'reason': 'health inventory incomplete'}
+                continue
+            with _idle_check(checks, 'builder lane ' + slot, 'builder lane shell, binding or exact idle proof unproven'):
                 builders = [b for b in inventory['builders'] if b['path'] == slot]
                 if not builders:
-                    raise ValueError('lane has no positive shell or idle proof')
+                    raise ValueError
                 for builder in builders:
                     handle = builder['terminal']
                     known_terminals.add(handle)
                     if builder.get('binding', {}).get('state') != 'none' or not builder['connected']:
-                        raise ValueError('builder terminal binding unknown or bound')
+                        raise ValueError
                     if builder.get('shell_ready'):
                         if handle in matched:
-                            raise ValueError('shell contradicts live model session')
+                            raise ValueError
                         continue
                     record, row = matched[handle]
                     trees = [t for t in inventory['worktrees'] if t['id'] == record['worktree']['id'] and t['path'] == slot]
                     if len(trees) != 1:
-                        raise ValueError('lane worktree unknown')
+                        raise ValueError
                     proof = restart._idle(pc, record, trees[0], handle)
                     if proof['process']['pid'] != row['pid'] or int(proof['process']['start']) != row['start_ticks']:
-                        raise ValueError('idle proof not captured process')
-        except FAILURES:
+                        raise ValueError
+        if any(check['status'] != 'passed' for check in checks.values()):
             blockers.append(name + '_idle_binding_unproven')
     if set(matched) - known_terminals:
         blockers.append('owned_session_project_unmapped')
