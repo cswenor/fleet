@@ -486,6 +486,37 @@ class RetirementTests(unittest.TestCase):
                 self.comments = [{'id': 'handoff', 'body': 'TASK-1 handoff', 'created_at': value}]
                 self.refused('timestamp')
 
+    @staticmethod
+    def compaction_pair():
+        return [{'type': 'compaction'},
+                {'type': 'message', 'message': {'role': 'custom', 'customType': 'eval-state-context'}}]
+
+    def test_post_turn_compaction_allows_retirement(self):
+        self.events.extend(self.compaction_pair())
+        self.write_log()
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+
+    def test_compaction_does_not_hide_later_work_or_unknown_summary(self):
+        original = copy.deepcopy(self.events)
+        pair = self.compaction_pair()
+        for tail in (
+                pair + [{'type': 'message', 'message': {'role': 'user'}}],
+                pair + [{'type': 'message', 'message': {'role': 'assistant', 'stopReason': 'toolUse'}}],
+                [pair[0], {'type': 'message', 'message': {'role': 'custom', 'customType': 'unknown'}}],
+                [pair[0]], [pair[1]],
+                [pair[0], {'type': 'title_change'}, pair[1]]):
+            with self.subTest(tail=tail):
+                self.events = copy.deepcopy(original) + tail
+                self.write_log()
+                self.refused('final assistant|later work')
+
+    def test_compaction_appended_during_admission_is_reverified(self):
+        def append():
+            self.events.extend(self.compaction_pair())
+            self.write_log()
+        with self.during_admission(append):
+            self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+
     def test_session_must_end_at_stop_except_known_metadata(self):
         for event in ({'type': 'message', 'message': {'role': 'user'}}, {'type': 'custom'}, {'type': 'future_event'}):
             with self.subTest(event=event):

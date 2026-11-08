@@ -388,15 +388,7 @@ def _idle_session(record):
     headers = [e for e in events if e.get('type') == 'session']
     if len(headers) != 1 or headers[0].get('cwd') != record['worktree']['path'] or not headers[0].get('id'):
         raise ValueError('manual Main log identity unknown')
-    messages = [i for i, event in enumerate(events) if event.get('type') == 'message']
-    if not messages:
-        raise ValueError('manual Main has no completed turn')
-    last = messages[-1]
-    message = events[last]['message']
-    if (message.get('role') != 'assistant' or message.get('stopReason') != 'stop' or
-            any(part.get('type') == 'toolCall' for part in message.get('content', [])) or
-            any((e.get('type'), e.get('customType')) not in restart.POST_TURN_METADATA for e in events[last + 1:])):
-        raise ValueError('manual Main has unfinished or later work')
+    restart._final_stop(events)
     return {'id': headers[0]['id']}
 
 

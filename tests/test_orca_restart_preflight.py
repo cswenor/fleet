@@ -385,6 +385,20 @@ class PreflightTests(unittest.TestCase):
         self.records_path.write_text(json.dumps(record))
         self.assertIn('owned_session_launch_match_unproven', self.inspect()['blockers'])
 
+    def test_manual_main_compaction_uses_same_completed_turn_boundary(self):
+        record = dict(self.record)
+        del record['session_dir']
+        record.update(session_path=str(self.log))
+        self.events.extend([
+            {'type': 'compaction'},
+            {'type': 'message', 'message': {'role': 'custom', 'customType': 'eval-state-context'}}])
+        self.write_events()
+        self.assertEqual(preflight._idle_session(record)['id'], self.events[0]['id'])
+        self.events.append({'type': 'message', 'message': {'role': 'user'}})
+        self.write_events()
+        with self.assertRaisesRegex(ValueError, 'final assistant'):
+            preflight._idle_session(record)
+
     def test_manual_main_later_work_or_unknown_event_is_not_idle(self):
         record = dict(self.record)
         del record['session_dir']

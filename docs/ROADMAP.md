@@ -113,6 +113,24 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-71 — Post-turn automatic compaction
+
+Restart's completed-turn proof accepts only the adjacent omp 18.18.1 pair
+`type=compaction` then `type=message`, `message.role=custom`,
+`message.customType=eval-state-context` after a final assistant stop.
+Unpaired/interrupted pairs, unknown custom types and later user/unfinished
+assistant messages still refuse. Revalidation permits an appended complete pair
+but never newly appended conversation work. Manual Main preflight shares the
+same completed-turn policy; UI and foreground-process requirements are unchanged.
+
+The two acceptance/revalidation regressions failed before correction. Real
+Email launch `1794139059772045518`, session
+`01a1bb05-7b70-766a-8693-3cb215cab807`, was replayed byte-for-byte through its
+post-compaction pre-exit boundary: `_session` accepted 5,820,997 bytes,
+SHA-256 `04b4b4d0f4f38248335a5c2b94695cd4d3dc51a49b6ed3e4e79dd8dca8bd73e3`.
+Including the subsequent `session_exit` still refused. No live retirement,
+terminal input, shared installation or service restart was performed.
+Publication requires independent final-head review, green CI and Main exact-head GO.
 ### TASK-69 — Thinking-level footer recognition
 
 `omp_ui` now accepts the Unicode thinking indicators for off/minimal/low/medium/

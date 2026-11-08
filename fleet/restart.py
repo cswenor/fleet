@@ -16,6 +16,42 @@ POST_TURN_METADATA = frozenset({
 })
 PROC = Path('/proc')
 
+def _post_turn_metadata(events):
+    """Accept only known metadata and adjacent omp 18.18.1 compaction pairs."""
+    index = 0
+    while index < len(events):
+        event = events[index]
+        if (event.get('type'), event.get('customType')) in POST_TURN_METADATA:
+            index += 1
+        elif (event.get('type') == 'compaction' and index + 1 < len(events) and
+              _compaction_summary(events[index + 1])):
+            index += 2
+        else:
+            return False
+    return True
+
+
+def _compaction_summary(event):
+    message = event.get('message', {})
+    return (event.get('type') == 'message' and message.get('role') == 'custom' and
+            message.get('customType') == 'eval-state-context')
+
+
+def _final_stop(events):
+    messages = [i for i, event in enumerate(events) if event.get('type') == 'message' and
+                not (i > 0 and events[i - 1].get('type') == 'compaction' and
+                     _compaction_summary(event))]
+    if not messages:
+        raise ValueError('session has no completed assistant turn')
+    last = messages[-1]
+    message = events[last]['message']
+    if (message.get('role') != 'assistant' or message.get('stopReason') != 'stop' or
+            any(part.get('type') == 'toolCall' for part in message.get('content', []))):
+        raise ValueError('session has no final assistant stop; turn running or unfinished')
+    if not _post_turn_metadata(events[last + 1:]):
+        raise ValueError('session has later work or unknown events after final assistant stop')
+
+
 
 def _foreground(c, record, slot, handle):
     """Bind the one private launch directory to a live foreground Linux OMP."""
@@ -211,16 +247,7 @@ def _session(record, slot, previous=None):
     headers = [e for e in events if e.get('type') == 'session']
     if len(headers) != 1 or headers[0].get('cwd') != slot:
         raise ValueError('session log does not belong to this slot')
-    messages = [i for i, e in enumerate(events) if e.get('type') == 'message']
-    if not messages:
-        raise ValueError('session has no completed assistant turn')
-    last = messages[-1]
-    message = events[last]['message']
-    if (message.get('role') != 'assistant' or message.get('stopReason') != 'stop' or
-            any(part.get('type') == 'toolCall' for part in message.get('content', []))):
-        raise ValueError('session has no final assistant stop; turn running or unfinished')
-    if any((e.get('type'), e.get('customType')) not in POST_TURN_METADATA for e in events[last + 1:]):
-        raise ValueError('session has later work or unknown events after final assistant stop')
+    _final_stop(events)
     proof = {'path': str(logs[0]), 'id': headers[0]['id'],
              'digest': hashlib.sha256(data).hexdigest(), 'size': len(data)}
     if previous is not None:
@@ -232,7 +259,7 @@ def _session(record, slot, previous=None):
             appended = [json.loads(line) for line in data[size:].splitlines()]
         except (ValueError, UnicodeError) as e:
             raise ValueError('session log incomplete or unreadable') from e
-        if any((e.get('type'), e.get('customType')) not in POST_TURN_METADATA for e in appended):
+        if not _post_turn_metadata(appended):
             raise ValueError('retirement evidence changed; input withheld')
     return proof
 
