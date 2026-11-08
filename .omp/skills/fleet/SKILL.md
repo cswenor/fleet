@@ -240,6 +240,15 @@ fleet --config /private/project/fleet.yml thread question TASK-N --body 'Proposa
 fleet --config /private/project/fleet.yml thread wait TASK-N --timeout 900
 ```
 
+Run anything that can exceed a few minutes (test suites, evals, profilers,
+CI waits) as an async background job with an explicit timeout sized to the
+expected runtime plus margin, and process its completion when it wakes you.
+Never block your turn in a single foreground wait longer than ~10 minutes.
+On a background timeout or no progress, inspect (output size, stack/py-spy,
+logs) before re-running; a timeout is evidence, not a retry signal.
+Background jobs are exempt from the `stalled` alert, so the explicit timeout
+is the hang detector.
+
 Run thread waits asynchronously. Do not bind a builder terminal to **any** Run.
 Decision requests use **exactly one channel**: `fleet thread question`, which
 sends native type `question` to `run:<coordinator.run>` itself. Never also send a

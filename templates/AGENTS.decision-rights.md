@@ -60,6 +60,15 @@ completion (including timeout/error) until merged or closed. Never rely on retir
 `pr-wait.sh` scripts or a single-workflow `gh run watch` alone; inbox enqueue does
 not prove wake. Fix reported failures even if an initial failure returns again.
 
+Run anything that can exceed a few minutes (test suites, evals, profilers,
+CI waits) as an async background job with an explicit timeout sized to the
+expected runtime plus margin, and process its completion when it wakes you.
+Never block your turn in a single foreground wait longer than ~10 minutes.
+On a background timeout or no progress, inspect (output size, stack/py-spy,
+logs) before re-running; a timeout is evidence, not a retry signal.
+Background jobs are exempt from the `stalled` alert, so the explicit timeout
+is the hang detector.
+
 For the filled fleet Sol-medium binding, copy `.omp/unadvised-review.yml` with
 the workflow skill and use the fresh stock omp invocation in
 `docs/MAIN.md` (Independent review). Bind `@review` explicitly in the overlay;
