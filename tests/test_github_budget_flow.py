@@ -41,6 +41,7 @@ class BudgetFlowTests(unittest.TestCase):
             with patch.object(github_api, 'Session', return_value=context), patch.object(
                     snapshot.github, 'collect', side_effect=github_api.BudgetLow(1000)), patch.object(
                     snapshot.health, 'collect', return_value={'builders': [], 'errors': []}), patch.object(
+                    snapshot.health, 'coordinator', return_value={'terminal': 'main', 'state': 'up'}), patch.object(
                     snapshot.quota, 'collect', return_value={'may_start': True}), patch.object(
                     snapshot.time, 'time', return_value=100):
                 result = snapshot.collect(c)

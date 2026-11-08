@@ -92,6 +92,69 @@ def omp_ui(text):
         return 'background'
     return 'working' if current_footer else 'unknown'
 
+def coordinator(c):
+    """Read only the configured Main; missing metadata never proves a live agent."""
+    handle = c['coordinator']['terminal']
+    result = {'terminal': handle, 'incarnation_id': None, 'state': 'unknown',
+              'reason': 'terminal observation unavailable', 'evidence': '', 'recovery_hint': ''}
+    try:
+        inventory = orca(c, 'terminal', 'list')
+        terminals = [t for t in inventory['terminals'] if t.get('handle') == handle]
+        if (inventory.get('truncated') or inventory.get('hostScope', {}).get('omittedHostIds')
+                or len(terminals) > 1):
+            return result
+        if not terminals:
+            return {**result, 'state': 'down', 'reason': 'terminal missing'}
+        terminal = terminals[0]
+        result['incarnation_id'] = terminal.get('incarnationId')
+        if terminal.get('connected') is False or terminal.get('orphaned') is True:
+            return {**result, 'state': 'down', 'reason': 'terminal disconnected or orphaned'}
+        if terminal.get('connected') is not True or not result['incarnation_id']:
+            return result
+        screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
+        # A replacement during the read cannot borrow the old incarnation's timer.
+        current = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
+        if (current.get('incarnationId') != result['incarnation_id'] or
+                current.get('connected') is not True or current.get('orphaned')):
+            return result
+        text = '\n'.join(screen.get('tail', []))
+        if omp_ui(text) != 'unknown':
+            return {**result, 'state': 'up', 'reason': 'live omp UI'}
+        lines = [line for line in ANSI.sub('', text).splitlines() if line.strip()]
+        shell = shell_ready(text)
+        crash_index = next((i for i in range(len(lines) - 1, -1, -1)
+                            if re.match(r'^\s*\[(?:Uncaught Exception|Recovery)\]', lines[i])), None)
+        if crash_index is not None:
+            suffix = lines[crash_index + 1:]
+            # Retained transcript is not current crash proof. Only a supported
+            # shell or a bounded, recognizable crash/recovery tail establishes it.
+            current_crash = shell or all(re.match(
+                r'^\s*(?:at\s+\S|Resume this session with\s*$|omp --resume\s+\S|'
+                r'Run omp --resume\b)', line) for line in suffix)
+            if current_crash:
+                hint = next((line for line in reversed(suffix)
+                             if re.search(r'(?i)recovery|resume|restart', line)), '')
+                return {**result, 'state': 'suspect', 'reason': 'omp crash',
+                        'evidence': _screen_evidence(lines[crash_index]),
+                        'recovery_hint': _screen_evidence(hint)}
+        if shell:
+            return {**result, 'state': 'suspect', 'reason': 'bare shell prompt',
+                    'evidence': 'supported bare shell prompt'}
+        return {**result, 'reason': 'screen state unrecognized'}
+    except (RuntimeError, ValueError, KeyError, TypeError):
+        return result
+
+
+def _screen_evidence(line):
+    from .commands import _gh_reason
+    # Screens are untrusted and may contain shell commands or private credentials.
+    line = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', line)
+    line = re.sub(r'(?i)\b(password|secret|api[_-]?key|token)\s*[:=]\s*\S+',
+                  r'\1=[redacted]', line)
+    line = re.sub(r'\b[A-Za-z0-9_./+=-]{32,}\b', '[redacted]', line)
+    return _gh_reason(line)[:200]
+
+
 
 def classify(terminal, text, expected, idle_seconds, now):
     text = ANSI.sub('', text)

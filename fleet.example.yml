@@ -69,11 +69,15 @@ disk:
 coordinator:
   terminal: term_replace
   run: run_replace
+  # Positive finite minutes of observed shell/crash before main_down.
+  liveness_minutes: 5
+  # Optional additional Run ID receiving Main liveness alerts, not a terminal.
+  escalation_run: null
 interval_seconds: 60
 # Urgency is advisory, never authentication or additional authority.
 # Native Orca delivers these as question with an explicit [urgent] subject.
 urgent:
-  events: [provider_stalled, idle, wrong_model, stray_worktree, merge_group_failure, pr_stuck, stalled]
+  events: [provider_stalled, idle, wrong_model, stray_worktree, merge_group_failure, pr_stuck, stalled, main_down]
   # [] keeps every relay ordinary status. Comment churn does not reset this timer.
   pr_stuck_minutes: 45
 status:

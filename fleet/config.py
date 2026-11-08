@@ -11,7 +11,7 @@ STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
                    'terminal': ['done', 'cancelled']}
 
 URGENT_EVENTS = ('provider_stalled', 'idle', 'wrong_model', 'stray_worktree',
-                 'merge_group_failure', 'pr_stuck', 'stalled')
+                 'merge_group_failure', 'pr_stuck', 'stalled', 'main_down')
 
 
 def validate_statuses(statuses, *, allow_no_progress=False):
@@ -117,6 +117,15 @@ def load(path):
     for key in ('terminal', 'run'):
         if not c['coordinator'].get(key):
             raise ValueError(f'missing coordinator.{key}')
+    coordinator = c['coordinator']
+    coordinator.setdefault('liveness_minutes', 5)
+    minutes = coordinator['liveness_minutes']
+    if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
+        raise ValueError('coordinator.liveness_minutes must be a positive finite number')
+    escalation = coordinator.get('escalation_run')
+    if escalation is not None and (not isinstance(escalation, str) or
+                                   not re.fullmatch(r'run_[A-Za-z0-9_-]+', escalation)):
+        raise ValueError('coordinator.escalation_run must be a Run ID or null')
     c.setdefault('hooks', {})
     for name, argv in c['hooks'].items():
         if name not in ('before_launch', 'after_launch', 'event') or not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):

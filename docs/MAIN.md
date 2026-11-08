@@ -169,6 +169,15 @@ either rule. Spinner output alone is not progress. Unknown launch/log evidence
 reports nonurgent `progress_unknown`; inspect task, PR/check names, event age and
 UI before deciding. No lane input, Esc or automatic restart is authorized.
 
+Main liveness is monitored read-only each cycle (TASK-68).
+`coordinator.liveness_minutes` defaults to 5 for observed bare shell/crash UI;
+missing/disconnected/orphaned terminals alert immediately as urgent `main_down`.
+Unknown observations emit ordinary `main_unknown`. Configure
+`coordinator.escalation_run` with another attended Run's bare ID so a dead Main's
+own inbox is not the only destination. Recovery clears dedupe; no automatic
+restart or terminal input is authorized. Scratch CLI proof and deployment
+boundaries are recorded in the roadmap; shared deployment remains Main-owned.
+
 
 ### Carry a prerequisite
 

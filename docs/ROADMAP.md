@@ -113,6 +113,44 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-68 — Coordinator liveness alerts
+
+Source implementation monitors the configured Main independently of builder
+inventory: missing/disconnected/orphaned terminal → immediate `main_down`;
+supported shell prompt or current omp crash marker → `main_down` after positive
+finite `coordinator.liveness_minutes` (default 5). Unknown metadata/read/UI emits
+nonurgent `main_unknown`. Live omp UI clears the occurrence, incarnation changes
+restart its timer, and persisted signatures prevent repeat sends as minutes grow.
+No terminal input, restart, admission change or builder-health change.
+Optional `coordinator.escalation_run` adds an independently attended destination.
+Cross-Run native sends use the destination Run context, retaining per-recipient
+retry receipts.
+
+Real source CLI `serve --once` drill used private config/state and two scratch
+Runs/terminals, with real native/GitHub/quota reads and no shared service changes.
+It observed live Sol omp → exited bare shell, then a thresholded urgent
+`main_down` exactly once in each Run (`msg_0d394aeac0f1`,
+`msg_5da8030d6862`), with repeated cycles silent. The drill used a 0.05-minute
+threshold; clock-boundary regressions cover the default five minutes.
+The extra Run initially failed because inherited delivery pinned the project Run;
+the repaired retry delivered only that missing copy. Closing the already-exited
+scratch terminal then proved immediate missing-terminal alert delivery even with
+the sender terminal gone (`msg_565d43e90eed` at the escalation Run).
+Independent review found a reconnect edge: disconnected → shell on the same
+incarnation could clear dedupe before the shell threshold and send a second
+urgent without a live-UI recovery. Its regression failed before correction;
+reported outages now remain active across reconnect-to-shell transitions.
+A second independent review found that an omitted remote host could masquerade
+as a missing Main. The false-urgent regression failed before correction;
+partial-host inventories now report `main_unknown`, following capture's existing
+completeness contract.
+A third independent review found stale crash markers above unrecognized
+applications could become false urgents. Three retained-marker regressions
+failed before correction; crash proof now requires a current recognizable
+crash/recovery suffix or a positively recognized shell.
+Publication awaits independent final-head review, green CI and Main exact-head GO;
+merge does not deploy to the installed shared supervisor.
+
 ### TASK-67 — Leading-card assignment claims
 
 Card ownership now uses only the leading ref, allowing non-word decoration

@@ -25,7 +25,7 @@ def collect(c):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
     for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: _github(c, result)),
-                    ('quota', lambda: quota.collect(c))):
+                    ('quota', lambda: quota.collect(c)), ('coordinator', lambda: health.coordinator(c))):
         try:
             result[key] = fn()
         except github_api.BudgetLow as error:

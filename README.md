@@ -285,14 +285,31 @@ inventory retains owner delivery for a later successful lookup. Health and
 collector errors never restart or stop lanes.
 
 Urgent supervisor relays use native type `question` and subject prefix
-`[urgent] `; Orca has no native `urgent` type. `urgent.events` defaults to seven
+`[urgent] `; Orca has no native `urgent` type. `urgent.events` defaults to eight
 kinds: `provider_stalled`, `idle`, `wrong_model`, `stray_worktree`,
-`merge_group_failure`, `pr_stuck`, `stalled`; set it to `[]` to disable urgent upgrades.
+`merge_group_failure`, `pr_stuck`, `stalled`, `main_down`; set it to `[]` to disable urgent upgrades.
 Other relays remain `status`. `urgent.pr_stuck_minutes` is a positive finite
 number, default 45. The persisted PR timer starts on first observation and resets
 on state, head, merge-state, checks or review progress, not comments or
 `updated_at`. Urgency is advisory and unauthenticated, never authority or
 permission to restart, stop, merge or deploy.
+
+Each cycle reads `coordinator.terminal` without sending terminal input.
+`main_down` is immediate for a missing, disconnected or orphaned terminal.
+A supported bare shell prompt or current `[Uncaught Exception]` / `[Recovery]`
+line must persist for `coordinator.liveness_minutes` (positive finite, default 5).
+A recognized live omp UI takes precedence over old crash text. Missing incarnation,
+unrecognized screen, truncated inventory or read failure reports nonurgent
+`main_unknown`, never permission to restart. Unknown observations reset an
+unconfirmed shell/crash timer but do not clear an already reported down occurrence.
+Live UI clears it; a new incarnation starts a new observation window.
+Alerts include terminal, observed minutes down, bounded sanitized crash evidence
+and recovery hint when present; arbitrary screen contents are not copied.
+Unchanged occurrences dedupe across supervisor restarts. Both kinds go to the
+project Run and optional `coordinator.escalation_run` (a bare Run ID such as
+`run_abc`, not `run:run_abc`); identical destinations receive one copy.
+Configure an independently attended escalation Run: alerting only the dead Main's
+own Run cannot ensure anyone notices. Delivery means durable enqueue, not wake/read.
 
 Health alert identities include worktree, terminal handle, terminal incarnation
 and flag. Recovery requires `builder.alert_recovery_cycles` consecutive absent

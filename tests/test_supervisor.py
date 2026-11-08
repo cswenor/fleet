@@ -243,6 +243,8 @@ class QuotaAlertTests(unittest.TestCase):
                       quota={}, disk={'path': self.c['_state'], 'min_free_gb': 0})
         with patch.object(supervisor.snapshot.quota, 'collect', side_effect=CommandError('unavailable')), \
                 patch.object(supervisor.snapshot.health, 'collect', return_value=self.s['inventory']), \
+                patch.object(supervisor.snapshot.health, 'coordinator', return_value={
+                    'terminal': 'main', 'state': 'up'}), \
                 patch.object(supervisor.snapshot.github, 'collect', return_value=self.s['github']):
             for _ in range(2):
                 s, _ = supervisor.cycle(self.c)

@@ -207,12 +207,61 @@ def alerts(s, c):
     return result
 
 
+def main_alerts(c, s, ledger, now):
+    observation = s.get('coordinator')
+    if observation is None:
+        return []
+    previous = ledger.get('main_liveness', {})
+    identity = [observation['terminal'], observation.get('incarnation_id')]
+    status = observation['state']
+    if status == 'up':
+        ledger.pop('main_liveness', None)
+        return []
+    if status == 'unknown' and identity[1] is None and previous.get('identity', [None])[0] == identity[0]:
+        identity = previous['identity']
+    same = previous.get('identity') == identity
+    since = previous.get('since', now) if same else now
+    # Unknown reads are not recovery. Before an alert, restart the threshold
+    # rather than treating an observation gap as continuous shell/crash evidence.
+    if status == 'unknown':
+        if not previous.get('alerted'):
+            since = now
+        ledger['main_liveness'] = {**(previous if same else {}),
+                                   'identity': identity, 'since': since,
+                                   'unknown_since': previous.get('unknown_since', now) if same else now}
+        if not previous.get('alerted') or not same:
+            ledger['main_liveness']['status'] = 'unknown'
+        kind = 'main_unknown'
+    else:
+        if not same or previous.get('status') not in ('suspect', 'down'):
+            since = now
+        ledger['main_liveness'] = {'identity': identity, 'since': since, 'status': status}
+        if (status == 'suspect' and not (same and previous.get('alerted')) and
+                now - since < c['coordinator'].get('liveness_minutes', 5) * 60):
+            return []
+        kind = 'main_down'
+        ledger['main_liveness']['alerted'] = True
+    minutes = max(0, now - since) / 60
+    body = (f'{observation["terminal"]}; {observation["reason"]}; minutes down={minutes:.2f}; '
+            f'evidence={observation.get("evidence", "")}; '
+            f'recovery hint={observation.get("recovery_hint", "")}')
+    recipients = ['run:' + c['coordinator']['run']]
+    extra = c['coordinator'].get('escalation_run')
+    if extra and 'run:' + extra not in recipients:
+        recipients.append('run:' + extra)
+    return [{'key': 'main:' + kind, 'subject': 'Main ' + kind, 'body': body,
+             'branch': None, 'recipients': recipients,
+             'occurrence': [identity, ledger['main_liveness'].get('unknown_since', since), kind]}]
+
+
 def urgent_event(c, event):
     """Urgency is a wake advisory, never sender authentication or authority."""
     key = event['key']
     kind = None
     if key.startswith('health:'):
         kind = key.rsplit(':', 1)[-1]
+    elif key.startswith('main:'):
+        kind = key.split(':', 1)[1]
     elif key.startswith('stray:'):
         kind = 'stray_worktree'
     elif key.startswith('group:'):
@@ -272,8 +321,10 @@ def enqueue(c, event, recipient):
                     or not governor.same_attempt(c, attempt, [current])):
                 raise CommandError('park owner identity unavailable or changed')
         # Explicit sender permits a systemd process. Never inject terminal input.
+        target_run = (recipient[4:] if event['key'].startswith('main:') and recipient.startswith('run:')
+                      else c['coordinator']['run'])
         return orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
-                    '--to', recipient, '--run', c['coordinator']['run'], '--type', event.get('type', 'status'),
+                    '--to', recipient, '--run', target_run, '--type', event.get('type', 'status'),
                     '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
 
 
@@ -363,13 +414,18 @@ def cycle(c, deliver=True):
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
-    active = alerts(s, c) + pr_alerts
+    active = alerts(s, c) + pr_alerts + main_alerts(c, s, ledger, time.time())
     if current_g is None:
         # Unknown collection is not recovery: keep stuck occurrences deduplicated.
         active_stuck = {key: value for key, value in ledger.get('active_alerts', {}).items()
                         if key.startswith('pr_stuck:')} if isinstance(ledger.get('active_alerts'), dict) else {}
     else:
         active_stuck = {}
+    if s.get('coordinator', {}).get('state') == 'unknown':
+        prior_main = ledger.get('active_alerts', {})
+        if isinstance(prior_main, dict):
+            active_stuck.update({key: value for key, value in prior_main.items()
+                                 if key == 'main:main_down'})
     known_quota = s.get('quota', {}).get('known', False)
     ledger['quota_unknown_cycles'] = 0 if known_quota else ledger.get('quota_unknown_cycles', 0) + 1
     if not known_quota and ledger['quota_unknown_cycles'] < c.get('quota', {}).get('unknown_alert_cycles', 3):
