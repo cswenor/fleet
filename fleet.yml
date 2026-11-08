@@ -17,6 +17,14 @@ builder:
   idle_seconds: 2700
   ready_report_minutes: 15 # Positive finite minutes; nonurgent missing-ready fallback.
   footer: |
+    Run anything that can exceed a few minutes (test suites, evals, profilers,
+    CI waits) as an async background job with an explicit timeout sized to the
+    expected runtime plus margin, and process its completion when it wakes you.
+    Never block your turn in a single foreground wait longer than ~10 minutes.
+    On a background timeout or no progress, inspect (output size, stack/py-spy,
+    logs) before re-running; a timeout is evidence, not a retry signal.
+    Background jobs are exempt from the stalled alert, so the explicit timeout
+    is the hang detector.
     Self-publish small PRs after a fresh independent read-only unadvised Sol
     review and green CI (no fleet review bot). While you own an open PR, MUST keep
     fleet watch-pr PR armed as an async background command. Process each event and

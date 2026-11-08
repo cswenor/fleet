@@ -442,6 +442,15 @@ failures even when re-arming suppresses their unchanged initial event; quiet inb
 are not success. Never rely on retired `pr-wait.sh` scripts or a single-workflow
 `gh run watch` alone.
 
+Run anything that can exceed a few minutes (test suites, evals, profilers,
+CI waits) as an async background job with an explicit timeout sized to the
+expected runtime plus margin, and process its completion when it wakes you.
+Never block your turn in a single foreground wait longer than ~10 minutes.
+On a background timeout or no progress, inspect (output size, stack/py-spy,
+logs) before re-running; a timeout is evidence, not a retry signal.
+Background jobs are exempt from the `stalled` alert, so the explicit timeout
+is the hang detector.
+
 Failed native merge groups resolve all constituent PRs by walking the synthetic
 first-parent merge chain between the queue branch's base SHA and run head SHA.
 Side-branch commits are not group members. Proven immutable membership is cached;

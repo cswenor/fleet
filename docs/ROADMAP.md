@@ -113,6 +113,24 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-74 — Bounded async builder jobs
+
+Builder default and project footers, the unconditional launch prompt, workflow
+skill, decision-rights template and README now require jobs that can exceed a
+few minutes to run asynchronously with an explicit expected-runtime-plus-margin
+timeout. Builders process completion wakes, never spend more than ~10 minutes
+in one foreground wait, and inspect output size, stack/py-spy or logs before
+re-running a timed-out/non-progressing job. Background jobs remain exempt from
+`stalled`; their explicit timeout is the hang detector. No supervisor heuristic
+or CPU/output monitoring changed.
+
+Read-only launcher harness rendered the complete rule with an empty custom
+footer (3,686 bytes), default footer (6,059 bytes) and repository footer
+(6,521 bytes), with native transport mocked and no builder launch. All 443
+tests pass; no wording-pinning tests added. Publication requires fresh final-head
+independent review, green CI and Main exact-head GO; merge does not deploy shared
+policy or authorize service changes.
+
 ### TASK-72 — Explain shared-restart idle gates
 
 Main idle recognition now delegates to `health.omp_ui`, sharing its complete
