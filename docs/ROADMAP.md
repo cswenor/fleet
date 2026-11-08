@@ -112,6 +112,34 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-73 — Restart CLI idle diagnostics
+
+Dry-run `projects[NAME]` now projects only `idle_checks` / `main_idle_checks`
+status/reason fields from preflight. Preflight-blocked execution returns and
+journals the same diagnostics; refusal notifications include the receiving
+project's checks. No idle checks or restart authorization behavior changed.
+Regressions cover failed/skipped/passed checks, field filtering and blocked
+execution without capture/restart. All 445 tests pass. Publication and real
+three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
+
+
+### TASK-74 — Bounded async builder jobs
+
+Builder default and project footers, the unconditional launch prompt, workflow
+skill, decision-rights template and README now require jobs that can exceed a
+few minutes to run asynchronously with an explicit expected-runtime-plus-margin
+timeout. Builders process completion wakes, never spend more than ~10 minutes
+in one foreground wait, and inspect output size, stack/py-spy or logs before
+re-running a timed-out/non-progressing job. Background jobs remain exempt from
+`stalled`; their explicit timeout is the hang detector. No supervisor heuristic
+or CPU/output monitoring changed.
+
+Read-only launcher harness rendered the complete rule with an empty custom
+footer (3,686 bytes), default footer (6,059 bytes) and repository footer
+(6,521 bytes), with native transport mocked and no builder launch. All 443
+tests pass; no wording-pinning tests added. Publication requires fresh final-head
+independent review, green CI and Main exact-head GO; merge does not deploy shared
+policy or authorize service changes.
 
 ### TASK-75 — End turns without self-exit jobs
 

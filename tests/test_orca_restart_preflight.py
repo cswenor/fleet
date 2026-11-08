@@ -237,6 +237,46 @@ class PreflightTests(unittest.TestCase):
         self.assertNotIn('must-not-appear', json.dumps(result))
         self.assertNotIn('private transcript', json.dumps(result))
 
+    def test_dry_run_explains_failed_and_skipped_checks_without_private_fields(self):
+        self.screen = [' π > ◒ Opus > ⚙ 1', '╰─']
+        self.events.append({'type': 'message', 'message': {'role': 'user'}})
+        self.write_events()
+        self.c['builder']['slots'] = ['/lane']
+        proof = self.inspect()
+        proof['projects'][0]['main_idle_checks']['background_job']['screen'] = 'private-screen'
+        with patch.object(orca_restart, 'inspect', return_value=proof):
+            result = orca_restart.conduct(self.c, self.plan_path, dry_run=True)
+        checks = result['projects']['fleet']
+        self.assertEqual(checks['main_idle_checks']['background_job'],
+                         {'status': 'failed', 'reason': 'background job'})
+        self.assertEqual(checks['main_idle_checks']['lease'],
+                         {'status': 'skipped', 'reason': 'session final stop unproven'})
+        self.assertEqual(checks['idle_checks']['health_inventory'], {'status': 'passed'})
+        self.assertEqual(checks['idle_checks']['builder lane /lane']['status'], 'failed')
+        self.assertEqual(set(checks), {'idle_checks', 'main_idle_checks'})
+        for private in ('terminal_metadata', 'private-screen',
+                        'private transcript', '--private-argument', str(self.log)):
+            self.assertNotIn(private, json.dumps(result['projects']))
+        self.assertFalse((self.root / 'journal').exists())
+
+    def test_blocked_execution_retains_safe_check_reasons_in_result_and_journal(self):
+        self.screen = [' π > ◒ Opus > ⚙ 1', '╰─']
+        with patch.dict(os.environ, {'INVOCATION_ID': 'external-service'}, clear=True), \
+                patch.object(orca_restart, '_notify') as notify, \
+                patch.object(orca_restart, '_capture') as capture:
+            result = orca_restart.conduct(self.c, self.plan_path)
+        self.assertEqual(result['event'], 'blocked')
+        self.assertEqual(result['projects']['fleet']['main_idle_checks']['background_job'],
+                         {'status': 'failed', 'reason': 'background job'})
+        journal = json.loads(Path(result['journal']).read_text())
+        receipt = journal['steps']['preflight']['receipt']
+        self.assertEqual(receipt['projects'], result['projects'])
+        self.assertEqual(receipt['blockers'], result['blockers'])
+        self.assertEqual(set(receipt['projects']['fleet']), {'idle_checks', 'main_idle_checks'})
+        self.assertNotIn('private transcript', json.dumps(receipt))
+        notify.assert_called_once()
+        capture.assert_not_called()
+
     def test_private_main_prompt_absent_from_cli_output_and_persisted_preflight(self):
         marker = 'private-main-prompt-must-never-leave-plan'
         self.plan_data['projects'][0]['command'].append(marker)
