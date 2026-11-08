@@ -113,6 +113,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-72 — Explain shared-restart idle gates
+
+Main idle recognition now delegates to `health.omp_ui`, sharing its complete
+thinking-glyph set. Background jobs, working panes, dialogs and drafts still
+block; builder retirement semantics and conductor execution are unchanged.
+Per-project `idle_checks` and `main_idle_checks` report bounded reasons for
+binding, footer/composer, background job, pane state, final session stop, lease,
+foreground process group and each builder lane. The runbook requires each Main
+to stop its own async waits/jobs at T-10, confirm before going quiet and end its
+turn with an empty composer.
+
+All 443 tests pass, including all-glyph idle acceptance, background/working/draft
+refusals and distinct pane/lease/foreground diagnostics. Read-only `_main_idle`
+against live Fleet Main PID 3634706 refused with background job, working/footer,
+pane-state and final-stop reasons; foreground identity passed. Scratch Opus 5.5
+session `01a1bbdd-1dc8-7695-a9be-d9fee94ad3bc` recorded actual `high` thinking,
+displayed `π > ◒` with an empty composer and passed all eight idle sub-checks,
+including real session lease and foreground group. Its log SHA-256 before exit:
+`31cf6809019c273b29e834238817bef38e4a08639fe41043f3458dc80664aa25`.
+The scratch session was retired; no shared restart, installation or service
+change was performed. Publication requires final-head independent review, green
+CI and Main exact-head GO.
+
 ### TASK-71 — Post-turn automatic compaction
 
 Restart's completed-turn proof accepts only the adjacent omp 18.18.1 pair

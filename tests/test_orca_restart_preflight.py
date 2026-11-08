@@ -147,7 +147,7 @@ class PreflightTests(unittest.TestCase):
         if args[:2] == ('terminal', 'show'):
             return {'terminal': self.terminal.copy()}
         if args[:2] == ('terminal', 'read'):
-            return {'terminal': {'tail': [' π > ◑ model', '╰─']}}
+            return {'terminal': {'tail': getattr(self, 'screen', [' π > ◑ model', '╰─'])}}
         if args == ('worktree', 'ps'):
             return {'worktrees': [{'worktreeId': 'tree', 'agents': [
                 {'paneKey': 'tab:leaf', 'agentType': 'omp', 'state': 'idle',
@@ -161,6 +161,61 @@ class PreflightTests(unittest.TestCase):
 
     def inspect(self, data=None):
         return preflight.inspect(self.load(data), self.c)
+
+    def test_all_thinking_glyphs_accept_idle_main(self):
+        for glyph in '⦸○◔◐◑◒◓◕◉⟳':
+            with self.subTest(glyph=glyph):
+                self.screen = [f' π > {glyph} Opus 5.5 >', '╰─']
+                result = self.inspect()
+                self.assertEqual(result['blockers'], [])
+                self.assertTrue(all(check['status'] == 'passed' for check in
+                                    result['projects'][0]['main_idle_checks'].values()))
+
+    def test_main_background_working_and_draft_still_block_with_reasons(self):
+        for screen, failed in (
+                ([' π > ◒ Opus > ⚙ 1', '╰─'], 'background_job'),
+                (['Waiting for background job bg_1', ' ⠙ 3s > ◒ Opus > ⚙ 1', '╰─'], 'background_job'),
+                ([' ⠙ 3s > ◒ Opus >', '╰─'], 'footer_composer'),
+                ([' π > ◒ Opus >', '╰─ draft'], 'footer_composer'),
+                ([' π > ? Opus >', '╰─'], 'footer_composer')):
+            with self.subTest(screen=screen):
+                self.screen = screen
+                result = self.inspect()
+                self.assertIn('fleet_idle_binding_unproven', result['blockers'])
+                check = result['projects'][0]['main_idle_checks'][failed]
+                self.assertEqual(check['status'], 'failed')
+                if failed == 'background_job':
+                    self.assertEqual(check['reason'], 'background job')
+
+    def test_main_checks_accumulate_without_leaking_exception_text(self):
+        self.events.append({'type': 'message', 'message': {'role': 'user'}})
+        self.write_events()
+        self.screen = [' π > ◒ Opus > ⚙ 1', '╰─']
+        self.c['builder']['slots'] = ['/lane']
+        result = self.inspect()
+        project = result['projects'][0]
+        self.assertEqual(project['main_idle_checks']['session_final_stop']['status'], 'failed')
+        self.assertEqual(project['main_idle_checks']['lease']['status'], 'skipped')
+        self.assertEqual(project['main_idle_checks']['foreground_pgrp']['status'], 'passed')
+        self.assertEqual(project['idle_checks']['builder lane /lane']['status'], 'failed')
+        self.assertNotIn('private transcript', json.dumps(result))
+
+    def test_pane_lease_and_foreground_failures_are_distinct(self):
+        native = self.native_read
+        def working(c, *args):
+            result = native(c, *args)
+            if args == ('worktree', 'ps'):
+                result['worktrees'][0]['agents'][0]['state'] = 'working'
+            return result
+        with patch.object(preflight, 'orca', side_effect=working), \
+                patch.object(preflight, 'json_run', return_value={'held': [], 'unknown': []}), \
+                patch.object(preflight, '_process', return_value={
+                    'start_ticks': 2000, 'tty': 1, 'pgrp': 200, 'foreground_pgrp': 300}):
+            checks = {}
+            with self.assertRaises(ValueError):
+                preflight._main_idle(self.c, self.record, self.terminal, self.agent_row(), checks)
+        for name in ('pane_agent_state', 'lease', 'foreground_pgrp'):
+            self.assertEqual(checks[name]['status'], 'failed')
 
     def test_complete_proof_is_read_only_and_preserves_survival_fields(self):
         before = {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file() and not p.is_symlink()}
