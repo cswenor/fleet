@@ -169,7 +169,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
             if (not terminal.get('connected') or terminal.get('orphaned') or
                     not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
                     not shells[0].get('incarnation_id') or terminal.get('incarnationId') != shells[0]['incarnation_id'] or
-                    not health.shell_ready('\n'.join(latest.get('tail', [])))):
+                    not health.shell_ready(latest)):
                 raise ValueError('slot terminal is no longer a ready shell; launch withheld')
             # Recheck immediately before sending: collection is not a reuse lease.
             binding = health.binding(c, candidate)

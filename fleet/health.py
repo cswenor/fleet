@@ -30,10 +30,39 @@ def model_matches(actual, expected):
 
 
 def shell_ready(text):
-    """Conservative POSIX prompt receipt; unknown/custom prompts stay occupied."""
+    """Recognise a supported prompt, using screen soft-wrap receipts when present."""
+    rows = None
+    if isinstance(text, dict):
+        rows = text.get('tailRows')
+        text = '\n'.join(text.get('tail', []))
     text = ANSI.sub('', re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', text))
-    lines = [line.strip() for line in text.replace('\r', '\n').splitlines() if line.strip()]
-    return bool(lines and re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', lines[-1]))
+    lines = text.replace('\r', '\n').split('\n')
+    if rows is not None:
+        if (not isinstance(rows, list) or len(rows) != len(lines) or
+                any(not isinstance(row, dict) or type(row.get('wrapped')) is not bool for row in rows)):
+            return False
+        end = len(lines) - 1
+        while end >= 0 and not lines[end].strip():
+            end -= 1
+        if end < 0 or rows[end]['wrapped']:
+            return False
+        start = end
+        while start > 0 and rows[start - 1]['wrapped']:
+            start -= 1
+        prompt = ''.join(lines[start:end + 1]).strip()
+        return bool(re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', prompt))
+    while lines and not lines[-1].strip():
+        lines.pop()
+    prompt = ''
+    # Screen reads do not always expose terminal width. Bound reconstruction to
+    # four contiguous trailing rows; never bridge a blank row or relax the regex.
+    for line in reversed(lines[-4:]):
+        if not line.strip():
+            break
+        prompt = line + prompt
+        if re.fullmatch(r'(?:[\w.-]+@[\w.-]+:[^#$%\n]*|(?:ba|z|da|k)?sh-\d[\d.]*)[#$%]', prompt.strip()):
+            return True
+    return False
 
 
 def shell_reply_residue(text):
@@ -121,7 +150,7 @@ def coordinator(c):
         if omp_ui(text) != 'unknown':
             return {**result, 'state': 'up', 'reason': 'live omp UI'}
         lines = [line for line in ANSI.sub('', text).splitlines() if line.strip()]
-        shell = shell_ready(text)
+        shell = shell_ready(screen)
         crash_index = next((i for i in range(len(lines) - 1, -1, -1)
                             if re.match(r'^\s*\[(?:Uncaught Exception|Recovery)\]', lines[i])), None)
         if crash_index is not None:
@@ -294,13 +323,14 @@ def collect(c, now=None):
         if w['path'] not in c['builder']['slots']:
             continue
         text = ''
+        detail = {}
         try:
             detail = orca(c, 'terminal', 'read', '--terminal', t['handle'], '--screen')['terminal']
             text = '\n'.join(detail.get('tail', []))
         except RuntimeError:
             errors.append('terminal read unavailable: ' + t['handle'])
         ready = (t.get('connected', False) and not t.get('orphaned') and
-                 t.get('writable', False) and shell_ready(text))
+                 t.get('writable', False) and shell_ready(detail))
         model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
         ui = omp_ui(text)
         progress = None if ready else _progress(c, t, w['path'], now)

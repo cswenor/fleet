@@ -244,6 +244,47 @@ class RestartTests(unittest.TestCase):
         for prompt in ('user@host:~/slot$\n◑ GPT >', 'user@host:~/slot$ sleep 600 #', 'user@host:~/slot$ echo %', 'approval required', 'waiting for input', '', '$', 'price is $'):
             self.assertFalse(health.shell_ready(prompt))
 
+    def test_wrapped_shell_prompt_requires_bounded_complete_prompt(self):
+        for prompt in (
+                'dev@devhost:~/orca/workspaces/project-beta/task-17-fle\net-lane-2$',
+                'dev@devhost:~/orca/\nworkspaces/project-beta/\ntask-17-fleet-lane-2$',
+                'dev@devhost:~/orca/\nworkspaces/\nproject-beta/\ntask-17-fleet-lane-2$',
+                'ba\nsh-5.2$'):
+            with self.subTest(prompt=prompt):
+                self.assertTrue(health.shell_ready(prompt))
+        for prompt in (
+                'output ending\nin $',
+                'dev@host:~/slot$\necho hello\n$',
+                'dev@host:~/slot\n\ncontinuation$',
+                'dev@host:~/\none/\ntwo/\nthree/\nfour$',
+                'dev@host:~/slot\ncontinuation',
+                ' π > ◑ GPT-6.1 Sol >\n╰─',
+                'dev@host:~/slot\ncontinuation$ echo command'):
+            with self.subTest(prompt=prompt):
+                self.assertFalse(health.shell_ready(prompt))
+
+    def test_screen_wrap_metadata_is_authoritative(self):
+        tail = ['dev@devhost:~/orca/workspaces/project-beta/task-17-fle', 'et-lane-2$']
+        self.assertTrue(health.shell_ready({
+            'tail': tail, 'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+        self.assertFalse(health.shell_ready({
+            'tail': tail, 'tailRows': [{'wrapped': False}, {'wrapped': False}]}))
+        self.assertTrue(health.shell_ready({'tail': tail}))
+        self.assertTrue(health.shell_ready({
+            'tail': tail + [''], 'tailRows': [
+                {'wrapped': True}, {'wrapped': False}, {'wrapped': False}]}))
+        self.assertTrue(health.shell_ready({
+            'tail': ['dev@host:~$'], 'tailRows': [{'wrapped': False}]}))
+        self.assertFalse(health.shell_ready({
+            'tail': ['output ending', 'in $'],
+            'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+        self.assertFalse(health.shell_ready({
+            'tail': ['dev@host:~$', '16;8t'],
+            'tailRows': [{'wrapped': True}, {'wrapped': False}]}))
+        for rows in ([], [{'wrapped': True}], [{'wrapped': 'false'}, {'wrapped': False}]):
+            with self.subTest(rows=rows):
+                self.assertFalse(health.shell_ready({'tail': tail, 'tailRows': rows}))
+
 
 if __name__ == '__main__':
     unittest.main()
