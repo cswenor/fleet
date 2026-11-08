@@ -284,7 +284,8 @@ def _capture(c, projects, journal, name):
         if _digest(result) != journal.step(name)['receipt']['sha256']:
             raise ValueError('restart capture changed; manual reconciliation required')
         return result
-    result = orca_capture.collect(c, [project['service'] for project in projects])
+    result = orca_capture.collect(c, [project['service'] for project in projects],
+                                  run_ids=[project['run'] for project in projects])
     for process in result['processes']:
         try:
             process['cgroups'] = (Path('/proc') / str(process['pid']) / 'cgroup').read_text().splitlines()

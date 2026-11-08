@@ -695,7 +695,7 @@ and result. Never commit the full host snapshot; share only reviewed projections
 Capture includes runtime/version, handles/incarnations/worktree paths, title
 SHA256 + extracted Pad refs, read-only per-terminal Run bindings, all same-user
 local OMP PID/start ticks/boot ID/foreground state, safe argv-shape flags,
-open session logs' latest actual model/thinking events, Run metadata, inbox
+open session logs' latest actual model/thinking events, per-Run pending inbox
 message metadata and supervisor state. No raw titles, transcript text, previews,
 argument values, environments or message contents. Process/session mappings
 are observational (cwd/open descriptors), not terminal ownership or idle proof.
@@ -711,7 +711,17 @@ Unreadable/malformed credentials stay incomplete. A process that exits between
 stat and executable lookup requires a second matching-start zombie observation
 or disappearance before it is classified as exited-mid-scan.
 Collection is sequential; a changed runtime ID invalidates a cross-restart
-capture. Inbox/terminal caps and missing host coverage are reported incomplete.
+capture. Pending-inbox/terminal caps and missing host coverage are reported incomplete.
+`mailboxes[RUN]` contains each plan project's pending IDs/counts in preflight and
+BEFORE/AFTER evidence. Read-only `check --terminal <run-show coordinator_handle>
+--run RUN --peek` uses Orca's oldest-first unread `current_delivery` query,
+including delivered/unacknowledged messages, capped at 100. Only fewer than 100
+validated rows with matching Run/count proves completeness; cap, malformed,
+truncated or unavailable pending data still blocks. The separate 1000-row history
+count is an informational lower bound, never a completeness gate or total.
+Main manually compares BEFORE/AFTER pending IDs/counts before normal replay/ack;
+there is no automatic subset gate and no read-only native Delivery-ID query.
+Retain the last native receipt separately; sequential capture is not atomic.
 Phase B acceptance (Main ruling `msg_88fdc4be4ae4`): every model-bearing OMP
 session, including launch-recorded builders and Mains, must have PID/start ticks,
 argv shape, cwd, session binding and actual model/thinking. Every incomplete

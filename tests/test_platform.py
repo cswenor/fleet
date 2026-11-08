@@ -184,7 +184,9 @@ class PortabilityTests(unittest.TestCase):
                 return {'terminals': []}
             if args[:2] == ('orchestration', 'inbox'):
                 return {'messages': []}
-            return {'run': {'id': 'run'}}
+            if args[:2] == ('orchestration', 'check'):
+                return {'runId': 'run', 'messages': [], 'count': 0}
+            return {'run': {'id': 'run', 'coordinator_handle': 'term'}}
         with patch.object(orca_capture.sys, 'platform', 'darwin'), \
                 patch.object(orca_capture, 'orca', side_effect=native), \
                 patch.object(launchd, 'run', return_value='\tstate = running\n\tpid = 99\n\t\tTOKEN = fake-secret\n'):

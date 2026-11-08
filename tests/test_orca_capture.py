@@ -49,10 +49,14 @@ class CaptureTests(unittest.TestCase):
                 return {'terminals': [{'handle': 'term', 'worktreePath': '/slot',
                                        'title': 'private', 'preview': 'private'}]}
             if args[1] in ('run-current', 'run-show'):
-                return {'run': {'id': 'run', 'objective': 'private'}}
+                return {'run': {'id': 'run', 'coordinator_handle': 'term', 'objective': 'private'}}
             if args[1] == 'inbox':
-                return {'messages': [{'id': 'msg', 'read': 0, 'sequence': 7,
-                                      'body': 'private', 'subject': 'private', 'payload': 'private'}]}
+                return {'messages': [], 'count': 1000}
+            if args[1] == 'check':
+                return {'runId': 'run', 'count': 1, 'messages': [
+                    {'id': 'msg', 'run_id': 'run', 'to_handle': 'run:run',
+                     'delivery_contract': 'current_delivery', 'body': 'private',
+                     'subject': 'private', 'payload': 'private'}]}
             self.fail('mutation or unsupported read')
         c = {'root': '/root', 'builder': {'slots': ['/slot']}, 'coordinator': {'run': 'run'}}
         with patch.object(capture, 'orca', side_effect=native), \
@@ -60,9 +64,76 @@ class CaptureTests(unittest.TestCase):
                 patch.object(capture, 'run', return_value='ActiveState=active\nMainPID=9\n'):
             result = capture.collect(c, ['fleet-test.service'])
         self.assertIn('runtime_identity_unstable', result['errors'])
-        self.assertEqual(result['mailbox']['messages'], [{'id': 'msg', 'read': 0, 'sequence': 7}])
+        self.assertEqual(result['mailboxes']['run']['messages'], [
+            {'id': 'msg', 'run_id': 'run', 'to_handle': 'run:run',
+             'delivery_contract': 'current_delivery'}])
         self.assertNotIn('private', json.dumps(result))
         self.assertEqual(result['services'][0]['ActiveState'], 'active')
+
+    def test_pending_completeness_independent_of_history_size(self):
+        row = {'id': 'pending', 'run_id': 'run', 'to_handle': 'run:run',
+               'delivery_contract': 'current_delivery', 'delivered_at': '2026-11-08T00:00:00Z'}
+        def query(label, *args):
+            if label == 'run':
+                return {'run': {'id': 'run', 'coordinator_handle': 'term'}}
+            if label == 'inbox':
+                return {'messages': [{'read': 1}] * 1000, 'count': 1000, 'truncated': True}
+            return {'runId': 'run', 'count': 1, 'messages': [row]}
+        mailbox = capture._mailbox(query, 'run')
+        self.assertTrue(mailbox['complete'])
+        self.assertEqual(mailbox['messages'], [row])
+        self.assertEqual(mailbox['history']['count_lower_bound'], 1000)
+
+    def test_unknown_pending_completeness_refuses(self):
+        row = {'id': 'msg', 'run_id': 'run', 'to_handle': 'run:run',
+               'delivery_contract': 'current_delivery'}
+        good = {'runId': 'run', 'count': 1, 'messages': [row]}
+        cases = [{}, {**good, 'runId': 'other'}, {**good, 'count': 2},
+                 {**good, 'truncated': True}, {**good, 'messages': None},
+                 {**good, 'messages': [None]}, {**good, 'messages': [{}]},
+                 {**good, 'messages': [row, row], 'count': 2},
+                 {**good, 'messages': [{**row, 'run_id': 'other'}]},
+                 {**good, 'messages': [{**row, 'to_handle': 'run:other'}]},
+                 {**good, 'messages': [{**row, 'delivery_contract': 'audit_only'}]},
+                 {**good, 'messages': [{**row, 'id': ''}]},
+                 {'runId': 'run', 'count': 100, 'messages': [
+                     {**row, 'id': str(i)} for i in range(100)]}]
+        for pending in cases:
+            def query(label, *args):
+                if label == 'run':
+                    return {'run': {'id': 'run', 'coordinator_handle': 'term'}}
+                if label == 'inbox':
+                    return {'messages': [], 'count': 0}
+                return pending
+            with self.subTest(pending=pending):
+                self.assertFalse(capture._mailbox(query, 'run')['complete'])
+
+    def test_each_project_pending_set_must_be_complete(self):
+        c = {'root': '/', 'builder': {'slots': []}, 'coordinator': {'run': 'run'}}
+        for second_count in (0, 99, 100):
+            def native(config, *args):
+                if args == ('status',):
+                    return {'runtime': {'runtimeId': 'stable'}}
+                if args[:2] == ('terminal', 'list'):
+                    return {'terminals': []}
+                if args[1] == 'run-show':
+                    return {'run': {'id': args[-1], 'coordinator_handle': 'term'}}
+                if args[1] == 'inbox':
+                    return {'messages': [{'read': 1}] * 1000, 'count': 1000}
+                if args[1] == 'check':
+                    identifier = args[args.index('--run') + 1]
+                    count = second_count if identifier == 'second' else 0
+                    return {'runId': identifier, 'count': count, 'messages': [
+                        {'id': str(i), 'run_id': identifier, 'to_handle': 'run:' + identifier,
+                         'delivery_contract': 'current_delivery'} for i in range(count)]}
+                self.fail('unsupported command')
+            with self.subTest(second_count=second_count), \
+                    patch.object(capture, 'orca', side_effect=native), \
+                    patch.object(capture, '_processes', return_value=([], [], [])):
+                result = capture.collect(c, [], run_ids=['second'])
+            self.assertEqual(set(result['mailboxes']), {'run', 'second'})
+            self.assertEqual('inbox_inventory_incomplete' in result['errors'], second_count == 100)
+            self.assertEqual(result['mailboxes']['second']['complete'], second_count < 100)
 
     def test_no_overwrite_and_private_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:

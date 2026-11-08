@@ -505,7 +505,8 @@ def inspect(plan, c):
         except FAILURES:
             blockers.append(project['name'] + '_project_invalid')
     try:
-        snapshot = orca_capture.collect(c, list(dict.fromkeys(p['service'] for p, _ in loaded)))
+        snapshot = orca_capture.collect(c, list(dict.fromkeys(p['service'] for p, _ in loaded)),
+                                        run_ids=[p['run'] for p, _ in loaded])
         blockers.extend('capture_' + error for error in snapshot.get('errors', []) if error != 'proc_scan_incomplete')
     except FAILURES:
         snapshot = {}

@@ -92,7 +92,7 @@ class PreflightTests(unittest.TestCase):
         self.commands = []
         patch.object(preflight.config, 'load', return_value=self.c).start()
         patch.object(preflight.health, 'collect', side_effect=lambda c: copy.deepcopy(self.inventory)).start()
-        patch.object(preflight.orca_capture, 'collect', side_effect=lambda *args: copy.deepcopy(self.snapshot)).start()
+        patch.object(preflight.orca_capture, 'collect', side_effect=lambda *args, **kwargs: copy.deepcopy(self.snapshot)).start()
         patch.object(preflight, 'run', side_effect=self.system_read).start()
         patch.object(preflight, 'orca', side_effect=self.native_read).start()
         patch.object(preflight, 'json_run', return_value={'held': ['session'], 'unknown': []}).start()

@@ -112,6 +112,38 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-77 — Pending inbox capture, independent of history size
+
+Capture now uses read-only Run `check --peek` for pending messages, including
+delivered/unacknowledged rows. Fewer than 100 validated rows proves completeness;
+at the 100-row cap or with unknown/malformed data, capture still blocks. History
+size is informational (1000 returned is only a lower bound). Preflight and the
+conductor retain `mailboxes[RUN]` for every plan project; Main compares pending
+IDs/counts manually across BEFORE/AFTER and retains native Delivery receipts.
+No automatic mailbox subset gate or shared-runtime mutation was added.
+
+Main approved the bounded contract and clean cutover in `msg_9075866655fd` /
+`msg_f23c853ac55e`. Real scratch Run `run_f91cee517a8c`: two peeks returned
+`msg_2036e2489be5`, history remained `read=0`, normal check delivered it in
+`delivery_7b7c652d708b`, another peek still included it before ack, then ack
+drained the set. The scratch terminal was closed. Live Fleet capture observed
+1000 history rows and zero pending, complete, without `inbox_inventory_incomplete`;
+unrelated process evidence remained partial. The real three-project source CLI
+dry run likewise omitted `capture_inbox_inventory_incomplete`, retaining
+execution-window, project-handoff and idle/confirmation blockers. All 448 tests
+pass. Publication requires independent final-head review, green CI and Main
+exact-head GO; no installation or shared restart was performed.
+
+### TASK-73 — Restart CLI idle diagnostics
+
+Dry-run `projects[NAME]` now projects only `idle_checks` / `main_idle_checks`
+status/reason fields from preflight. Preflight-blocked execution returns and
+journals the same diagnostics; refusal notifications include the receiving
+project's checks. No idle checks or restart authorization behavior changed.
+Regressions cover failed/skipped/passed checks, field filtering and blocked
+execution without capture/restart. All 445 tests pass. Publication and real
+three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
+
 
 ### TASK-76 — Soft-wrapped shell prompts
 

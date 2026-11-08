@@ -253,11 +253,55 @@ def _processes(paths):
     return rows, sorted(set(errors)), diagnostics
 
 
-def collect(c, services):
+def _mailbox(query, run_id):
+    current = query('run', 'orchestration', 'run-show', '--id', run_id)
+    run = current.get('run')
+    run = run if isinstance(run, dict) else {}
+    history = query('inbox', 'orchestration', 'inbox', '--terminal', 'run:' + run_id,
+                    '--limit', '1000')
+    history_rows = history.get('messages')
+    history_returned = len(history_rows) if isinstance(history_rows, list) else None
+    # Orca's read-only Run peek selects unread current_delivery rows (including
+    # delivered but unacknowledged rows), oldest first, with a fixed limit of 100.
+    # Its count is the returned size, not a total. At the cap completeness is unknown.
+    terminal = run.get('coordinator_handle')
+    pending = (query('pending', 'orchestration', 'check', '--terminal', terminal,
+                     '--run', run_id, '--peek')
+               if run.get('id') == run_id and isinstance(terminal, str) and terminal else {})
+    rows = pending.get('messages')
+    complete = (isinstance(rows, list) and len(rows) < 100 and
+                type(pending.get('count')) is int and pending['count'] == len(rows) and
+                pending.get('runId') == run_id and not pending.get('truncated') and
+                not pending.get('cancelled') and not pending.get('connectionLost') and
+                not pending.get('timedOut') and not pending.get('error') and
+                pending.get('acknowledged') is None)
+    ids = set()
+    for row in rows if isinstance(rows, list) else []:
+        if (not isinstance(row, dict) or not isinstance(row.get('id'), str) or not row['id'] or
+                row['id'] in ids or row.get('run_id') != run_id or
+                row.get('to_handle') != 'run:' + run_id or
+                row.get('delivery_contract') != 'current_delivery'):
+            complete = False
+        else:
+            ids.add(row['id'])
+    return {'run': _pick(run, RUN_FIELDS),
+            'messages': [_pick(row, MESSAGE_FIELDS) for row in rows if isinstance(row, dict)]
+                        if isinstance(rows, list) else [],
+            'complete': complete, 'limit': 100,
+            'returned': len(rows) if isinstance(rows, list) else None,
+            'history': {'count_lower_bound': history_returned,
+                        'returned': history_returned, 'limit': 1000},
+            'native_delivery_identity': 'unavailable_read_only_api'}
+
+
+def collect(c, services, *, run_ids=()):
     errors = []
     def query(label, *args):
         try:
-            return orca(c, *args)
+            result = orca(c, *args)
+            if not isinstance(result, dict):
+                raise TypeError('invalid query result')
+            return result
         except (CommandError, ValueError, TypeError):
             errors.append(label + '_unavailable')
             return {}
@@ -281,12 +325,9 @@ def collect(c, services):
                           else None if 'run' in bound and bound['run'] is None else 'unknown')
         terminals.append(row)
     run_id = c['coordinator']['run']
-    current = query('run', 'orchestration', 'run-show', '--id', run_id)
-    inbox = query('inbox', 'orchestration', 'inbox', '--terminal', 'run:' + run_id, '--limit', '1000')
-    messages = inbox.get('messages', [])
-    # This API has no pagination or Delivery identity. At the cap, don't claim a
-    # complete set even if the server omits an explicit truncation flag.
-    if len(messages) >= 1000 or inbox.get('truncated') or inbox.get('count', len(messages)) > len(messages):
+    mailboxes = {identifier: _mailbox(query, identifier)
+                 for identifier in dict.fromkeys((run_id, *run_ids))}
+    if any(not mailbox['complete'] for mailbox in mailboxes.values()):
         errors.append('inbox_inventory_incomplete')
     processes, proc_errors, proc_diagnostics = _processes({t.get('worktreePath') for t in terminals} | set(c['builder']['slots']) | {c['root']})
     errors.extend(proc_errors)
@@ -323,10 +364,7 @@ def collect(c, services):
             'runtime_process': _pick(status.get('app', {}), ('pid', 'running')),
             'terminals': terminals, 'processes': processes, 'services': states,
             'proc_diagnostics': proc_diagnostics,
-            'run': _pick(current.get('run') or {}, RUN_FIELDS),
-            'mailbox': {'messages': [_pick(m, MESSAGE_FIELDS) for m in messages],
-                        'native_delivery_identity': 'unavailable_read_only_api',
-                        'limit': 1000, 'returned': len(messages)},
+            'mailboxes': mailboxes,
             'errors': sorted(set(errors)),
             'limitations': ['No consuming check/ack; Main must retain existing native Delivery receipt separately.',
                             'Titles hashed; no bodies, subjects, payloads, previews, raw argv or environments retained.',

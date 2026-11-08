@@ -589,7 +589,14 @@ The conductor retains BEFORE/AFTER read-only capture and resumable journal
 privately (0700 directories / 0600 files). No secrets, transcript text or mail bodies;
 preserve native Delivery/message/read/ack metadata separately before quiescing
 and after replay. `fleet.orca_capture` itself never mutates Orca or consumes/
-acks mail. Stop/launch timeout is not permission to retry: positive exit is
+acks mail.
+Pending mail is captured in `mailboxes[RUN]` for every plan project Run via
+read-only `check --peek`: fewer than 100 validated rows proves completeness;
+100 rows, truncation or unknown/malformed pending data blocks capture. The
+1000-row history count is informational only (a lower bound, not the total).
+Compare BEFORE/AFTER pending IDs and counts manually before replay/ack; native
+Delivery identity still requires Main's separately retained receipt.
+Stop/launch timeout is not permission to retry: positive exit is
 required, recovery is bounded, and ambiguous terminal creation requires manual
 reconciliation. Every stock restart attempt revalidates idle confirmations;
 down-runtime retries also require a complete current owned-OMP census with no
