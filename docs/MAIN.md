@@ -123,7 +123,10 @@ the same ref is allowed. Never switch to an unrelated task just to get a differe
 ref. FRESH-READY requires this session's NEXT piece merged after its launch and a
 concrete next-piece handoff written after that merge; never an inherited boundary.
 After the primary `thread result` settles, the builder's last lane action is
-`fleet --config CONFIG thread ready NEXT [--body TEXT]`, then stop. Never raw
+`fleet --config CONFIG thread ready NEXT [--body TEXT]`, then end its turn with a
+final message: no further tool calls or background jobs, never wait on its own
+terminal/idle state or send input to its own terminal. Main (or the owner) retires
+the idle session via the documented retirement path below. Never raw
 `orca send` for FRESH-READY or decisions; use `thread question` for decisions.
 Ordinary progress/PARK reports may still raw-send native `status`. Same-ref
 readiness retains the newer-merge/later-concrete-handoff guards; Pad done alone
@@ -233,6 +236,23 @@ or credential metadata. Any changed head requires a fresh final-head review.
 No model or stock command bypasses the two publication gates.
 
 ### Guarded retirement
+
+After a builder reports PARKED or successfully sends `thread ready`, it ends its
+turn with a final message and does nothing else: no further tool calls or
+background jobs, especially no job waiting on its own terminal/idle state or
+sending input to its own terminal. Main (or the owner), not the builder, retires
+the idle session. A job waiting for its owning turn to become idle deadlocks.
+
+For eligible finished work, use guarded `fleet restart` below. PARKed unfinished
+work does not satisfy its publication gate: Main must positively prove the exact
+launch/session/foreground binding, completed turn, idle pane and empty composer,
+then perform one manual `/exit`, verify the same-incarnation foreground shell
+and run `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence
+'observed non-secret exit proof'` from Main's configured terminal. Inspect any
+ambiguous send/exit before further action; never retry blindly or use Escape,
+interrupt or kill. Unknown liveness is not permission. Resume is a fresh,
+Main-confirmed launch; PARK does not authorize a next task or FRESH-READY.
+
 For OLD != NEXT, `restart` requires a merged PR carrying OLD and Pad OLD done or
 a post-publication handoff on NEXT. For OLD == NEXT, require a PR carrying that
 ref merged strictly after the retiring launch timestamp, then a handoff on the

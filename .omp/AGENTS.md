@@ -65,16 +65,23 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   ref; Pad done alone is insufficient.
   Settle the primary `thread result`, then make
   `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action
-  and stop. Use the same config as `thread open`, never raw `orca send` for
+  and end your turn with a final message: no further tool calls or background jobs,
+  never wait on your own terminal/idle state or send input to your own terminal.
+  Main (or the owner) retires the idle session. Use the same config as `thread open`, never raw `orca send` for
   FRESH-READY. The idempotent receipt records the native message ID and a Pad
   comment containing it; retry a known-ID receipt only to finish recording.
   Ambiguous sends lacking an ID forbid duplicates and require reconciliation.
   Ready reports do not schedule launches; Main approves the fresh launch.
 - On a durable quota PARK request: finish the current step, commit and push WIP
   to the task branch, write the Pad handoff, report PARKED with evidence to the
-  configured coordinator Run, then stop this session yourself. No next task or
-  FRESH-READY. Main must confirm a fresh session for resume. Fleet never injects
-  exit/interrupt/kill input; unknown liveness never authorizes another park.
+  configured coordinator Run. After reporting PARKED, end your turn with a final
+  message and do nothing else: no further tool calls, no background jobs, and
+  never a job that waits on your own terminal/idle state or sends input to your
+  own terminal. Main (or the owner) retires the idle session via the documented
+  retirement path (`fleet restart` for eligible finished work, or manual idle-proof
+  `/exit` + `fleet reconcile`). No next task or FRESH-READY. Main must confirm a
+  fresh session for resume. Fleet never injects exit/interrupt/kill input for PARK;
+  unknown liveness never authorizes another park.
 
 ## Publication: two independent gates
 

@@ -113,6 +113,27 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-75 — End turns without self-exit jobs
+
+Builder PARK and successful FRESH-READY instructions now explicitly end with a
+final message and no further tools/background jobs, especially no job waiting
+on the builder's own terminal/idle state or sending input to that terminal.
+Main (or the owner) retires the idle session: guarded `fleet restart` for eligible
+finished work; otherwise positively proven idle, one manual `/exit`, verified
+same-incarnation foreground shell and `fleet reconcile`. Unfinished PARK does
+not bypass restart's publication gate; resume remains fresh and Main-confirmed.
+Governor logic, PARK protocol and reconciliation are unchanged. Main approved
+the cooperative PARK message wording addition in `msg_77312071802b`.
+
+Read-only launcher harness rendered the complete rule with an empty override
+(4,364 bytes), default footer (7,163 bytes) and repository footer (7,605 bytes),
+with native transport mocked and no builder launch. Scratch governor rendering
+also produced the corrected PARK message without native sends. All 443 tests pass;
+no permanent wording tests added. No obsolete self-exit wording remains in
+builder-facing source/policy. Publication requires fresh final-head independent review, green CI and
+Main exact-head GO. Merge does not deploy shared policy; supervisors must be
+reinstalled for the cooperative PARK message change to take effect.
+
 ### TASK-74 — Bounded async builder jobs
 
 Builder default and project footers, the unconditional launch prompt, workflow

@@ -346,6 +346,11 @@ result settles, make this the last lane action, then stop:
 fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece handoff'
 ```
 
+After a successful ready report, end your turn with a final message and do nothing
+else: no further tool calls, no background jobs, and never a job that waits on your
+own terminal/idle state or sends input to your own terminal. Main (or the owner)
+retires the idle session via the documented retirement path below.
+
 `--body TEXT` is optional. Use the same explicit config as `thread open` and
 replace NEXT with the proposed next ref. The caller must be the unbound terminal
 of the current authoritative primary launch, with a settled canonical attempt.
@@ -407,9 +412,13 @@ Unknown/stale usage withholds new starts and **never** authorizes PARK/kill/retr
 Known reserve may cooperatively request PARK of one lowest-priority lane; Fleet
 never injects exit/interrupt/kill. On durable PARK, finish the current step,
 commit and push WIP, write the Pad handoff, report PARKED with evidence to Main,
-then stop your own session. No next task or FRESH-READY. Main reconciles positive
-exit and confirms a **fresh** resume session. Timeout is escalation, not stop
-permission. Saved resets are never auto-spent; owner approval must be durably
+then end your turn with a final message and do nothing else: no further tool calls,
+no background jobs, and never a job that waits on your own terminal/idle state or
+sends input to your own terminal. Main (or the owner) retires the idle session via
+the documented retirement path (`fleet restart` for eligible finished work, or
+manual idle-proof `/exit` + `fleet reconcile`). No next task or FRESH-READY.
+Main reconciles positive exit and confirms a **fresh** resume session.
+Timeout is escalation, not stop permission. Saved resets are never auto-spent; owner approval must be durably
 recorded **before** a separate manual spend. Main's cost authority is not budget
 or reset permission. Do not invoke a reset command merely to refresh usage.
 
