@@ -8,6 +8,19 @@ from . import config, health, snapshot, state
 from .commands import CommandError, json_run, run
 
 PRIORITY = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+# Strip presentation prefixes only; arbitrary prose before a ref is not ownership.
+CARD_STATUS = re.compile(
+    r'(?:open|ready|working|in-progress|blocked|done|completed|parked|cancelled)(?:\s*:\s*|\s+)',
+    re.I)
+CARD_DECORATION = re.compile(r'(?:[^\w]|[0-9]\ufe0f?\u20e3)*')
+
+
+def _card_ref(text):
+    pos = CARD_DECORATION.match(text).end()
+    status = CARD_STATUS.match(text, pos)
+    if status:
+        pos = status.end()
+    return health.REF.match(text, pos)
 
 
 def pad(c, *args):
@@ -219,9 +232,12 @@ def assignments(c, inventory, *, retiring=None):
         if w['path'] not in c['builder']['slots']:
             continue
         branch = run(['git', 'branch', '--show-current'], w['path']).strip()
-        for source, text in (('branch', branch), ('card', w.get('comment', ''))):
-            for match in health.REF.finditer(text or ''):
-                claims.append((match[1].upper(), w['path'], source))
+        for match in health.REF.finditer(branch):
+            claims.append((match[1].upper(), w['path'], 'branch'))
+        card = w.get('comment') or ''
+        match = _card_ref(card)
+        if match:
+            claims.append((match[1].upper(), w['path'], 'card (leading ref)'))
     carries = state.read(c, 'carries', {})
     for receipt in unresolved(c, inventory):
         if receipt != retiring:
@@ -246,7 +262,7 @@ def assignments(c, inventory, *, retiring=None):
 def duplicate_reasons(ref, claims, slot=None):
     return sorted({f'{ref} already assigned to {path} ({source})'
                    for task, path, source in claims if task == ref
-                   and (path != slot or source not in ('branch', 'card'))})
+                   and (path != slot or source not in ('branch', 'card (leading ref)'))})
 
 
 def check_launch(c, ref, inventory, slot, *, retiring=None):

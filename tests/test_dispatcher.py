@@ -129,6 +129,48 @@ class DispatcherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already assigned'):
             dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
 
+    def test_card_mentions_do_not_claim_related_tasks(self):
+        other = self.path + '/inventory'
+        self.c['builder']['slots'].append(other)
+        self.inventory['worktrees'] = [
+            {'path': other, 'comment': 'TASK-2751 ...; per Main exception skip tier-e until TASK-2753, retain local proof...'},
+            {'path': self.path, 'comment': 'TASK-2750 done ... TASK-2753 handoff, then 2756/2739'},
+        ]
+        self.tasks.append(self.item('TASK-2753', 'high', '2026-03-02'))
+        claims = dispatcher.assignments(self.c, self.inventory)
+        self.assertEqual({ref for ref, _, _ in claims}, {'TASK-2751', 'TASK-2750'})
+        self.assertEqual(dispatcher.check_launch(
+            self.c, 'TASK-2753', self.inventory, self.path)['ref'], 'TASK-2753')
+
+    def test_leading_card_claim_blocks_only_other_slots(self):
+        other = self.path + '/other'
+        self.c['builder']['slots'].append(other)
+        self.inventory['worktrees'].append({'path': other})
+        for prefix in ('', ' \n', '✅ ', 'in-progress: ', '🚧 working: ',
+                       '\u23f3 ', '\u2b50 ', '\U0001f469\u200d\U0001f4bb ',
+                       '\U0001f44d\U0001f3fd ', '1\ufe0f\u20e3 ',
+                       '\u203c\ufe0f ', '\u2194\ufe0f ', ': ',
+                       '\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f '):
+            with self.subTest(prefix=prefix):
+                self.inventory['worktrees'][1]['comment'] = prefix + 'TASK-2: assigned; TASK-3 next'
+                with self.assertRaisesRegex(ValueError, 'TASK-2 already assigned'):
+                    dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+                self.assertEqual(dispatcher.duplicate_reasons(
+                    'TASK-2', dispatcher.assignments(self.c, self.inventory), other), [])
+
+    def test_nonleading_card_mentions_claim_nothing(self):
+        for comment in ('Next task is TASK-2', 'Waiting for TASK-2', 'See TASK-2',
+                        'note: TASK-2', 'done with TASK-2', '', None):
+            with self.subTest(comment=comment):
+                self.inventory['worktrees'][0]['comment'] = comment
+                self.assertEqual(dispatcher.assignments(self.c, self.inventory), [])
+
+    def test_branch_claims_still_include_every_reference(self):
+        with patch.object(dispatcher, 'run', return_value='task-2-after-task-3'):
+            claims = dispatcher.assignments(self.c, self.inventory)
+        self.assertEqual(claims, [('TASK-2', self.path, 'branch'),
+                                  ('TASK-3', self.path, 'branch')])
+
     def test_carried_ref_is_excluded_from_next_and_shared_launch_gate(self):
         receipt = {'id': 'launch', 'ref': 'TASK-1', 'worktree': {'path': self.path, 'id': 'tree'},
                    'terminal': 'term', 'terminal_incarnation_id': 'inc'}

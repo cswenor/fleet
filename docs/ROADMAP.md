@@ -113,6 +113,30 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-67 — Leading-card assignment claims
+
+Card ownership now uses only the leading ref, allowing non-word decoration
+(punctuation, symbols, whitespace, emoji/keycaps) then documented status words.
+Later refs in prose and cards without a leading
+ref claim nothing. Duplicate diagnostics say `card (leading ref)`; selected-slot
+card claims remain allowed. Branch refs, carried/unresolved receipts, active
+builders and `health.REF` are unchanged.
+
+The real-card and nonleading-prose regressions failed before the fix. Regression
+coverage also retains genuine cross-slot blocking, selected-slot allowance,
+presentation prefixes and all branch refs. Two independent reviews caught
+incomplete emoji recognition; hourglass/star/keycap/tagged-flag regressions failed
+before correction. Main approved non-word decoration rather than a Unicode-data
+dependency (`msg_38c02738976d`), preserving the arbitrary-prose-word boundary;
+double-exclamation/horizontal-arrow and `note:` regressions cover that ruling.
+A read-only source `check_launch` against live
+Project Alpha inventory returned no TASK-2753 duplicate claim for lane
+2187; it correctly retained that slot's unrelated unresolved TASK-2750 receipt
+`1794096515943963418`. Inventory collection had no errors. No launch, live state
+write, service restart or shared deployment was performed. Publication receipts
+belong on TASK-67/PR; merge is held for Main's exact-head GO.
+
+
 ### TASK-65 — Conditional GitHub reads and budget deferral
 
 REST reads now use per-page ETags through stock `gh`; 304 responses reuse cached

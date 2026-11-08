@@ -698,8 +698,16 @@ be terminal under the workspace status mapping; unknown/unreadable dependency
 state excludes the task. Both `next` and explicit `launch` walk at most 20 parent
 links to the nearest PLAN, stopping there even when inactive. Missing/unreadable
 parents, cycles and depth overflow refuse with a reason.
-Actual lane Git branches, Orca card comments, active builders and unresolved
-launch receipts prevent duplicate-task proposals. Only one connected, verified
+Actual lane Git branches, leading Orca card refs, active builders and unresolved
+launch receipts prevent duplicate-task proposals. A card claims only a ref at
+its start, optionally after non-word decoration (Unicode punctuation, symbols
+or whitespace, including emoji/keycap sequences), then a status word (`open`,
+`ready`, `working`, `in-progress`, `blocked`, `done`, `completed`, `parked`,
+`cancelled`). Thus `: TASK-2` claims TASK-2; `note: TASK-2` does not. Later prose
+refs are mentions, not assignments; a card with no
+leading ref claims nothing. Duplicate diagnostics identify `card (leading ref)`.
+Branch-derived refs and carried/unresolved launch ownership are unchanged.
+Only one connected, verified
 shell with no other live/unknown terminal makes a proposed slot free. Quota,
 disk, cap and incomplete health can withhold all proposals. Exit 0 means a
 proposal, 1 means none, 2 means collection/command failure; `--json` is structured.
@@ -724,7 +732,7 @@ lock, rechecks admission and terminal identity after preparation hooks, and
 refuses duplicate live/unresolved task attempts or occupied slots. An explicit
 in-progress continuation is allowed only after the previous attempt's exit is
 positively reconciled; stale receipts or missing terminals never prove exit.
-Branches/card comments in the selected slot may name the task being confirmed;
+Branches/leading card refs in the selected slot may name the task being confirmed;
 the same claim in another slot blocks it. `next` never reserves or mutates Pad,
 Git, or Orca state; its proposal can become stale before confirmation.
 Initial admission precedes hooks or slot creation. If later admission/identity
