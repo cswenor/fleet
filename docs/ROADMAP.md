@@ -113,6 +113,22 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-69 — Thinking-level footer recognition
+
+`omp_ui` now accepts the Unicode thinking indicators for off/minimal/low/medium/
+high/xhigh/max/auto (`⦸ ○ ◔ ◑ ◒ ◕ ◉ ⟳`) and all half-circle orientations
+(`◐`–`◓`). The spinner/π prefix, separator and current closing-border checks
+remain unchanged. Indicator mapping follows omp's
+[Unicode symbol preset](https://github.com/ketema/omp/blob/main/packages/tui/src/theme/symbols.ts)
+and [compact model segment](https://github.com/ketema/omp/blob/main/packages/tui/src/status-line/segments.ts);
+custom ASCII/Nerd Font presets remain outside this recognizer's existing contract.
+
+Regressions failed before the fix for 27 working/idle/background combinations.
+All 435 tests pass afterward, including malformed/stale-footer boundaries.
+Read-only source CLI `python3 -m fleet.cli --config CONFIG status --json`
+against the fleet, Project Alpha and Project Beta private configs observed all three
+live Mains as `up`, reason `live omp UI`; no shared installation/service changes.
+Publication requires independent final-head review, green CI and Main exact-head GO.
 ### TASK-68 — Coordinator liveness alerts
 
 Source implementation monitors the configured Main independently of builder

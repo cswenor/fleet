@@ -65,7 +65,7 @@ def omp_ui(text):
     """
     lines = ANSI.sub('', text).splitlines()
     footers = [i for i, line in enumerate(lines)
-               if re.match(r' (?:π|[⠁-⣿].*) >\s*◑', line)]
+               if re.match(r' (?:π|[⠁-⣿].*) >\s*[⦸○◐-◕◉⟳]', line)]
     footer = footers[-1] if footers else None
     current_footer = (footer is not None and footer + 1 < len(lines) and
                       lines[footer + 1].startswith('╰─') and

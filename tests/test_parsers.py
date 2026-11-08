@@ -19,6 +19,28 @@ class HealthTests(unittest.TestCase):
         _, flags, _ = classify(t, '◑ GPT-6.1 Sol > 🌳 project', 'openai-codex/gpt-6.1-sol', 600, 200)
         self.assertEqual(flags, [])
 
+    def test_thinking_levels_preserve_working_idle_and_background_states(self):
+        for indicator in '⦸○◔◐◑◒◓◕◉⟳':
+            for prefix, suffix, expected in (
+                    ('⠹ 39h', '', 'working'),
+                    ('π', '', 'idle'),
+                    ('π', ' > ⚙ 1', 'background')):
+                with self.subTest(indicator=indicator, state=expected):
+                    footer = (f' {prefix} > {indicator} Opus 5.5 > '
+                              f'📁 ~/dev/cswenor/fleet > ⑂ main{suffix}')
+                    self.assertEqual(health.omp_ui(footer + '\n╰─'), expected)
+        self.assertEqual(health.omp_ui(' ⠙ 30s > ◑ GPT-6.1 Sol >\n╰─'), 'working')
+
+    def test_thinking_indicator_does_not_replace_footer_structure(self):
+        for text in (
+                ' prose > ◒ Opus 5.5 >\n╰─',
+                ' π ◒ Opus 5.5 >\n╰─',
+                ' π > ◒ Opus 5.5 >',
+                ' π > ◒ Opus 5.5 >\nnot a border',
+                ' π > ◒ Opus 5.5 >\n╰─\nnew transcript'):
+            with self.subTest(text=text):
+                self.assertEqual(health.omp_ui(text), 'unknown')
+
     def test_captured_dialogs_and_background_are_distinct(self):
         screens = json.loads((Path(__file__).parent / 'fixtures' /
                               'omp-18.17-retirement.json').read_text())
