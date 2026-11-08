@@ -575,7 +575,7 @@ def inspect(plan, c):
             else:
                 with _idle_check(checks, 'coordinator_shell', 'reserved coordinator shell is not proven'):
                     screen = orca(pc, 'terminal', 'read', '--terminal', entry['terminal'], '--screen')['terminal']
-                    if entry['terminal'] in matched or not health.shell_ready('\n'.join(screen.get('tail', []))):
+                    if entry['terminal'] in matched or not health.shell_ready(screen):
                         raise ValueError
         for slot in pc['builder']['slots']:
             if checks['health_inventory']['status'] != 'passed':

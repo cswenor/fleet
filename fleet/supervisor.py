@@ -317,7 +317,7 @@ def enqueue(c, event, recipient):
                        'incarnation_id': t.get('incarnationId')}
             if (not t.get('connected') or t.get('orphaned') or not t.get('writable')
                     or t.get('worktreeId') != attempt['worktree']
-                    or health.shell_ready('\n'.join(screen.get('tail', [])))
+                    or health.shell_ready(screen)
                     or not governor.same_attempt(c, attempt, [current])):
                 raise CommandError('park owner identity unavailable or changed')
         # Explicit sender permits a systemd process. Never inject terminal input.

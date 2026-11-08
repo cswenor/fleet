@@ -112,6 +112,25 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+
+### TASK-76 — Soft-wrapped shell prompts
+
+Shell readiness accepts the full rendered screen receipt: `tailRows[].wrapped`
+authoritatively joins soft-wrapped rows into the final logical line before the
+existing supported-POSIX-prompt regex runs. All screen consumers preserve that
+metadata. Older text-only receipts use at most four contiguous trailing rows;
+blank rows never bridge that fallback. Malformed metadata refuses readiness.
+Main approved this boundary in `msg_cd4a5f34614d`.
+
+The reported Email lane-2 prompt passes with its first row marked wrapped.
+Read-only live screen checks accept an existing shell and reject the narrow
+Email pane's working omp UI; no live narrow shell was available after Email
+resumed its builder. Wrapped reply residue remains blocked: residue recognition
+and restart's exact line-kill verification stay single-line, intentionally
+unchanged. No terminal input or runtime restart was performed.
+Publication requires independent final-head review, green CI and Main exact-head
+GO. Merge does not deploy shared health behavior.
+
 ### TASK-73 — Restart CLI idle diagnostics
 
 Dry-run `projects[NAME]` now projects only `idle_checks` / `main_idle_checks`

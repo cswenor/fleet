@@ -383,7 +383,7 @@ def restart(c, ref, slot, finished_ref):
                     raise ValueError('target identity lost after exit; inspect retirement receipt, no retry')
                 screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
                 text = '\n'.join(screen.get('tail', []))
-                if health.shell_ready(text):
+                if health.shell_ready(screen):
                     break
                 residue = health.shell_reply_residue(text)
                 if residue:
@@ -411,7 +411,7 @@ def restart(c, ref, slot, finished_ref):
                         if (not current.get('connected') or current.get('orphaned') or not current.get('writable') or
                                 current.get('incarnationId') != record['terminal_incarnation_id'] or
                                 current.get('worktreeId') != tree['id'] or
-                                not health.shell_ready(clean_text) or not clean_lines or
+                                not health.shell_ready(clean) or not clean_lines or
                                 clean_lines[-1] != expected_prompt or
                                 _exited_shell(proof['process'], target['terminal']) != shell):
                             raise ValueError('line-kill did not produce a verified clean prompt')

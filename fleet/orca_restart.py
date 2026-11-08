@@ -406,7 +406,7 @@ def _fresh_main_ready(c, project, before, after, journal):
                 terminal.get('agentIdentity')):
             raise ValueError('old or possible restored Main terminal not positively retired')
         screen = orca(c, 'terminal', 'read', '--terminal', terminal['handle'], '--screen')['terminal']
-        if not shell_ready('\n'.join(screen.get('tail', []))):
+        if not shell_ready(screen):
             raise ValueError('old or possible restored Main terminal not at a ready shell')
     journal.event('fresh-check-' + project['name'], 'done', {'sha256': _digest(current)})
 
@@ -438,7 +438,7 @@ def _coordinator(c, project, before, after, journal):
         if project['mode'] == 'shell':
             from .health import shell_ready
             screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
-            if terminal.get('agentIdentity') or not shell_ready('\n'.join(screen.get('tail', []))):
+            if terminal.get('agentIdentity') or not shell_ready(screen):
                 raise ValueError('cached coordinator shell no longer ready')
         else:
             original = created['receipt']['process'] if created else project['main_process']
@@ -456,7 +456,7 @@ def _coordinator(c, project, before, after, journal):
         terminal = _terminal_matches(orca(c, 'terminal', 'list', '--limit', '1000'), old_terminal)
         from .health import shell_ready
         screen = orca(c, 'terminal', 'read', '--terminal', terminal['handle'], '--screen')['terminal']
-        if terminal.get('agentIdentity') or not shell_ready('\n'.join(screen.get('tail', []))):
+        if terminal.get('agentIdentity') or not shell_ready(screen):
             raise ValueError('reserved coordinator shell no longer positively ready')
         binding = orca(c, 'orchestration', 'run-current', '--from', terminal['handle'])
         if (binding.get('run') or {}).get('id') != project['run']:
