@@ -560,6 +560,15 @@ def _install(project, journal):
     journal.event(name, 'done', {'unit': project['service'], 'active': True})
 
 
+def _project_checks(projects):
+    """Expose only source-defined diagnostics, never private project evidence."""
+    return {project['name']: {
+        field: {name: {key: check[key] for key in ('status', 'reason') if key in check}
+                for name, check in project.get(field, {}).items()}
+        for field in ('idle_checks', 'main_idle_checks')}
+        for project in projects}
+
+
 def _notify(c, projects, journal):
     outcome = journal.data['status']
     pending = []
@@ -571,6 +580,9 @@ def _notify(c, projects, journal):
                 '; project=' + project['name'] +
                 '; coordinator=' + mapping.get('terminal', 'unresolved') +
                 '; previous_terminal=' + project['terminal'])
+        if outcome == 'blocked':
+            checks = journal.step('preflight').get('receipt', {}).get('projects', {})
+            body += '; idle_checks=' + json.dumps(checks.get(project['name'], {}), sort_keys=True)
         if fresh.get('receipt', {}).get('session_dir'):
             body += ('; fresh_main=' + fresh['status'] +
                      '; session_dir=' + fresh['receipt']['session_dir'] +
@@ -629,6 +641,7 @@ def conduct(c, path, dry_run=False):
                 'runtime': proof['snapshot'].get('runtime'),
                 'terminals': [{k: t.get(k) for k in ('handle', 'incarnationId', 'worktreePath', 'binding')}
                               for t in proof['snapshot'].get('terminals', [])],
+                'projects': _project_checks(proof['projects']),
                 'blockers': proof['blockers'], 'actions': proof['actions'],
                 'proc_diagnostics': [d for d in proof['snapshot'].get('proc_diagnostics', [])
                                      if d.get('reason') != 'non_owned']}
@@ -652,11 +665,13 @@ def conduct(c, path, dry_run=False):
                 proof = inspect(plan, c)
                 _atomic(journal.directory / 'preflight.json', proof)
                 if proof['blockers']:
-                    journal.event('preflight', 'blocked', {'blockers': proof['blockers']})
+                    diagnostics = {'blockers': proof['blockers'],
+                                   'projects': _project_checks(proof['projects'])}
+                    journal.event('preflight', 'blocked', diagnostics)
                     _notify(c, [p for p in proof['projects'] if p.get('run')], journal)
                     journal.data['status'] = 'blocked'
                     journal.save()
-                    return {'event': 'blocked', 'blockers': proof['blockers'], 'journal': str(journal.path)}
+                    return {'event': 'blocked', **diagnostics, 'journal': str(journal.path)}
                 journal.data['timeout_seconds'] = plan['timeout_seconds']
                 journal.event('preflight', 'done', {'sha256': _digest(proof)})
             else:

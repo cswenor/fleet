@@ -559,9 +559,12 @@ bypass gates. See the single [unattended restart runbook](docs/orca-feature-map.
 for the full private schema, approved stock-unit command, SIGKILL policy gate,
 external timer/service template, survival-first Main reconciliation and
 project-local config/service updates for the fleet, Project Alpha and Project Beta Mains.
-Per-project JSON `idle_checks` and `main_idle_checks` identify the exact failed
-gate, including footer/composer, background job, pane state, final session stop,
-lease, foreground process group and each builder lane; no raw exception text.
+Dry-run JSON `projects[NAME].idle_checks` and `main_idle_checks` identify the exact
+failed gate, including footer/composer, background job, pane state, final session
+stop, lease, foreground process group and each builder lane. Only symbolic
+status/reason fields are exposed, never raw exception text or private process/
+session evidence. Preflight-blocked execution results and journal receipts retain
+the same section; refusal notifications include the receiving project's checks.
 At T-10 each Main stops **ALL of its own** async/background jobs (inbox waits,
 wake timers, PR watches and deploy checks), confirms none remain, sends its
 final safe-idle confirmation, ends its turn and leaves an empty composer.

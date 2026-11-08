@@ -112,6 +112,16 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-73 — Restart CLI idle diagnostics
+
+Dry-run `projects[NAME]` now projects only `idle_checks` / `main_idle_checks`
+status/reason fields from preflight. Preflight-blocked execution returns and
+journals the same diagnostics; refusal notifications include the receiving
+project's checks. No idle checks or restart authorization behavior changed.
+Regressions cover failed/skipped/passed checks, field filtering and blocked
+execution without capture/restart. All 445 tests pass. Publication and real
+three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
+
 
 ### TASK-72 — Explain shared-restart idle gates
 
