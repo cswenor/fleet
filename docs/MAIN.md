@@ -175,8 +175,9 @@ UI before deciding. No lane input, Esc or automatic restart is authorized.
 Main liveness is monitored read-only each cycle (TASK-68).
 `coordinator.liveness_minutes` defaults to 5 for observed bare shell/crash UI;
 missing/disconnected/orphaned terminals alert immediately as urgent `main_down`.
-Unknown observations emit ordinary `main_unknown`. Configure
-`coordinator.escalation_run` with another attended Run's bare ID so a dead Main's
+Unknown observations emit ordinary `main_unknown` after
+`coordinator.unknown_alert_cycles` consecutive cycles (positive integer, default 3).
+Configure `coordinator.escalation_run` with another attended Run's bare ID so a dead Main's
 own inbox is not the only destination. Recovery clears dedupe; no automatic
 restart or terminal input is authorized. Scratch CLI proof and deployment
 boundaries are recorded in the roadmap; shared deployment remains Main-owned.

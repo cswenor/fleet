@@ -229,8 +229,12 @@ def main_alerts(c, s, ledger, now):
         ledger['main_liveness'] = {**(previous if same else {}),
                                    'identity': identity, 'since': since,
                                    'unknown_since': previous.get('unknown_since', now) if same else now}
+        unknown_cycles = previous.get('unknown_cycles', 0) + 1 if same else 1
+        ledger['main_liveness']['unknown_cycles'] = unknown_cycles
         if not previous.get('alerted') or not same:
             ledger['main_liveness']['status'] = 'unknown'
+        if unknown_cycles < c['coordinator'].get('unknown_alert_cycles', 3):
+            return []
         kind = 'main_unknown'
     else:
         if not same or previous.get('status') not in ('suspect', 'down'):

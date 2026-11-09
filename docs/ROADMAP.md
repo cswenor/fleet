@@ -120,11 +120,26 @@ no line. Snapshot collection, JSON, health classification and alerts are unchang
 No outage duration is invented: the snapshot does not contain one.
 
 Rendering regressions cover up, down, suspect, unknown and unconfigured states.
-All 454 tests pass. Source CLI plain/JSON smoke on the real Fleet, Project Alpha and
+All 458 tests pass after integrating TASK-79. Source CLI plain/JSON smoke on the real Fleet, Project Alpha and
 Project Beta configs returned exit 0 and matching `Main: up (live omp UI)` for
 each project. Publication receipts belong on TASK-70/PR; merge requires independent
 final-head review, green CI and Main exact-head GO. No shared installation or
 service restart was performed.
+
+### TASK-79 — Debounce unknown Main observations
+
+`coordinator.unknown_alert_cycles` is a positive integer, default 3. The persisted
+`main_liveness` ledger counts consecutive unknown observations for the same Main
+identity; up, suspect, down or an identity change resets the streak. At threshold,
+the existing nonurgent occurrence and project/escalation recipients are unchanged.
+Main health classification, suspect timing and immediate real-down alerts are unchanged.
+
+Regressions reproduced premature relays before the fix; all 456 tests pass after it.
+A real Fleet CLI status snapshot observed Main up; a private scratch supervisor
+cycle smoke forced unknown and observed cumulative Main relays 0, 0, 1, 1 at
+cycles 1–4. Native delivery, central push and quota actions were disabled for this
+probe, and its scratch ledger was removed. Publication requires fresh independent
+final-head review, green CI and Main exact-head GO; no shared deployment performed.
 
 ### TASK-77 — Pending inbox capture, independent of history size
 
