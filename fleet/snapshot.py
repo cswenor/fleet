@@ -69,6 +69,11 @@ def may_start(c, s):
 
 def render(s):
     lines = [f"Fleet {s['repo']}"]
+    main = s.get('coordinator', {})
+    if main.get('terminal'):
+        state = main.get('state', 'unknown')
+        label = 'DOWN' if state == 'down' else state
+        lines.append(f"Main: {label} ({main.get('reason', 'terminal observation unavailable')})")
     g = s.get('github', {})
     since = g.get('since', '')
     prs = g.get('prs', [])
