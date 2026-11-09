@@ -112,6 +112,21 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-79 — Debounce unknown Main observations
+
+`coordinator.unknown_alert_cycles` is a positive integer, default 3. The persisted
+`main_liveness` ledger counts consecutive unknown observations for the same Main
+identity; up, suspect, down or an identity change resets the streak. At threshold,
+the existing nonurgent occurrence and project/escalation recipients are unchanged.
+Main health classification, suspect timing and immediate real-down alerts are unchanged.
+
+Regressions reproduced premature relays before the fix; all 456 tests pass after it.
+A real Fleet CLI status snapshot observed Main up; a private scratch supervisor
+cycle smoke forced unknown and observed cumulative Main relays 0, 0, 1, 1 at
+cycles 1–4. Native delivery, central push and quota actions were disabled for this
+probe, and its scratch ledger was removed. Publication requires fresh independent
+final-head review, green CI and Main exact-head GO; no shared deployment performed.
+
 ### TASK-77 — Pending inbox capture, independent of history size
 
 Capture now uses read-only Run `check --peek` for pending messages, including

@@ -305,8 +305,10 @@ A supported bare shell prompt or current `[Uncaught Exception]` / `[Recovery]`
 line must persist for `coordinator.liveness_minutes` (positive finite, default 5).
 A recognized live omp UI takes precedence over old crash text. Missing incarnation,
 unrecognized screen, truncated inventory or read failure reports nonurgent
-`main_unknown`, never permission to restart. Unknown observations reset an
-unconfirmed shell/crash timer but do not clear an already reported down occurrence.
+`main_unknown` after `coordinator.unknown_alert_cycles` consecutive unknown cycles
+(positive integer, default 3), never permission to restart. An up, suspect or down
+observation, or a new Main identity, resets this streak. Unknown observations reset
+an unconfirmed shell/crash timer but do not clear an already reported down occurrence.
 Live UI clears it; a new incarnation starts a new observation window.
 Alerts include terminal, observed minutes down, bounded sanitized crash evidence
 and recovery hint when present; arbitrary screen contents are not copied.

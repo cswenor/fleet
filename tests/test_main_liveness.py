@@ -124,6 +124,8 @@ class MainDeliveryTests(unittest.TestCase):
         self.s['coordinator'].update(state='unknown', reason='terminal observation unavailable')
         self.cycle(601)
         self.cycle(602)
+        self.assertEqual(len(self.calls), 2)
+        self.cycle(603)
         self.assertEqual(len(self.calls), 4)
         self.assertNotIn('type', self.calls[-1][0])
 
@@ -143,6 +145,7 @@ class MainDeliveryTests(unittest.TestCase):
         self.s['coordinator']['state'] = 'unknown'
         self.cycle(10)
         self.cycle(100)
+        self.cycle(101)
         self.s['coordinator']['state'] = 'down'
         self.cycle(200)
         self.assertEqual([e['subject'] for e, r in self.calls if r == 'run:project'],
@@ -173,6 +176,66 @@ class MainDeliveryTests(unittest.TestCase):
         self.cycle(901)
         self.assertEqual(sum(e.get('type') == 'question' for e, _ in self.calls), 2)
 
+    def test_transient_unknown_and_up_reset_streak(self):
+        self.s['coordinator']['state'] = 'unknown'
+        self.cycle(0)
+        self.cycle(1)
+        self.assertEqual(self.calls, [])
+        self.s['coordinator']['state'] = 'up'
+        self.cycle(2)
+        self.s['coordinator']['state'] = 'unknown'
+        self.cycle(3)
+        self.cycle(4)
+        self.assertEqual(self.calls, [])
+        self.cycle(5)
+        occurrence = self.calls[0][0]['occurrence']
+        self.cycle(6)
+        self.cycle(600)
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(occurrence, [['main', 'one'], 3, 'main_unknown'])
+        ledger = state.read(self.c, 'supervisor', {})
+        self.assertEqual(ledger['active_alerts']['main:main_unknown'],
+                         supervisor.event_signature(self.calls[0][0]))
+
+    def test_identity_change_resets_unknown_streak(self):
+        self.s['coordinator']['state'] = 'unknown'
+        self.cycle(0)
+        self.cycle(1)
+        self.s['coordinator']['incarnation_id'] = 'two'
+        self.cycle(2)
+        self.cycle(3)
+        self.assertEqual(self.calls, [])
+        self.cycle(4)
+        self.assertEqual(self.calls[0][0]['occurrence'],
+                         [['main', 'two'], 2, 'main_unknown'])
+
+    def test_suspect_and_down_reset_unknown_streak_without_delaying_down(self):
+        for observed in ('suspect', 'down'):
+            with self.subTest(observed=observed):
+                self.s['coordinator']['state'] = 'up'
+                self.cycle(0)
+                self.calls.clear()
+                self.s['coordinator']['state'] = 'unknown'
+                self.cycle(1)
+                self.cycle(2)
+                self.s['coordinator']['state'] = observed
+                self.cycle(3)
+                down = [e for e, r in self.calls if r == 'run:project']
+                self.assertEqual([e['subject'] for e in down],
+                                 ['[urgent] Main main_down'] if observed == 'down' else [])
+                self.s['coordinator']['state'] = 'unknown'
+                self.cycle(4)
+                self.cycle(5)
+                self.assertFalse(any(e['subject'] == 'Main main_unknown' for e, _ in self.calls))
+                self.cycle(6)
+                self.assertEqual(sum(e['subject'] == 'Main main_unknown' for e, _ in self.calls), 2)
+
+    def test_threshold_one_reports_first_unknown(self):
+        self.c['coordinator']['unknown_alert_cycles'] = 1
+        self.s['coordinator']['state'] = 'unknown'
+        self.cycle(0)
+        self.assertEqual([r for _, r in self.calls], ['run:project', 'run:run_safety'])
+
 class MainConfigTests(unittest.TestCase):
     def test_invalid_liveness_and_escalation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -182,7 +245,15 @@ class MainConfigTests(unittest.TestCase):
                  'builder': {'model': 'model', 'resolved_model': 'provider/model',
                              'rules_file': 'rules', 'slots': [directory]},
                  'coordinator': {'run': 'r', 'terminal': 'main'}}
+            path.write_text(yaml.safe_dump(c))
+            self.assertEqual(config.load(path)['coordinator']['unknown_alert_cycles'], 3)
+            for value in (1, 5):
+                current = copy.deepcopy(c)
+                current['coordinator']['unknown_alert_cycles'] = value
+                path.write_text(yaml.safe_dump(current))
+                self.assertEqual(config.load(path)['coordinator']['unknown_alert_cycles'], value)
             for key, values in [('liveness_minutes', [0, -1, True, '5', None, float('inf'), float('nan')]),
+                                ('unknown_alert_cycles', [0, -1, True, False, 1.5, '3', None]),
                                 ('escalation_run', ['', True, 'run:run_bad', 'terminal'])]:
                 for value in values:
                     with self.subTest(key=key, value=value):

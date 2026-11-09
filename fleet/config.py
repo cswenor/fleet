@@ -122,6 +122,9 @@ def load(path):
             raise ValueError(f'missing coordinator.{key}')
     coordinator = c['coordinator']
     coordinator.setdefault('liveness_minutes', 5)
+    coordinator.setdefault('unknown_alert_cycles', 3)
+    if type(coordinator['unknown_alert_cycles']) is not int or coordinator['unknown_alert_cycles'] < 1:
+        raise ValueError('coordinator.unknown_alert_cycles must be a positive integer')
     minutes = coordinator['liveness_minutes']
     if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
         raise ValueError('coordinator.liveness_minutes must be a positive finite number')

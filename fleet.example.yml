@@ -77,6 +77,8 @@ coordinator:
   run: run_replace
   # Positive finite minutes of observed shell/crash before main_down.
   liveness_minutes: 5
+  # Consecutive unknown observations before nonurgent main_unknown.
+  unknown_alert_cycles: 3
   # Optional additional Run ID receiving Main liveness alerts, not a terminal.
   escalation_run: null
 interval_seconds: 60
