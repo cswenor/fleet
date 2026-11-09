@@ -112,6 +112,20 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-70 — Main liveness in plain status
+
+Plain `fleet status` displays one `Main:` line with the snapshot coordinator's
+state and reason (`down` is emphasized as `DOWN`); no configured terminal means
+no line. Snapshot collection, JSON, health classification and alerts are unchanged.
+No outage duration is invented: the snapshot does not contain one.
+
+Rendering regressions cover up, down, suspect, unknown and unconfigured states.
+All 458 tests pass after integrating TASK-79. Source CLI plain/JSON smoke on the real Fleet, Project Alpha and
+Project Beta configs returned exit 0 and matching `Main: up (live omp UI)` for
+each project. Publication receipts belong on TASK-70/PR; merge requires independent
+final-head review, green CI and Main exact-head GO. No shared installation or
+service restart was performed.
+
 ### TASK-79 — Debounce unknown Main observations
 
 `coordinator.unknown_alert_cycles` is a positive integer, default 3. The persisted
