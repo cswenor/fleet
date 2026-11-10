@@ -113,6 +113,27 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-98 — Waiting queue entries inherit progress ahead
+
+Queue entries are ordered by their GitHub `position`. A queued PR with no own
+merge-group run includes preceding entries in its stuck-progress signature;
+any queued/in-progress run ahead resets its timer on every observation.
+Completed run/job transitions ahead also reset the timer. Once the relevant
+queue is idle for `urgent.pr_stuck_minutes`, the waiting PR alerts normally.
+An entry with its own run retains TASK-95's unchanged-run timeout; entries behind
+never mask a stuck PR. Dequeue resumes normal PR rules. Null synthetic heads
+mean no own run, not unknown data; failed queue/run/job reads still preserve
+the prior timer and alert occurrence and hold undelivered retries.
+
+Read-only evaluation using the real Project Alpha config/API captured #2503 at
+position 4, `UNMERGEABLE`, with a null head, behind #2497/run 42909986458
+and #2514/run 42910072252 (both in progress). Replaying that unchanged capture
+after two hours produced no stuck alert and reset #2503's in-memory timer.
+The bounded captured queue/run-status fixture also exercises collection and the
+idle boundary. No delivery, live-state write or shared deployment occurred.
+Publication requires independent final-head Sol-medium review, green CI and
+Main exact-head GO; durable receipts belong on TASK-98/PR.
+
 ### TASK-99 — Model usage metadata after final stop
 
 Retirement accepts the exact observed omp 18.18.6 encoding

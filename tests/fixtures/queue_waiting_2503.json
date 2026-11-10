@@ -1,0 +1,128 @@
+{
+  "source": "Project Alpha Main queue-snapshot-2203Z.json, 2026-11-10; pageInfo added for collector replay; Actions run identity/status fields captured by TASK-98 against the same heads",
+  "queue": {
+    "data": {
+      "repository": {
+        "mergeQueue": {
+          "entries": {
+            "nodes": [
+              {
+                "position": 1,
+                "state": "AWAITING_CHECKS",
+                "enqueuedAt": "2026-11-10T21:57:07Z",
+                "estimatedTimeToMerge": 945,
+                "headCommit": {
+                  "oid": "f20fbad418fdd16a3ff4602f751f71baed46737d"
+                },
+                "baseCommit": {
+                  "oid": "0a5ac13c9a252ca2551802cb5e48def8836832d4"
+                },
+                "pullRequest": {
+                  "number": 2497,
+                  "mergeable": "MERGEABLE",
+                  "mergeStateStatus": "CLEAN"
+                }
+              },
+              {
+                "position": 2,
+                "state": "AWAITING_CHECKS",
+                "enqueuedAt": "2026-11-10T21:57:50Z",
+                "estimatedTimeToMerge": 1731,
+                "headCommit": {
+                  "oid": "80d21ea4417dde3beb42f219e2d908e6260bd406"
+                },
+                "baseCommit": {
+                  "oid": "f20fbad418fdd16a3ff4602f751f71baed46737d"
+                },
+                "pullRequest": {
+                  "number": 2514,
+                  "mergeable": "MERGEABLE",
+                  "mergeStateStatus": "CLEAN"
+                }
+              },
+              {
+                "position": 3,
+                "state": "UNMERGEABLE",
+                "enqueuedAt": "2026-11-10T21:57:54Z",
+                "estimatedTimeToMerge": 2517,
+                "headCommit": null,
+                "baseCommit": {
+                  "oid": "80d21ea4417dde3beb42f219e2d908e6260bd406"
+                },
+                "pullRequest": {
+                  "number": 2515,
+                  "mergeable": "MERGEABLE",
+                  "mergeStateStatus": "UNSTABLE"
+                }
+              },
+              {
+                "position": 4,
+                "state": "UNMERGEABLE",
+                "enqueuedAt": "2026-11-10T21:59:32Z",
+                "estimatedTimeToMerge": 3303,
+                "headCommit": null,
+                "baseCommit": {
+                  "oid": "80d21ea4417dde3beb42f219e2d908e6260bd406"
+                },
+                "pullRequest": {
+                  "number": 2503,
+                  "mergeable": "MERGEABLE",
+                  "mergeStateStatus": "CLEAN"
+                }
+              },
+              {
+                "position": 5,
+                "state": "QUEUED",
+                "enqueuedAt": "2026-11-10T22:00:11Z",
+                "estimatedTimeToMerge": 4089,
+                "headCommit": null,
+                "baseCommit": null,
+                "pullRequest": {
+                  "number": 2513,
+                  "mergeable": "MERGEABLE",
+                  "mergeStateStatus": "CLEAN"
+                }
+              }
+            ],
+            "pageInfo": {
+              "hasNextPage": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "runs": {
+    "2497": [
+      {
+        "id": 42909985209,
+        "status": "completed",
+        "conclusion": "success",
+        "updated_at": "2026-11-10T21:58:27Z"
+      },
+      {
+        "id": 42909986458,
+        "status": "in_progress",
+        "conclusion": null,
+        "updated_at": "2026-11-10T21:59:10Z"
+      }
+    ],
+    "2514": [
+      {
+        "id": 42910072252,
+        "status": "in_progress",
+        "conclusion": null,
+        "updated_at": "2026-11-10T22:01:13Z"
+      },
+      {
+        "id": 42910072666,
+        "status": "completed",
+        "conclusion": "success",
+        "updated_at": "2026-11-10T21:59:33Z"
+      }
+    ],
+    "2515": [],
+    "2503": [],
+    "2513": []
+  }
+}

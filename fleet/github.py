@@ -132,7 +132,7 @@ def _queue_progress(c, entries, unavailable):
     for entry in entries:
         head = (entry.get('headCommit') or {}).get('oid')
         if not head:
-            entry['progress_unknown'] = True
+            entry['runs'] = []
             continue
         if head not in by_head:
             try:
@@ -274,7 +274,7 @@ def collect(c, pr_number=None):
                 'merge_group_unknown': merge_group_unknown}
     owner, name = repo.split('/')
     default_branch = gh(c, 'api', f'repos/{repo}')['default_branch']
-    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
+    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{position state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
     queue_unknown = False
     try:
         queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
@@ -284,11 +284,11 @@ def collect(c, pr_number=None):
         mq = repository.get('mergeQueue')
         if mq and mq['entries']['pageInfo']['hasNextPage']:
             raise ValueError('merge queue exceeds 100 entries')
+        entries = sorted(mq['entries']['nodes'], key=lambda entry: entry['position']) if mq else []
     except (CommandError, ValueError, KeyError) as error:
         unavailable.append(f'Merge queue unavailable: {error}')
-        mq = None
+        entries = []
         queue_unknown = True
-    entries = mq['entries']['nodes'] if mq else []
     _queue_progress(c, entries, unavailable)
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
     commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]

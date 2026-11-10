@@ -356,11 +356,19 @@ def _stuck_pr_paused(c, p):
         for label in p.get('labels', []) for configured in parked)
 
 
+def _stuck_queue_entries(current, number):
+    entries = current.get('merge_queue', [])
+    for index, entry in enumerate(entries):
+        if entry.get('pullRequest', {}).get('number') == number:
+            # A waiting entry without its own group depends on the queue ahead.
+            return [entry] if entry.get('runs') else entries[:index + 1]
+    return []
+
+
 def _stuck_progress_unknown(current, number):
     return current.get('merge_queue_unknown', False) or any(
         entry.get('progress_unknown', False)
-        for entry in current.get('merge_queue', [])
-        if entry.get('pullRequest', {}).get('number') == number)
+        for entry in _stuck_queue_entries(current, number))
 
 
 def stuck_pr_alerts(c, ledger, current, now):
@@ -380,13 +388,16 @@ def stuck_pr_alerts(c, ledger, current, now):
         progress = {field: p.get(field) for field in ('state', 'head', 'merge_state')}
         for field in ('checks', 'reviews'):
             progress[field] = sorted(p.get(field, []), key=lambda row: json.dumps(row, sort_keys=True))
+        queue = _stuck_queue_entries(current, p['number'])
         progress['queue'] = [
-            {field: entry.get(field) for field in ('state', 'headCommit', 'runs')}
-            for entry in current.get('merge_queue', [])
-            if entry.get('pullRequest', {}).get('number') == p['number']]
+            {field: entry.get(field) for field in ('state', 'headCommit', 'runs', 'pullRequest')}
+            for entry in queue]
         signature = digest(progress)
         prior = timers.get(key)
         timer = prior if prior and prior['signature'] == signature else {'signature': signature, 'since': now}
+        if any(run.get('status') in ('queued', 'in_progress')
+               for entry in queue[:-1] for run in entry.get('runs', [])):
+            timer = {'signature': signature, 'since': now}
         active[key] = timer
         if now - timer['since'] >= minutes * 60:
             result.append({'key': 'pr_stuck:' + key, 'subject': f'PR #{p["number"]} stuck',
