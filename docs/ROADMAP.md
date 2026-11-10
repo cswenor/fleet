@@ -112,6 +112,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-85 — Actionable-only Main wake and delayed unwakeable relays
+
+Main wake decisions now consider only native question/escalation messages, matching
+`fleet wait`'s decision/urgent classes. Status-only backlogs never wake or relay;
+status arrivals change neither the oldest actionable age nor set-based dedupe.
+Idle wake keeps its 120-second default and existing identity/composer proofs.
+Failed proofs relay only at `coordinator.unwakeable_after_seconds` (positive finite,
+default 900), once per actionable set. Cooldown remains 600 seconds.
+
+All 15 focused wake/config regressions pass, including status-only idle/busy,
+young question behind old status, exact 900-second relay boundary, status-stable
+relay/cooldown and custom threshold. Read-only dry evaluation of real Project Alpha
+and Email Runs found valid complete empty unread sets: no wake or relay. No
+input, message delivery, acknowledgement or shared deployment was performed.
+Publication requires fresh independent final-head review, green CI and Main's
+exact-head GO; receipts live on TASK-85/PR.
+
 ### TASK-80 — Restart and verify surviving terminals
 
 TASK-13's live 2026-11-10 12:41:58Z `orca-serve` restart took about six seconds;

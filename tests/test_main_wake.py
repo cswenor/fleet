@@ -26,7 +26,7 @@ class MainWakeTests(unittest.TestCase):
                       'programStatus': {'state': 'idle'}}
         self.messages = [{'id': 'msg_one', 'run_id': 'run_test',
                           'to_handle': 'run:run_test', 'delivery_contract': 'current_delivery',
-                          'read': 0, 'created_at': '2026-11-10T12:00:00Z'}]
+                          'read': 0, 'type': 'question', 'created_at': '2026-11-10T12:00:00Z'}]
         self.now = datetime(2026, 11, 10, 12, 3, tzinfo=timezone.utc).timestamp()
         self.sends = []
         self.ledger = {}
@@ -99,7 +99,7 @@ class MainWakeTests(unittest.TestCase):
             with self.subTest(screen=screen):
                 self.ledger = {}
                 self.screen = screen
-                event, = self.wake()
+                event, = self.wake(720)
                 self.assertEqual(event['recipients'], ['run:run_help'])
                 self.assertEqual(event['type'], 'status')
                 self.assertIn('Main ', event['body'])
@@ -121,7 +121,7 @@ class MainWakeTests(unittest.TestCase):
                         self.terminal['agentIdentity'] = 'bash'
                     if change == 'not-writable':
                         self.terminal['writable'] = False
-                    self.assertEqual(len(self.wake()), 1)
+                    self.assertEqual(len(self.wake(720)), 1)
                     self.assertEqual(self.sends, [])
 
     def test_dry_run_disabled_young_and_incomplete_mail_do_not_wake(self):
@@ -151,7 +151,7 @@ class MainWakeTests(unittest.TestCase):
                     self.screen['tail'] = [' π > ◑ Sol>', '╰─ user draft']
                 else:
                     self.screen['source'] = 'screen-unavailable'
-                self.assertEqual(len(self.wake()), 1)
+                self.assertEqual(len(self.wake(720)), 1)
                 self.assertEqual(len(self.sends), 1)
 
     def test_capped_unread_backlog_still_wakes_or_escalates(self):
@@ -160,8 +160,8 @@ class MainWakeTests(unittest.TestCase):
         self.wake(1)
         self.assertEqual(len(self.sends), 1)
         self.screen['source'] = 'screen-unavailable'
-        self.assertEqual(len(self.wake(2)), 1)
-        self.assertEqual(self.wake(3), [])
+        self.assertEqual(len(self.wake(720)), 1)
+        self.assertEqual(self.wake(721), [])
         self.assertEqual(len(self.sends), 1)
 
     def test_journal_keeps_recent_attempts_and_unwakeable_sets_bounded(self):
@@ -174,7 +174,7 @@ class MainWakeTests(unittest.TestCase):
         self.assertEqual(journal['attempts'][0]['messages'], '1')
         self.assertEqual(journal['attempts'][-1]['oldest_unread_id'], 'msg_one')
         self.screen['source'] = 'screen-unavailable'
-        self.wake(1)
+        self.wake(720)
         self.assertEqual(len(journal['unwakeable']), 200)
         self.assertEqual(journal['unwakeable'][0], '1')
         self.assertNotEqual(journal['unwakeable'][-1], '199')
@@ -195,13 +195,57 @@ class MainWakeTests(unittest.TestCase):
         self.wake(2)
         self.assertEqual(len(self.sends), 2)
 
+    def test_status_only_backlog_never_wakes_or_relays(self):
+        self.messages[0]['type'] = 'status'
+        for busy in (False, True):
+            with self.subTest(busy=busy):
+                self.agent['state'] = 'working' if busy else 'idle'
+                self.assertEqual(self.wake(3600), [])
+                self.assertEqual(self.sends, [])
+                self.assertEqual(self.ledger, {})
+
+    def test_old_status_does_not_age_young_question(self):
+        self.messages.append({**self.messages[0], 'id': 'status', 'type': 'status'})
+        self.messages[0]['created_at'] = '2026-11-10T12:02:00Z'
+        self.wake()
+        self.assertEqual(self.sends, [])
+        self.wake(60)
+        self.assertEqual(len(self.sends), 1)
+        self.assertEqual(self.ledger['main_wakes']['attempts'][0]['oldest_unread_id'], 'msg_one')
+
+    def test_busy_relay_waits_for_actionable_age_and_ignores_status_arrivals(self):
+        self.agent['state'] = 'working'
+        self.assertEqual(self.wake(), [])
+        self.assertEqual(self.wake(719), [])
+        event, = self.wake(720)
+        self.assertIn('msg_one', event['body'])
+        self.messages.append({**self.messages[0], 'id': 'status', 'type': 'status'})
+        self.assertEqual(self.wake(721), [])
+        self.messages.append({**self.messages[0], 'id': 'decision', 'type': 'escalation'})
+        self.assertEqual(len(self.wake(722)), 1)
+        self.assertEqual(self.sends, [])
+
+    def test_status_arrivals_do_not_bypass_wake_cooldown(self):
+        self.wake()
+        self.messages.append({**self.messages[0], 'id': 'status', 'type': 'status'})
+        self.wake(1)
+        self.assertEqual(len(self.sends), 1)
+
+    def test_custom_unwakeable_age(self):
+        self.c['coordinator']['unwakeable_after_seconds'] = 300
+        self.agent['state'] = 'working'
+        self.assertEqual(self.wake(119), [])
+        self.assertEqual(len(self.wake(120)), 1)
+
 
 class WakeConfigTests(unittest.TestCase):
     def test_wake_controls_validate(self):
         raw = yaml.safe_load(Path('fleet.example.yml').read_text())
         for key, bad in [('wake', 'yes'), ('wake_after_seconds', 0),
                          ('wake_after_seconds', True), ('wake_cooldown_seconds', float('inf')),
-                         ('wake_cooldown_seconds', -1)]:
+                         ('wake_cooldown_seconds', -1), ('unwakeable_after_seconds', 0),
+                         ('unwakeable_after_seconds', True),
+                         ('unwakeable_after_seconds', float('nan'))]:
             with self.subTest(key=key, bad=bad), tempfile.TemporaryDirectory() as directory:
                 candidate = copy.deepcopy(raw)
                 candidate['root'] = directory

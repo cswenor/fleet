@@ -183,16 +183,20 @@ restart is authorized. Scratch CLI proof and deployment boundaries are recorded
 in the roadmap; shared deployment remains Main-owned.
 
 TASK-82 adds a narrow Main-only input exception. `coordinator.wake` (boolean,
-default true) peeks only this project's Run. Unread mail older than
+default true) peeks only this project's Run. Actionable unread mail older than
 `wake_after_seconds` (positive finite seconds, default 120) permits one fixed
 inbox reminder only after proving the bound Run, connected writable OMP identity,
 exact idle pane and current empty composer via the shared recognizer. Draft,
 working/background, dialog, unavailable screen or unknown identity never permits
-input; `main_unread_unwakeable` relays nonurgently to `escalation_run` once per
-unread set. `wake_cooldown_seconds` (positive finite, default 600) limits each
-unchanged set, including ambiguous input attempts. `--no-deliver` never inputs.
-At the native 100-row cap, a validated oldest-first prefix can still wake Main;
-capture completeness remains unknown, and prefix IDs drive cooldown/dedupe.
+input; `main_unread_unwakeable` relays nonurgently to `escalation_run` only after
+the oldest actionable message reaches `unwakeable_after_seconds` (positive finite,
+default 900), once per actionable set. Native question/escalation messages are
+actionable (the decision/urgent classes in `fleet wait`); status-only backlogs
+never wake or relay. `wake_cooldown_seconds` (positive finite, default 600) limits
+each actionable set, including ambiguous input attempts. New statuses do not
+change age or dedupe. `--no-deliver` never inputs.
+At the native 100-row cap, observed actionable prefix IDs drive cooldown/dedupe;
+capture completeness remains unknown.
 Restored panes with null `programStatus` need idle/done agent state, no interrupt
 and every other identity/real-screen proof; null never establishes idle alone.
 The private `supervisor.json` → `main_wakes.attempts` journal records time, Run,

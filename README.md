@@ -319,15 +319,19 @@ Configure an independently attended escalation Run: alerting only the dead Main'
 own Run cannot ensure anyone notices. Delivery means durable enqueue, not wake/read.
 
 `coordinator.wake` (boolean, default true) is a narrow Main-only input exception:
-read-only peek of its own Run, unread age ≥ `wake_after_seconds` (default 120)
+read-only peek of its own Run, actionable unread age ≥ `wake_after_seconds` (default 120)
 and positive bound-Run/exact-pane idle OMP + empty composer proof permit a fixed
 inbox reminder. No builder input, working/background UI, draft, dialog, unknown
 identity or unavailable screen is permitted. Null restored `programStatus` needs
-idle/done agent state, no interrupt and every remaining proof. Unsafe states
-relay nonurgent `main_unread_unwakeable` to the escalation Run once per unread
-set. `wake_cooldown_seconds` (default 600) limits each observed set; both durations
-must be positive finite numbers. A valid capped 100-row oldest-first prefix can
-still wake Main; restart capture remains incomplete at that cap. Attempts are
+idle/done agent state, no interrupt and every remaining proof. Actionable means
+native question/escalation: the decision/urgent classes in `fleet wait`. Status-only
+backlogs never wake or relay. Unsafe states relay nonurgent
+`main_unread_unwakeable` to the escalation Run only after the oldest actionable
+message reaches `unwakeable_after_seconds` (default 900), once per actionable set.
+`wake_cooldown_seconds` (default 600) limits each actionable set; all three durations
+must be positive finite numbers. New status messages change neither age nor
+cooldown/relay dedupe. A valid capped 100-row oldest-first prefix can still wake
+Main for observed actionable mail; restart capture remains incomplete at that cap. Attempts are
 journaled before input in `supervisor.json` → `main_wakes`, with metadata and
 screen hash, not raw screen contents. Attempt/signature lists retain 200 entries.
 `--no-deliver` never inputs; peeks never consume or acknowledge Main mail.
