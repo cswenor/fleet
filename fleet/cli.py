@@ -107,6 +107,8 @@ def main():
     p.add_argument('--environment-file', required=True, help='private service token file (macOS: literal KEY=value)')
     args = parser.parse_args()
     try:
+        if args.command == 'wait' and args.summary and not args.save:
+            raise ValueError('--summary requires --save to preserve complete mail payloads')
         if args.command in ('central-serve', 'central-install-service'):
             from . import central
             c = central.load(args.config, require_tokens=args.command == 'central-serve')

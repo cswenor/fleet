@@ -149,6 +149,7 @@ Read every saved row before ack, not only the compact summary.
 Save destinations are probed before consuming mail. A later save failure returns
 exit 2 with full JSON stdout and `saveError` even with `--summary`; preserve it
 because native delivery may already be acknowledged.
+`--summary` requires `--save`, refusing before consumption if absent.
 An initial ack is sent only once, never repeated after ambiguous recovery.
 Saved `rearmEvents` retain interrupted request metadata for reconciliation;
 looping cannot recover a potentially auto-handled batch with a lost response.

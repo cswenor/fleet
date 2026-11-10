@@ -38,6 +38,12 @@ class WaitOptionsTests(unittest.TestCase):
                 self.assertEqual(json.loads(text)['event'], event)
                 self.assertEqual(wait.call_count, 1)
 
+    def test_summary_without_save_never_consumes_mail(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            code, _, wait = self.invoke([], '--summary')
+        self.assertEqual(code, 2)
+        wait.assert_not_called()
+
     def test_save_failure_returns_complete_auto_ack_batch_even_with_summary(self):
         result = {'event': 'messages', 'nativeAutoAck': True,
                   'batches': [{'deliveryId': 'handled', 'nativeRequestId': 'request',

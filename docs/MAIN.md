@@ -474,6 +474,7 @@ line per batch and ID/sender/classification/subject lines for decision/urgent
 rows, including `NEEDS-NEXT-REF` and `Lane free` questions. Fields are JSON-escaped
 to keep each row on one line. Read **all** rows in the saved JSON before ack;
 the summary omits ordinary reports and legacy history, not their saved payloads.
+`--summary` requires `--save`, refusing before consuming mail if it is absent.
 
 **Binding precondition:** the caller's own `ORCA_TERMINAL_HANDLE` must already be
 bound to the configured `coordinator.run`, using `orchestration run-use` from
