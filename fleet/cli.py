@@ -58,12 +58,13 @@ def main():
                        description='Exit 0: messages; 3: timeout; 4: runtime recovered, rearm without replaying an ambiguous ack; 2: error/runtime_unavailable. Recovery is bounded to 30s; consuming checks are never retried.')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--wake-on', default='all',
-                   help='comma-separated question,escalation,urgent,status,all; urgent aliases question; deliveries stay whole')
+                   help='comma-separated question,escalation,urgent,builder,status,all; builder defers relay-only backlog/replay until timeout or explicit ack; deliveries stay whole')
     p.add_argument('--ack-run', help='acknowledge a processed Run delivery before waiting')
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
+    p.add_argument('--interval', type=float, default=3, help='builder peek cadence, 1–30 seconds')
     p.add_argument('--loop', action='store_true', help='rearm internally on timeout/recovery; never repeat an ack')
     p.add_argument('--save', metavar='PATH', help='atomically save the full JSON result with mode 0600')
-    p.add_argument('--summary', action='store_true', help='print compact delivery and decision/urgent rows instead of JSON')
+    p.add_argument('--summary', action='store_true', help='print compact delivery, builder and urgent rows instead of JSON')
     p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')
     commands = p.add_subparsers(dest='thread_command', required=True)
     t = commands.add_parser('open')
@@ -77,6 +78,13 @@ def main():
     t.add_argument('ref')
     t.add_argument('--body', required=True)
     t.add_argument('--subject')
+    t = commands.add_parser('report', help='send a typed action request; await Main via thread wait')
+    t.add_argument('ref')
+    t.add_argument('--kind', required=True,
+                   choices=('release_ready', 'review_request', 'ci_failed', 'result'))
+    t.add_argument('--pr', type=int, required=True)
+    t.add_argument('--head', required=True, help='full commit SHA')
+    t.add_argument('text')
     t = commands.add_parser('wait')
     t.add_argument('ref')
     t.add_argument('--timeout', type=int, default=900)
@@ -162,6 +170,8 @@ def main():
                           'notice': 'Question sent to the configured Run; no separate direct send '
                                     'is needed. Use fleet thread wait for the reply; follow up '
                                     'with reply/status in this same native subthread, not a new question.'}
+            elif args.thread_command == 'report':
+                result = threads.report(c, args.ref, args.kind, args.pr, args.head, args.text)
             elif args.thread_command == 'wait':
                 result = threads.wait(c, args.ref, args.timeout)
             elif args.thread_command == 'ready':
@@ -182,7 +192,7 @@ def main():
             ack_run = args.ack_run
             recoveries = []
             while True:
-                result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on)
+                result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on, args.interval)
                 if recoveries:
                     result['rearmEvents'] = list(recoveries)
                 if args.save:

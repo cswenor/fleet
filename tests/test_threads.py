@@ -192,6 +192,33 @@ class ThreadTests(unittest.TestCase):
                 threads.question(self.c, 'TASK-1', 'approve?')
 
 
+    def test_typed_report_roundtrip_summary_and_pending_guard(self):
+        self.open()
+        argv = ['fleet', 'thread', 'report', 'TASK-1', '--kind', 'release_ready',
+                '--pr', '91', '--head', 'a' * 40, 'Please release this head']
+        with patch.object(cli, 'load', return_value=self.c), patch('sys.argv', argv):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+        q = json.loads(output.getvalue())
+        flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
+        payload = json.loads(flags['--payload'])
+        self.assertEqual(payload['fleet_report'],
+                         {'ref': 'TASK-1', 'kind': 'release_ready', 'pr': 91, 'head': 'a' * 40})
+        rows, counts = mailbox.classify([{'id': q['message_id'], 'type': flags['--type'],
+                                         'from_handle': 'term_builder', 'subject': flags['--subject'],
+                                         'body': flags['--body'], 'payload': flags['--payload']}], 'term_main')
+        text = mailbox.summary({'event': 'messages', 'counts': counts, 'batches': [
+            {'deliveryId': 'd', 'source': 'run', 'messages': rows}]})
+        self.assertIn('builder_decision_request', text)
+        self.assertIn('kind="release_ready" PR=91 head="' + 'a' * 40 + '"', text)
+        with self.assertRaisesRegex(ValueError, 'pending question'):
+            threads.report(self.c, 'TASK-1', 'ci_failed', 91, 'a' * 40, 'CI failed')
+        self.messages = [self.answer(q)]
+        self.assertEqual(threads.wait(self.c, 'TASK-1', 1)['reply']['body'], 'approved')
+        self.assertEqual(len(self.sent), 1)
+
+
 class ReadyTests(unittest.TestCase):
     open = ThreadTests.open
     request = ThreadTests.request

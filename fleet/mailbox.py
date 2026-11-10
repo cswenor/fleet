@@ -195,16 +195,42 @@ def wake_types(kinds):
     if not isinstance(kinds, str):
         raise MailboxError('invalid_wake_on')
     selected = [kind.strip() for kind in kinds.split(',')]
-    if not selected or any(kind not in ('all', 'question', 'escalation', 'urgent', 'status')
+    if not selected or any(kind not in ('all', 'question', 'escalation', 'urgent', 'status', 'builder')
                            for kind in selected):
         raise MailboxError('invalid_wake_on')
     if 'all' in selected:
         return None
     return ','.join(dict.fromkeys('question' if kind == 'urgent' else kind
-                                 for kind in selected))
+                                 for kind in selected if kind != 'builder'))
 
 
-def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
+def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
+    """Peek without consuming relay traffic; stock native waits cannot filter senders."""
+    deadline = time.monotonic() + timeout
+    while True:
+        recovery.deadline = time.monotonic() + min(30, max(1, deadline - time.monotonic()))
+        pending = recovery.read('check', '--terminal', caller, '--run', run, '--peek')
+        messages = pending.get('messages')
+        if (pending.get('runId') != run or not isinstance(messages, list)
+                or pending.get('count') != len(messages)
+                or not all(isinstance(row, dict) and isinstance(row.get('id'), str)
+                           for row in messages)):
+            raise MailboxError('invalid_builder_peek')
+        rows, _ = classify(messages, c['coordinator'].get('terminal'))
+        if any(row['classification'] in ('builder_report', 'builder_decision_request')
+               or row.get('type') in selected for row in rows):
+            recovery.deadline = None
+            return True
+        if len(rows) >= 100:
+            raise MailboxError('builder_peek_incomplete')
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            recovery.deadline = None
+            return bool(rows)
+        time.sleep(min(interval, remaining))
+
+
+def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3):
     run = c['coordinator']['run']
     caller = os.environ.get('ORCA_TERMINAL_HANDLE')
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
@@ -214,6 +240,10 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
         if not math.isfinite(timeout) or not 1 <= timeout <= 1800:
             raise MailboxError('timeout_must_be_1_to_1800_seconds')
         types = wake_types(wake_on)
+        if not math.isfinite(interval) or not 1 <= interval <= 30:
+            raise MailboxError('interval_must_be_1_to_30_seconds')
+        kinds = {kind.strip() for kind in wake_on.split(',')}
+        builder = 'builder' in kinds and 'all' not in kinds
         if caller and terminal and caller != terminal:
             raise MailboxError('caller_identity_mismatch')
         caller = caller or terminal
@@ -227,12 +257,23 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
         recovery.deadline = None
         args = ['check', '--terminal', caller, '--run', run, '--wait',
                 '--timeout-ms', str(int(timeout * 1000))]
-        if types:
+        selected = types.split(',') if types else []
+        pending = True
+        if builder:
+            # An explicit ack retains native replay/ack precedence. Keep its
+            # checkpoint short; loop mode then rearms through read-only peeks.
+            args[-1] = '1'
+            if not ack_run:
+                pending = _builder_pending(
+                    c, recovery, run, caller, timeout, selected, interval)
+        if types and not builder:
             args.extend(['--types', types])
         if ack_run:
             args.extend(['--ack', ack_run])
         try:
-            received = request(c, *args, timeout=timeout + 30)
+            received = (request(c, *args, timeout=(30 if builder else timeout + 30))
+                        if pending else {'runId': run, 'messages': [], 'count': 0,
+                                         'deliveryId': None, 'timedOut': True})
             result.update(_metadata(received))
             batch = delivery(received, run)
         except MailboxError as error:
@@ -330,11 +371,18 @@ def summary(result):
         lines.append(f"DELIVERY {field(batch['deliveryId'])} source={batch['source']} "
                      f"n={len(batch['messages'])}")
         for row in batch['messages']:
-            subject = row.get('subject')
-            ready_report = (row.get('type') == 'status' and isinstance(subject, str)
-                            and re.search(r'\bFRESH-READY\b', subject))
-            if ready_report or row['classification'] in ('builder_decision_request', 'supervisor_urgent'):
+            if row['classification'] != 'supervisor_relay':
                 sender = row.get('from_handle', row.get('from', ''))
                 lines.append(f"{field(row['id'])} {field(sender)} "
                              f"{row['classification']} {field(row.get('subject', ''))}")
+                payload = row.get('payload')
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except ValueError:
+                        payload = None
+                report = payload.get('fleet_report') if isinstance(payload, dict) else None
+                if isinstance(report, dict):
+                    lines[-1] += (f" kind={field(report.get('kind'))}"
+                                  f" PR={field(report.get('pr'))} head={field(report.get('head'))}")
     return '\n'.join(lines)

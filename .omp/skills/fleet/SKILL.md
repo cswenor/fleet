@@ -136,7 +136,7 @@ From Main's own terminal, bind the configured Run (never borrow another identity
 orca orchestration run-use --id RUN --json
 fleet --config /private/project/fleet.yml status
 fleet --config /private/project/fleet.yml may-start --json
-fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent --timeout 900 --loop --save /private/project/main-inbox.json --summary
+fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save /private/project/main-inbox.json --summary
 ```
 
 Run `wait` as an async background command. Current native routing sends Run mail
@@ -155,15 +155,27 @@ An initial ack is sent only once, never repeated after ambiguous recovery.
 Saved `rearmEvents` retain interrupted request metadata for reconciliation;
 looping cannot recover a potentially auto-handled batch with a lost response.
 `wait` refuses an unbound/wrong-Run caller. `--wake-on KINDS` accepts comma-separated
-`question`, `escalation`, `urgent`, `status`, or `all` (default `all`). Main selects
-`question,escalation,urgent`; `urgent` aliases native `question`, waking for all
-questions, not just supervisor relays. `escalation` selects supervised worker
-escalations; ordinary senders cannot emit that type. Selection gates native blocking wake on
-pending types only, not delivery. Every pending row remains unfiltered in FIFO
-delivery order; existing unacked batches still replay whole, potentially before
-the newer wake trigger. Rows retain stable classification and per-source/aggregate
-counts: decisions first, then `supervisor_urgent`, then other reports. Configured
-coordinator sender + `[fleet ` body + `[urgent]` subject identifies the urgent
+`question`, `escalation`, `urgent`, `builder`, `status`, or `all` (default `all`).
+Main selects `question,escalation,urgent,builder` to wake on builder reports and
+decisions while supervisor status relays stay quiet. `urgent` aliases native
+`question`; supervised escalation remains selectable. Native-only selections
+keep blocking waits. Stock Orca lacks sender/class wake predicates: builder
+selection classifies read-only peeks within one async process every 3 seconds
+(`--interval` 1–30), consuming one whole native batch only after a match.
+A 100-row peek without a match fails explicitly (`builder_peek_incomplete`);
+`all` and native-only selections bypass peeking. Explicit `--ack-run` retains immediate native
+check/ack precedence, including relay-only batches. Every returned Delivery
+stays whole with native replay/ack unchanged. Rows retain per-source/aggregate
+counts: decisions first, then `supervisor_urgent`, then other reports.
+
+Builder mode defers relay-only backlog/replay until a selected class, explicit
+ack or timeout checkpoint. A last pending peek then permits one whole native
+batch; empty peeks time out without consumption. Stock read-only APIs cannot
+identify an active Delivery, so immediate relay-only replay cannot be preserved
+without unsafe speculative consumption. Builder report summary rows show why
+Main woke; saved payloads remain complete.
+
+Configured coordinator sender + `[fleet ` body + `[urgent]` subject identifies the urgent
 bucket, never `builder_decision_request`; native question is purely a wake
 mechanism. Urgent rows carry `replyExpected: false` and
 `triageNote: "no reply expected"`. Inspect every row; reply only to actual
@@ -171,7 +183,7 @@ decision requests from the owning terminal with
 `orca orchestration reply --id MESSAGE_ID --body 'decision' --json`, and record
 rulings on Pad. Labels/from handles are advisory, not authentication. Only after
 processing **all** rows, re-arm asynchronously. On explicit-ack runtimes use
-`fleet ... wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900`.
+`fleet ... wait --wake-on question,escalation,urgent,builder --ack-run DELIVERY_ID --timeout 600`.
 On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
 mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
 is a native echo only. Retain `nativeRequestId` privately; stock
@@ -260,6 +272,14 @@ fleet --config /private/project/fleet.yml thread open TASK-N --slot /path/to/lan
 fleet --config /private/project/fleet.yml thread question TASK-N --body 'Proposal, risk, decision needed'
 fleet --config /private/project/fleet.yml thread wait TASK-N --timeout 600
 ```
+
+For a Main action, use `fleet --config CONFIG thread report TASK-N --kind
+release_ready --pr N --head FULL_SHA "text"`; choose `release_ready`,
+`review_request`, `ci_failed` or `result`. This sends one typed native question
+with `payload.fleet_report` (`ref`, `kind`, `pr`, `head`); summaries print
+kind/PR/head. Await `thread wait`; do not duplicate via direct question.
+The same pending/ambiguous-question guards apply. Typed `result` does not
+settle the attempt; `thread result` remains final settlement.
 
 Run anything that can exceed a few minutes (test suites, evals, profilers,
 CI waits) as an async background job with an explicit timeout sized to the

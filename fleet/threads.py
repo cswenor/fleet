@@ -1,4 +1,5 @@
 """Pad-backed task identity; terminal-only replies are copied without consuming mail."""
+import json
 import math
 import os
 from pathlib import Path
@@ -34,7 +35,8 @@ def pad(c, ref, body):
 
 def _record_question(c, ref, task, key, q):
     if not q.get('question_recorded'):
-        pad(c, ref, f"Fleet task thread: {task['id']}\nAttempt: {key}\nQuestion: {q['message_id']}\nNative subthread: {q['thread_id']}\n{q['body']}")
+        typed = '\nFleet typed report: ' + json.dumps(q['payload']) if 'payload' in q else ''
+        pad(c, ref, f"Fleet task thread: {task['id']}\nAttempt: {key}\nQuestion: {q['message_id']}\nNative subthread: {q['thread_id']}\n{q['body']}{typed}")
         q['question_recorded'] = True
 
 
@@ -181,7 +183,7 @@ def current(c, ref, caller):
     return ledger, task, attempt.get('attempt_id', key), attempt
 
 
-def question(c, ref, body, subject=None):
+def question(c, ref, body, subject=None, *, payload=None):
     name = _name(ref)
     caller = identity(c)
     with state.lock(c, name):
@@ -197,16 +199,38 @@ def question(c, ref, body, subject=None):
         q = {'thread_id': token, 'body': body, 'subject': subject or ref + ': decision',
              'status': 'sending'}
         attempt['questions'][token] = q
+        if payload is not None:
+            q['payload'] = payload
         attempt['latest_question'] = token
         state.write(c, name, ledger)
-        message = request(c, 'send', '--from', caller, '--to', 'run:' + c['coordinator']['run'],
-                          '--type', 'question', '--thread-id', token,
-                          '--subject', q['subject'], '--body', body)['message']
+        args = ['send', '--from', caller, '--to', 'run:' + c['coordinator']['run'],
+                '--type', 'question', '--thread-id', token,
+                '--subject', q['subject'], '--body', body]
+        if payload is not None:
+            args.extend(['--payload', json.dumps(payload)])
+        message = request(c, *args)['message']
         q.update(message_id=message['id'], status='pending')
         state.write(c, name, ledger)
         _record_question(c, ref, task, key, q)
         state.write(c, name, ledger)
         return q
+
+
+REPORT_KINDS = ('release_ready', 'review_request', 'ci_failed', 'result')
+
+
+def report(c, ref, kind, pr, head, body):
+    """Typed action requests share question ownership, ambiguity and reply guards."""
+    if kind not in REPORT_KINDS:
+        raise ValueError('unknown report kind')
+    if not isinstance(pr, int) or isinstance(pr, bool) or pr < 1:
+        raise ValueError('report PR must be positive')
+    if not isinstance(head, str) or not re.fullmatch(r'[0-9a-fA-F]{40}', head):
+        raise ValueError('report head must be a full commit SHA')
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError('report text is required')
+    payload = {'fleet_report': {'ref': ref, 'kind': kind, 'pr': pr, 'head': head}}
+    return question(c, ref, body, f'{ref}: {kind}', payload=payload)
 
 
 def wait(c, ref, timeout=900):

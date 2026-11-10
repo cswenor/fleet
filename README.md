@@ -490,7 +490,7 @@ failure cannot end a watch or accompany its selected PR's initial diagnostic.
 
 ### Inbox wait
 
-Run `fleet wait --wake-on question,escalation,urgent --timeout 900 --loop --save ~/.local/state/fleet/main-inbox.json --summary` using Main's
+Run `fleet wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary` using Main's
 **async background shell** from
 its own Orca terminal. The caller must already be bound to the configured
 `coordinator.run` (`orca orchestration run-use --id RUN` from that terminal).
@@ -517,18 +517,30 @@ unknown outcomes separately. Looping cannot recover a possibly auto-handled
 batch lost with its native response.
 
 Current Orca routes BOTH `send --to run:RUN` and `send --to BOUND_TERMINAL` into
-that Run. Fleet uses one native blocking `check --wait`, not a polling loop or
-two independent native mailboxes. `--wake-on KINDS` accepts comma-separated
-`question`, `escalation`, `urgent`, `status`, or `all` (default `all`).
-`urgent` aliases native `question`, so selecting it wakes for **all** questions,
-not just supervisor relays. `escalation` remains selectable for supervised worker
-escalations; ordinary senders cannot emit that type. Selection gates **blocking wake only**
-on pending message types, never delivery contents. On explicit-ack runtimes,
-existing unacked deliveries replay whole, even before a newer wake trigger. Every
-pending row remains in FIFO native delivery order without type filtering;
-decision-first display ordering does not change batch membership. Main uses
-`question,escalation,urgent` to avoid routine-status wakes, but processes the full
-batch whenever it returns.
+that Run. Native-only wake selections use one blocking `check --wait`.
+`--wake-on KINDS` accepts `question`, `escalation`, `urgent`, `builder`, `status`,
+or `all` (default `all`). `urgent` aliases native `question`; supervised worker
+escalations remain selectable. Main uses `question,escalation,urgent,builder`
+to wake on builder reports/decisions without routine supervisor status churn.
+Stock native waits lack sender/class predicates: builder-selected waits classify
+read-only `check --peek` rows every 3 seconds (`--interval` 1–30) within the
+single async process, then consume one whole native batch when a class matches.
+A native 100-row peek without a match fails explicitly (`builder_peek_incomplete`),
+not silently ignoring an unseen tail. `all` and native-only selections use native blocking waits.
+Explicit `--ack-run` keeps immediate native check/ack precedence (including
+relay-only deliveries); loop mode then rearms via peeks. Every returned Delivery
+stays whole, with native replay/ack and decision-first presentation unchanged.
+Builder mode defers relay-only backlog/replay until a selected class, explicit
+ack or timeout checkpoint; a last pending peek then permits one whole batch.
+Empty peeks time out without consumption. Read-only APIs expose no active-Delivery
+metadata, so speculative early checks cannot safely preserve immediate replay.
+
+Builder actions use `fleet thread report TASK-N --kind release_ready --pr N
+--head FULL_SHA "text"`, choosing `release_ready`, `review_request`, `ci_failed`
+or `result`. This sends a native question with `payload.fleet_report`
+(`ref`, `kind`, `pr`, `head`), summarized as kind/PR/head. Use `thread wait`
+for its reply; pending/ambiguous-question guards apply. Typed result requests
+do not settle the attempt: use `thread result` for final settlement.
 One JSON document returns `event`, `runId`, `terminal`, `batches`, and
 `legacyTerminalInbox`. Each batch contains `source: "run"`, the native
 `deliveryId`, every message in that FIFO batch, and `replayed`.
@@ -550,7 +562,7 @@ Process **all** message types. Reply to actual decision requests in-thread with
 questions do not request replies. On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
-fleet wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900
+fleet wait --wake-on question,escalation,urgent,builder --ack-run DELIVERY_ID --timeout 600
 ```
 
 Fleet discovers stock `--full` support from each orchestration verb's `--help`,

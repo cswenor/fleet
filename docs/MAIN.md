@@ -498,7 +498,7 @@ replace the full PR watcher with those or retired `pr-wait.sh` scripts. No model
 Main inbox wait, also as an async background command from Main's own terminal:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
 ```
 
 The save directory must already exist. No `main-inbox.sh` wrapper is needed.
@@ -517,7 +517,7 @@ including `saveError`; any prior saved file stays intact. Preserve that stdout.
 line per batch and ID/sender/classification/subject lines for decision/urgent
 rows, including `NEEDS-NEXT-REF` and `Lane free` questions. Fields are JSON-escaped
 to keep each row on one line. Read **all** rows in the saved JSON before ack;
-the summary omits ordinary reports and legacy history, not their saved payloads.
+the summary omits supervisor status relays and legacy history, not their saved payloads.
 `--summary` requires `--save`, refusing before consuming mail if it is absent.
 Historical status-type `FRESH-READY` subjects also appear in the summary without
 changing classification, wake selection or acknowledgment.
@@ -529,13 +529,48 @@ or acknowledging. Never borrow `coordinator.terminal` as a caller identity.
 An explicit `--terminal` fallback is only for environments without the variable.
 
 `--wake-on KINDS` accepts comma-separated `question`, `escalation`, `urgent`,
-`status`, or `all` (default `all`). Main selects `question,escalation,urgent`
-to avoid routine-status wakes. `urgent` aliases native `question`, waking for
-all questions, not just supervisor relays. `escalation` remains selectable for
-supervised worker escalations; ordinary senders cannot emit that type. Selection gates native blocking
-wake on pending types only: every row remains unfiltered in FIFO delivery order.
-On explicit-ack runtimes, an existing unacked delivery still replays whole before
-a newer wake trigger. Wake selection itself never hides reports or changes ack.
+`builder`, `status`, or `all` (default `all`). Main selects
+`question,escalation,urgent,builder`: builder reports wake, routine supervisor
+status relays stay quiet. `builder` matches `builder_report` and
+`builder_decision_request` classifications; sender/relay markers are advisory,
+not authenticated identity. `urgent` aliases native `question`; escalation
+remains selectable for supervised workers. Existing native-only selections
+retain native blocking behavior.
+
+Stock Orca has no sender/class predicate for `check --wait`. Builder-selected
+waits therefore classify read-only `check --peek` rows within the single async
+process every 3 seconds (`--interval` 1–30), consuming exactly one whole native
+batch after a matching row appears. A 100-row peek without a match fails with
+`builder_peek_incomplete` (exit 2), never silently assuming the unseen tail is
+quiet. This adds native read traffic, not model-turn polling.
+`all` and native-only selections bypass class peeking. An explicit `--ack-run` keeps immediate
+native check/ack precedence and may return a relay-only batch; its short
+checkpoint rearms through peeking in loop mode. No ambiguous ack is retried.
+Every returned Delivery stays whole, including relay rows and native replay.
+Builder mode defers relay-only backlog, including an existing unacked Delivery,
+until a selected class arrives, explicit ack, or the timeout checkpoint. At the
+checkpoint a last peek with pending rows permits one whole-batch consuming check
+and a saved `messages` result; empty peeks return timeout without consumption.
+Thus loop mode never strands relay-only mail indefinitely. Stock read-only APIs
+expose neither active-Delivery metadata nor a sender/class wake predicate; no
+speculative early consuming check is safe on auto-ack runtimes.
+Builder report rows now appear in summaries (ID/sender/subject), not just counts.
+The supervisor's separate idle-Main wake policy is unchanged.
+
+### Typed builder action requests
+
+```sh
+fleet --config CONFIG thread report TASK-N --kind release_ready --pr N --head FULL_SHA "Please release this head"
+fleet --config CONFIG thread wait TASK-N --timeout 600
+```
+
+Kinds: `release_ready`, `review_request`, `ci_failed`, `result`. Use typed
+reports for Main actions, not ordinary FYI status. Each sends one native question
+with `payload.fleet_report` containing `ref`, `kind`, `pr`, `head`; the head is
+a full commit SHA. Summary rows append kind/PR/head. They share question
+ownership, pending/ambiguous-send guards, unique native subthreads and durable
+Pad reply recording. Do not duplicate with a direct question. Typed `result`
+asks do not settle the task; `thread result` remains final settlement.
 
 Urgent supervisor relays use native type `question` and subject prefix
 `[urgent] `; native `urgent` is unsupported. `urgent.events` defaults to stalled,

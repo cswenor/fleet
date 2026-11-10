@@ -113,6 +113,37 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-91 — Builder wake selection and typed Main action reports
+
+Main-approved `builder` wake selection matches builder report/decision classes;
+recommended Main wait is `question,escalation,urgent,builder`. Supervisor status
+relays alone do not wake. Stock native waits cannot express sender/class filters;
+Main approved read-only classified peeks inside the single async process, default
+3 seconds (`--interval` 1–30), then one whole native consuming check. Native-only
+selections stay blocking. Explicit ack keeps native precedence; a capped
+100-row peek without a match fails explicitly rather than hiding unseen mail.
+No supervisor idle-wake behavior changes.
+
+`thread report REF --kind release_ready|review_request|ci_failed|result --pr N
+--head FULL_SHA "text"` sends a typed native question using existing task-question
+ownership, ambiguity and reply recording. Payload contains ref/kind/PR/head;
+summary rows expose kind/PR/head. Typed result asks do not settle attempts.
+Main approvals: `msg_1def2e8d902f`, `msg_46e09e0ff7e5`.
+Main live acceptance on frozen `559eb25` woke on builder status
+`msg_dd67af095e9c` after 11 seconds, retaining a simultaneous supervisor relay.
+Typed review-request native payload round-trip was also confirmed.
+Review identified relay-only replay deferral. Main approved bounded deferral
+(`msg_3c2b4072356c`, `msg_b6034cd22a36`): selected arrival, explicit ack or the
+timeout checkpoint permits one whole-batch consumption; empty peeks do not.
+Native read-only APIs expose no active-Delivery metadata. Builder summaries now
+show each report, not only counts. On frozen `0e7f87c`, Main verified relay-only
+delivery at the 6-second checkpoint and builder probe `msg_faa295078f71` wake
+with its summary row (`msg_dd5134347671`). A second review found a stale final
+peek; the timeout checkpoint now refreshes pending rows after the final sleep,
+with a regression for arrivals during that sleep. All 110 focused tests pass.
+Final-head review, CI and exact-head GO remain required; shared deployment
+remains Main-owned.
+
 ### TASK-90 — Fresh launch prepares the task branch
 
 Main's required same-ref recovery ruling (`msg_2b61fd450783`) preserves the
@@ -149,7 +180,6 @@ branch in `msg_3e3fd59c8753`, retaining its immutable older thread receipt.
 Main owns next-real-lane-launch acceptance after merge and shared deployment.
 Publication requires independent final-head review, green CI and exact-head GO;
 durable receipts belong on TASK-90/PR.
-
 
 ### TASK-87 — Main inbox wrapper absorbed into `fleet wait`
 
