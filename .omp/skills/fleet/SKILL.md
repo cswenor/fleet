@@ -146,6 +146,9 @@ single-shot default is unchanged. Use an explicit async-job deadline.
 `--save PATH` atomically replaces the full JSON (0600); `--summary` prints batch
 IDs/counts and decision/urgent rows, including needs-next/lane-free questions.
 Read every saved row before ack, not only the compact summary.
+Save destinations are probed before consuming mail. A later save failure returns
+exit 2 with full JSON stdout and `saveError` even with `--summary`; preserve it
+because native delivery may already be acknowledged.
 An initial ack is sent only once, never repeated after ambiguous recovery.
 Saved `rearmEvents` retain interrupted request metadata for reconciliation;
 looping cannot recover a potentially auto-handled batch with a lost response.

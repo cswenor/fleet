@@ -466,7 +466,9 @@ check; inspect saved `rearmEvents` for native recovery/request IDs and reconcile
 unknown outcomes separately. Looping does not recover a potentially auto-handled
 batch lost during an interrupted native response.
 `--save PATH` atomically replaces the full JSON result with mode 0600 after each
-checkpoint/result; write failure returns an error, leaving any prior file intact.
+checkpoint/result. Unusable destinations fail before consuming mail. A later write
+failure returns exit 2 and the complete JSON on stdout even with `--summary`,
+including `saveError`; any prior saved file stays intact. Preserve that stdout.
 `--summary` replaces stdout JSON with an event/count header, a delivery ID/count
 line per batch and ID/sender/classification/subject lines for decision/urgent
 rows, including `NEEDS-NEXT-REF` and `Lane free` questions. Fields are JSON-escaped

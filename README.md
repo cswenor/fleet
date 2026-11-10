@@ -506,6 +506,9 @@ Use a bounded async-job deadline. `--save PATH` atomically replaces the complete
 JSON result (0600) after each result, including errors. `--summary` prints the
 event/count header, each delivery ID/count and decision/urgent rows, including
 needs-next/lane-free questions. Read all saved rows before acknowledging.
+Unusable save destinations fail before consuming mail. A later save failure
+returns exit 2 with full JSON on stdout (even with `--summary`) and `saveError`;
+preserve it because the native batch may already be acknowledged.
 An initial `--ack-run` is sent only once, never replayed after an ambiguous check.
 Interrupted native request metadata is retained in `rearmEvents`; reconcile
 unknown outcomes separately. Looping cannot recover a possibly auto-handled

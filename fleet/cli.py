@@ -166,7 +166,9 @@ def main():
             print(json.dumps(result))
             return 3 if result.get('event') == 'timeout' else 0
         if args.command == 'wait':
-            from .mailbox import wait, save_result, summary
+            from .mailbox import wait, check_save_path, save_result, summary
+            if args.save:
+                check_save_path(args.save)
             ack_run = args.ack_run
             recoveries = []
             while True:
@@ -174,7 +176,14 @@ def main():
                 if recoveries:
                     result['rearmEvents'] = list(recoveries)
                 if args.save:
-                    save_result(args.save, result)
+                    try:
+                        save_result(args.save, result)
+                    except OSError as error:
+                        # Native mail may already be auto-acknowledged. Never
+                        # hide its payload/receipts behind a filesystem error.
+                        result['saveError'] = str(error)
+                        print(json.dumps(result))
+                        return 2
                 if not args.loop or result['event'] not in ('timeout', 'rearm'):
                     break
                 # A timeout already submitted the ack; rearm has an unknown

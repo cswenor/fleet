@@ -294,6 +294,15 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
     return result
 
 
+def check_save_path(path):
+    """Probe private sibling creation without replacing an existing saved batch."""
+    path = Path(path)
+    if path.is_dir():
+        raise ValueError('save path must not be a directory')
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.' + path.name + '.'):
+        pass
+
+
 def save_result(path, result):
     """Replace a saved batch only after its private JSON is fully written."""
     path = Path(path)

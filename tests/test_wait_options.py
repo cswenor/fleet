@@ -38,6 +38,29 @@ class WaitOptionsTests(unittest.TestCase):
                 self.assertEqual(json.loads(text)['event'], event)
                 self.assertEqual(wait.call_count, 1)
 
+    def test_save_failure_returns_complete_auto_ack_batch_even_with_summary(self):
+        result = {'event': 'messages', 'nativeAutoAck': True,
+                  'batches': [{'deliveryId': 'handled', 'nativeRequestId': 'request',
+                               'messages': [{'body': 'must not disappear'}]}]}
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(mailbox, 'save_result', side_effect=OSError('disk full')):
+            code, text, wait = self.invoke([result], '--save', str(Path(temp) / 'batch'),
+                                          '--summary', '--loop')
+        returned = json.loads(text)
+        self.assertEqual(code, 2)
+        self.assertEqual(returned['batches'], result['batches'])
+        self.assertTrue(returned['nativeAutoAck'])
+        self.assertEqual(returned['saveError'], 'disk full')
+        self.assertEqual(wait.call_count, 1)
+
+    def test_unusable_save_destination_never_consumes_mail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for path in [Path(temp), Path(temp) / 'missing' / 'batch']:
+                with self.subTest(path=path), contextlib.redirect_stderr(io.StringIO()):
+                    code, _, wait = self.invoke([], '--save', str(path))
+                    self.assertEqual(code, 2)
+                    wait.assert_not_called()
+
     def test_save_replaces_only_complete_private_json_and_cleans_up_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'batch.json'
