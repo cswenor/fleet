@@ -61,6 +61,9 @@ def main():
                    help='comma-separated question,escalation,urgent,status,all; urgent aliases question; deliveries stay whole')
     p.add_argument('--ack-run', help='acknowledge a processed Run delivery before waiting')
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
+    p.add_argument('--loop', action='store_true', help='rearm internally on timeout/recovery; never repeat an ack')
+    p.add_argument('--save', metavar='PATH', help='atomically save the full JSON result with mode 0600')
+    p.add_argument('--summary', action='store_true', help='print compact delivery and decision/urgent rows instead of JSON')
     p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')
     commands = p.add_subparsers(dest='thread_command', required=True)
     t = commands.add_parser('open')
@@ -142,9 +145,24 @@ def main():
             print(json.dumps(result))
             return 3 if result.get('event') == 'timeout' else 0
         if args.command == 'wait':
-            from .mailbox import wait
-            result = wait(c, args.timeout, args.ack_run, args.terminal, args.wake_on)
-            print(json.dumps(result))
+            from .mailbox import wait, save_result, summary
+            ack_run = args.ack_run
+            recoveries = []
+            while True:
+                result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on)
+                if recoveries:
+                    result['rearmEvents'] = list(recoveries)
+                if args.save:
+                    save_result(args.save, result)
+                if not args.loop or result['event'] not in ('timeout', 'rearm'):
+                    break
+                # A timeout already submitted the ack; rearm has an unknown
+                # mutation outcome. Neither permits sending the same ack again.
+                ack_run = None
+                if result['event'] == 'rearm':
+                    recoveries.append({key: value for key, value in result.items()
+                                       if key != 'rearmEvents'})
+            print(summary(result) if args.summary else json.dumps(result))
             return {'messages': 0, 'timeout': 3, 'error': 2, 'rearm': 4,
                     'runtime_unavailable': 2}[result['event']]
         if args.command == 'serve':

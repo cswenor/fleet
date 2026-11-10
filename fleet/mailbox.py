@@ -4,6 +4,8 @@ import json
 import math
 import os
 import re
+from pathlib import Path
+import tempfile
 import subprocess
 import time
 from .commands import CommandError, orchestration_args
@@ -290,3 +292,37 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
     else:
         result['legacyTerminalInbox']['error'] = 'caller_identity_required'
     return result
+
+
+def save_result(path, result):
+    """Replace a saved batch only after its private JSON is fully written."""
+    path = Path(path)
+    fd, temp = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name + '.')
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(result, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def summary(result):
+    """Compact triage only; the full saved batch remains authoritative."""
+    def field(value):
+        return json.dumps(value, ensure_ascii=True)
+
+    lines = [f"FLEET-WAIT event={result['event']} counts={json.dumps(result['counts'])}"]
+    if result.get('error'):
+        lines.append(f"ERROR {field(result['error'])}")
+    for batch in result['batches']:
+        lines.append(f"DELIVERY {field(batch['deliveryId'])} source={batch['source']} "
+                     f"n={len(batch['messages'])}")
+        for row in batch['messages']:
+            if row['classification'] in ('builder_decision_request', 'supervisor_urgent'):
+                sender = row.get('from_handle', row.get('from', ''))
+                lines.append(f"{field(row['id'])} {field(sender)} "
+                             f"{row['classification']} {field(row.get('subject', ''))}")
+    return '\n'.join(lines)

@@ -490,7 +490,7 @@ failure cannot end a watch or accompany its selected PR's initial diagnostic.
 
 ### Inbox wait
 
-Run `fleet wait --wake-on question,escalation,urgent --timeout 900` using Main's
+Run `fleet wait --wake-on question,escalation,urgent --timeout 900 --loop --save ~/.local/state/fleet/main-inbox.json --summary` using Main's
 **async background shell** from
 its own Orca terminal. The caller must already be bound to the configured
 `coordinator.run` (`orca orchestration run-use --id RUN` from that terminal).
@@ -499,6 +499,17 @@ Caller identity comes from `ORCA_TERMINAL_HANDLE`; `--terminal HANDLE` is an
 explicit fallback only when that environment variable is absent, not permission
 to borrow another terminal's identity. The configured coordinator terminal is
 never used as the caller.
+
+The save parent must exist. `--loop` continues across timeout/rearm checkpoints
+until messages or a real error; omit it for existing single-shot exit behavior.
+Use a bounded async-job deadline. `--save PATH` atomically replaces the complete
+JSON result (0600) after each result, including errors. `--summary` prints the
+event/count header, each delivery ID/count and decision/urgent rows, including
+needs-next/lane-free questions. Read all saved rows before acknowledging.
+An initial `--ack-run` is sent only once, never replayed after an ambiguous check.
+Interrupted native request metadata is retained in `rearmEvents`; reconcile
+unknown outcomes separately. Looping cannot recover a possibly auto-handled
+batch lost with its native response.
 
 Current Orca routes BOTH `send --to run:RUN` and `send --to BOUND_TERMINAL` into
 that Run. Fleet uses one native blocking `check --wait`, not a polling loop or
