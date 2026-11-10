@@ -390,3 +390,96 @@ class ReadyTests(unittest.TestCase):
                     threads.ready(self.c, 'TASK-2')
                 self.assertEqual(self.sent, [])
                 self.assertEqual(self.pads, [])
+
+    def test_needs_next_sends_one_decision_without_next_handoff(self):
+        self.comments = []
+        first = threads.needs_next(self.c, 'TASK-1')
+        second = threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(first['message_id'], second['message_id'])
+        self.assertEqual(len(self.sent), 1)
+        flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
+        self.assertEqual(flags['--type'], 'question')
+        self.assertEqual(flags['--to'], 'run:run_main')
+        self.assertIn('needs next ref', flags['--body'])
+        with self.assertRaisesRegex(ValueError, 'already requested'):
+            threads.ready(self.c, 'TASK-2')
+
+    def test_needs_next_rejects_inherited_merge_and_unsettled_attempt(self):
+        self.prs[0]['mergedAt'] = '2025-01-01T00:00:00Z'
+        with self.assertRaises(ValueError):
+            threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(self.sent, [])
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one']['settled'] = False
+        state.write(self.c, 'threads-TASK-1', ledger)
+        with self.assertRaisesRegex(ValueError, 'settled'):
+            threads.needs_next(self.c, 'TASK-1')
+
+    def test_needs_next_pad_failure_retries_without_resending(self):
+        with patch.object(threads, 'pad', side_effect=ValueError('offline')):
+            with self.assertRaisesRegex(ValueError, 'offline'):
+                threads.needs_next(self.c, 'TASK-1')
+        receipt = threads.needs_next(self.c, 'TASK-1')
+        self.assertTrue(receipt['recorded'])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_needs_next_ambiguous_native_send_forbids_duplicate(self):
+        original = self.request
+        def failing(c, verb, *args):
+            if verb == 'send':
+                raise ValueError('transport lost')
+            return original(c, verb, *args)
+        with patch.object(threads, 'request', side_effect=failing):
+            with self.assertRaisesRegex(ValueError, 'transport lost'):
+                threads.needs_next(self.c, 'TASK-1')
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(self.sent, [])
+
+    def test_historical_ready_blocks_needs_next_after_authorized_continuation(self):
+        threads.ready(self.c, 'TASK-2')
+        threads.reopen(self.c, 'TASK-1', 'msg_continue')
+        threads.result(self.c, 'TASK-1', 'continuation published')
+        sent_before = len(self.sent)
+        with self.assertRaisesRegex(ValueError, 'ready report'):
+            threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(len(self.sent), sent_before)
+
+    def test_ready_retry_after_continuation_reuses_launch_receipt(self):
+        first = threads.ready(self.c, 'TASK-2')
+        threads.reopen(self.c, 'TASK-1', 'msg_continue')
+        threads.result(self.c, 'TASK-1', 'continuation published')
+        sent_before = len(self.sent)
+        retry = threads.ready(self.c, 'TASK-2')
+        self.assertEqual(retry['message_id'], first['message_id'])
+        self.assertEqual(len(self.sent), sent_before)
+
+    def lane_event(self):
+        identity = {k: self.launch[k] for k in
+                    ('id', 'ref', 'terminal', 'terminal_incarnation_id')}
+        identity['slot'] = self.temp.name
+        return {'lane_free': identity, 'key': 'lane_free:proof', 'type': 'question',
+                'subject': 'Lane free: finished TASK-1; needs next task',
+                'body': 'Finished; needs next task'}
+
+    def test_needs_next_reuses_supervisor_decision(self):
+        from fleet import supervisor
+        self.c['repo'] = 'owner/project'
+        with patch.object(supervisor, 'orca', return_value={'message': {'id': 'lane-question'}}):
+            supervisor.enqueue(self.c, self.lane_event(), 'run:run_main')
+        receipt = threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(receipt['message_id'], 'lane-question')
+        self.assertEqual(self.sent, [])
+
+    def test_ambiguous_supervisor_enqueue_blocks_both_channels(self):
+        from fleet import supervisor
+        self.c['repo'] = 'owner/project'
+        with patch.object(supervisor, 'orca', side_effect=ValueError('response lost')):
+            with self.assertRaisesRegex(ValueError, 'response lost'):
+                supervisor.enqueue(self.c, self.lane_event(), 'run:run_main')
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            threads.needs_next(self.c, 'TASK-1')
+        with patch.object(supervisor, 'orca', side_effect=AssertionError('duplicate send')):
+            with self.assertRaises(ValueError):
+                supervisor.enqueue(self.c, self.lane_event(), 'run:run_main')
+        self.assertEqual(self.sent, [])

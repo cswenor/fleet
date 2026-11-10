@@ -210,8 +210,10 @@ def advance(c, s, ledger, now=None):
     g['active'].update(path=b['path'], incarnation_id=b['incarnation_id'], worktree=b['worktree'],
                        launch_record_id=launches.get(b['path'], {}).get('id'))
     body = (f"PARK {b['task']} (request {key}). Finish your current step, commit and push WIP to your task branch, "
-            f"write a Pad handoff comment in workspace {c['pad_workspace']}, report PARKED with WIP/handoff evidence "
-            f"to run:{c['coordinator']['run']}. After reporting PARKED, end your turn with a final message and do nothing else: "
+            f"write a concrete Pad resume comment in workspace {c['pad_workspace']}, then run "
+            f"fleet --config CONFIG thread parked {b['task']} --resume-note COMMENT_ID using your launch config. "
+            "This verifies clean pushed WIP and records park completion for guarded different-ref reassignment. "
+            "Then end your turn with a final message and do nothing else: "
             "no further tool calls, no background jobs, and never a job that waits on your own terminal/idle state "
             "or sends input to your own terminal. Main (or the owner) retires the idle session via the documented "
             "retirement path (fleet restart for eligible finished work, or manual idle-proof /exit + fleet reconcile). "

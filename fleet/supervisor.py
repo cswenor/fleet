@@ -102,13 +102,83 @@ def _ready_candidate(c, identity):
         return None
 
 
-def missing_ready_reports(c, s, ledger, now):
+def _lane_free_candidate(c, builder):
+    """Require positive idle, exact canonical settlement and finished-work proof."""
+    try:
+        flags = builder.get('flags', [])
+        if (not builder.get('connected') or
+                any('stalled' in flag or 'blocked' in flag for flag in flags) or
+                not (builder.get('shell_ready') or builder.get('ui_state') == 'idle')):
+            return None
+        slot = builder['path']
+        launch = state.read(c, 'launches', {}).get(slot, {})
+        if (not launch.get('id') or not re.fullmatch(r'[A-Z]+-\d+', launch.get('ref', ''))
+                or launch.get('terminal') != builder['terminal']
+                or not builder.get('incarnation_id')
+                or launch.get('terminal_incarnation_id') != builder['incarnation_id']):
+            return None
+        identity = {field: launch[field] for field in
+                    ('id', 'ref', 'terminal', 'terminal_incarnation_id')}
+        identity['slot'] = slot
+        task = state.read(c, 'threads-' + launch['ref'], {}).get(launch['ref'], {})
+        attempt = task.get('attempts', {}).get(launch['id'], {})
+        identity['attempt_id'] = attempt.get('attempt_id', launch['id'])
+        if (not task.get('id') or attempt.get('settled') is not True
+                or not isinstance(attempt.get('result'), str) or not attempt['result'].strip()
+                or attempt.get('terminal') != builder['terminal'] or attempt.get('slot') != slot):
+            return None
+        cache = c.setdefault('_lane_free_completions', {})
+        proof_key = (launch['id'], identity['attempt_id'], launch['terminal_incarnation_id'])
+        if cache.get(slot) != proof_key:
+            cache.pop(slot, None)
+            from . import restart
+            if not restart._finished_completion(c, launch['ref'], launch):
+                return None
+            cache[slot] = proof_key
+        return identity
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _lane_free_reported(c, identity):
+    """Pending/ambiguous reports also own the decision and forbid a second send."""
+    try:
+        task = state.read(c, 'threads-' + identity['ref'], {}).get(identity['ref'], {})
+        from .threads import _launch_report
+        return (bool(_launch_report(task, identity['id'], 'ready'))
+                or bool(_launch_report(task, identity['id'], 'needs_next'))
+                or identity['id'] in state.read(c, 'needs-next', {}))
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def lane_free_reports(c, candidates, ledger):
+    """Persist launch-level dedupe separately from expiring transport receipts."""
+    queued = ledger.setdefault('lane_free_reports', {})
+    result = []
+    for identity in candidates.values():
+        key = digest([identity['slot'], identity['id'], identity['terminal_incarnation_id']])
+        if key in queued or _lane_free_reported(c, identity) is not False:
+            continue
+        result.append({'key': 'lane_free:' + key, 'type': 'question',
+                       'subject': f"Lane free: {identity['slot']} finished {identity['ref']}; needs next task",
+                       'body': f"{identity['terminal']} finished {identity['ref']} in "
+                               f"{identity['slot']}. The canonical attempt is settled and "
+                               "the builder is positively idle. Decide the next task or retirement.",
+                       'branch': None, 'lane_free': identity})
+        queued[key] = identity
+    return result
+
+
+def missing_ready_reports(c, s, ledger, now, lane_free=None):
     """Persist a timer and one queue identity per verified, exact launch."""
     timers = ledger.setdefault('missing_ready_reports', {})
     result = []
     for builder in (s.get('inventory') or {}).get('builders', []):
         try:
             slot = builder['path']
+            if slot in (lane_free or {}):
+                continue
             launch = state.read(c, 'launches', {}).get(slot, {})
             if (not launch.get('id') or not re.fullmatch(r'[A-Z]+-\d+', launch.get('ref', ''))
                     or launch.get('terminal') != builder['terminal']
@@ -169,7 +239,7 @@ def missing_ready_reports(c, s, ledger, now):
 
 
 
-def alerts(s, c):
+def alerts(s, c, lane_free=None):
     result = []
     def add(key, subject, body):
         result.append({'key': key, 'subject': subject, 'body': body, 'branch': None})
@@ -179,7 +249,7 @@ def alerts(s, c):
         add('github-unknown:' + digest(message), 'GitHub optional data unknown', message)
     for b in s.get('inventory', {}).get('builders', []):
         for flag in b['flags']:
-            if flag == 'idle' and _completed_idle(c, b):
+            if flag == 'idle' and (b['path'] in (lane_free or {}) or _completed_idle(c, b)):
                 continue
             body = f'{b["terminal"]} {b["path"]}; model={b["model"] or "unknown"}; flag={flag}'
             if flag in ('stalled', 'progress_unknown'):
@@ -313,7 +383,21 @@ def enqueue(c, event, recipient):
                     prefix + event['body']], c['root'])
     builder_park = event.get('park') and recipient == event['recipients'][0]
     # Serialize final identity check + enqueue against every Fleet launch/reuse.
-    with state.lock(c, 'launcher') if builder_park else nullcontext():
+    with state.lock(c, 'launcher') if builder_park or event.get('lane_free') else nullcontext():
+        if event.get('lane_free'):
+            identity = event['lane_free']
+            if recipient != 'run:' + c['coordinator']['run']:
+                raise ValueError('lane-free notice must target the coordinator Run')
+            if not _ready_candidate(c, identity):
+                raise CommandError('lane-free launch or report changed')
+            notices = state.read(c, 'needs-next', {})
+            notice = notices.get(identity['id'])
+            if notice:
+                if not notice.get('message_id'):
+                    raise ValueError('ambiguous lane-free send; reconcile native inbox; never resend')
+                return {'deduplicated': True, 'report': notice}
+            if _lane_free_reported(c, identity) is not False:
+                raise CommandError('lane-free launch or report changed')
         if builder_park:
             attempt = event['attempt']
             t = orca(c, 'terminal', 'show', '--terminal', recipient)['terminal']
@@ -328,9 +412,24 @@ def enqueue(c, event, recipient):
         # Explicit sender permits a systemd process. Never inject terminal input.
         target_run = (recipient[4:] if event['key'].startswith('main:') and recipient.startswith('run:')
                       else c['coordinator']['run'])
-        return orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
-                    '--to', recipient, '--run', target_run, '--type', event.get('type', 'status'),
-                    '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
+        if event.get('lane_free'):
+            notice = {'ref': identity['ref'], 'slot': identity['slot'],
+                      'channel': 'supervisor', 'status': 'sending',
+                      'body': prefix + f"[fleet {c['repo']}] {event['body']}"}
+            notices[identity['id']] = notice
+            # Shared with thread needs-next under the launcher lock. An uncertain
+            # native response reserves this launch until explicit reconciliation.
+            state.write(c, 'needs-next', notices)
+        receipt = orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
+                       '--to', recipient, '--run', target_run, '--type', event.get('type', 'status'),
+                       '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
+        if event.get('lane_free'):
+            message_id = receipt.get('message', {}).get('id')
+            if not isinstance(message_id, str) or not message_id:
+                raise ValueError('ambiguous lane-free response; reconcile native inbox; never resend')
+            notice.update(message_id=message_id, status='sent', at=time.time())
+            state.write(c, 'needs-next', notices)
+        return receipt
 
 
 def push(c, s, receipt):
@@ -494,7 +593,12 @@ def cycle(c, deliver=True):
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
     s['governor'] = ledger['governor']
-    active = alerts(s, c) + pr_alerts + main_alerts(c, s, ledger, time.time())
+    lane_free = {}
+    for builder in (s.get('inventory') or {}).get('builders', []):
+        candidate = _lane_free_candidate(c, builder)
+        if candidate:
+            lane_free[builder['path']] = candidate
+    active = alerts(s, c, lane_free) + pr_alerts + main_alerts(c, s, ledger, time.time())
     if current_g is None:
         # Unknown collection is not recovery: keep stuck occurrences deduplicated.
         active_stuck = {key: value for key, value in ledger.get('active_alerts', {}).items()
@@ -542,7 +646,8 @@ def cycle(c, deliver=True):
                 next_missing[key] = absent
     ledger['active_alerts'] = next_active
     ledger['health_absent_cycles'] = next_missing
-    pending.extend(missing_ready_reports(c, s, ledger, time.time()))
+    pending.extend(lane_free_reports(c, lane_free, ledger))
+    pending.extend(missing_ready_reports(c, s, ledger, time.time(), lane_free))
     pending.extend(wake_main(c, ledger, time.time(), deliver))
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
@@ -551,6 +656,27 @@ def cycle(c, deliver=True):
     failures = []
     protected = set()
     for event in pending:
+        if event.get('lane_free'):
+            identity = event['lane_free']
+            builder = next((b for b in (inventory or {}).get('builders', [])
+                            if b.get('path') == identity['slot']), {})
+            candidate = _ready_candidate(c, identity)
+            reported = _lane_free_reported(c, identity)
+            if reported is True:
+                continue
+            if candidate is False:
+                # No delivery occurred: continuation/replacement invalidated this
+                # attempt, not the launch's right to a later completion request.
+                ledger['lane_free_reports'].pop(event['key'].removeprefix('lane_free:'), None)
+                continue
+            if reported is None or _lane_free_candidate(c, builder) != identity:
+                # Unknown/busy observations defer, never authorize a decision alert.
+                remaining.append(event)
+                protected.update(digest([event['key'], r]) for r in
+                                 event.get('recipients', ['run:' + c['coordinator']['run']]))
+                continue
+        if event.get('missing_ready') and event['missing_ready']['slot'] in lane_free:
+            continue
         if event.get('missing_ready'):
             candidate = _ready_candidate(c, event['missing_ready'])
             if candidate is False:

@@ -166,17 +166,42 @@ def _merged_prs(c, finished, date_filter):
             raise ValueError('completion PR search incomplete or inconsistent; retirement withheld') from exc
 
 
-def _completion(c, ref, finished, record, *, require_handoff=False):
-    item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
-    same_ref = ref == finished
+def _launch_time(record):
     started = record.get('at')
     if isinstance(started, bool) or not isinstance(started, (int, float)):
         raise ValueError('restart requires a valid launch timestamp')
     try:
-        launched = datetime.fromtimestamp(started, timezone.utc)
-        boundary = (launched - timedelta(days=1)).date().isoformat()
+        return datetime.fromtimestamp(started, timezone.utc)
     except (ValueError, OverflowError, OSError) as exc:
         raise ValueError('restart requires a valid launch timestamp') from exc
+
+
+def _finished_completion(c, ref, record):
+    """Prove this launch completed, without requiring a next-task handoff."""
+    launched = _launch_time(record)
+    from .parking import completion
+    parked = completion(c, ref, record)
+    if parked:
+        return parked
+    boundary = (launched - timedelta(days=1)).date().isoformat()
+    pattern = re.compile(r'(?<![\w-])' + re.escape(ref) + r'(?![\w-])')
+    for pr in _merged_prs(c, ref, '>=' + boundary):
+        if (pattern.search(pr['title'] + '\n' + (pr['body'] or ''))
+                and _timestamp(pr['mergedAt']) > launched):
+            return {'finished_ref': ref, 'pr': pr['url']}
+    raise ValueError('finished task requires a new merged PR after this launch or a validated park receipt')
+
+
+def _completion(c, ref, finished, record, *, require_handoff=False):
+    launched = _launch_time(record)
+    same_ref = ref == finished
+    if not same_ref and not require_handoff:
+        from .parking import completion
+        parked = completion(c, finished, record)
+        if parked:
+            return parked
+    item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
+    boundary = (launched - timedelta(days=1)).date().isoformat()
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
     def matches(prs):
         return [p for p in prs if pattern.search(p['title'] + '\n' + (p['body'] or ''))]

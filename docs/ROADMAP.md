@@ -112,6 +112,45 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-83 — Finished-lane decisions and explicit park completion
+
+`thread needs-next REF` sends one native `NEEDS-NEXT-REF` question per launch
+after canonical settlement and proof of a PR merged after launch or explicit
+pushed-WIP park completion. It needs no invented next-ref handoff. Known-ID Pad
+retries never resend; ambiguous sends require reconciliation. Ready and needs-next
+are mutually exclusive for a launch.
+
+`thread parked REF --resume-note COMMENT_ID` verifies the current primary launch,
+live unbound terminal ownership, opened task branch, clean worktree, HEAD equal
+to the actual origin branch head and the exact newer Pad resume comment. It
+records PARKED and settles the attempt without a fake merge. Different-ref
+guarded restart accepts that receipt; same-ref restart and ready retain their
+new-merge/later-handoff requirements. Retirement/admission proofs are unchanged.
+
+The supervisor queues one `Lane free: … needs next task` decision request per
+launch for canonically settled, positively idle OMP/shell lanes with verified
+merge/park completion and no ready/needs-next report. This replaces generic
+idle/missing-ready relays for that case, not blocked/stalled/unknown states.
+Neither path dispatches automatically.
+
+All 506 tests pass after integrating TASK-85. Review regressions prove deferred
+lane-free requests survive continuation, historical ready receipts remain
+launch-wide, and both decision channels share an ambiguous-send-safe journal.
+Main-authorized scratch TASK-86 / Run `run_12d3b9ad93d0`
+proved real `parked` (`msg_8f0d6ec00eb4`) and `needs-next`
+(`msg_f8b9996041ea`) delivery, with no second question on command retry.
+A separate private no-report state copy exercised the real source supervisor
+against the scratch shell: exactly one lane-free question queued with delivery
+disabled. No real launch receipts, Main input or shared deployment was used.
+Extended live proof on scratch Run `run_6c9b17119508` delivered PARKED
+`msg_5c82c3fe9e6d` and supervisor-first lane-free question `msg_c31a98f78e0d`.
+Repeated enqueue and a later real CLI `needs-next` returned that same question
+ID; native peek contained exactly the park plus one question. All four owned
+scratch terminals were closed, the remote scratch branch deleted, and TASK-86
+marked done.
+Publication requires independent final-head review, green CI and Main exact-head
+GO; scratch cleanup and publication receipts belong on TASK-83/PR.
+
 ### TASK-85 — Actionable-only Main wake and delayed unwakeable relays
 
 Main wake decisions now consider only native question/escalation messages, matching

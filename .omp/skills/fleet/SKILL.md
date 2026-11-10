@@ -191,8 +191,9 @@ post-publication handoff on a different next item. Next refs come from the resul
 or finished-item comments. Unknown/unreadable evidence keeps the alert. Positive
 proof is process-memory-only per launch until replacement/restart; other health
 alerts and raw snapshot flags are unchanged. No supervisor Pad writes.
-For a settled canonical attempt with a verified next-ref handoff and no native
-ready message ID, the supervisor emits nonurgent `settled, no ready report` once
+Outside the verified idle merge/park lane-free case, a settled canonical attempt
+with a verified next-ref handoff but no native ready message retains nonurgent
+`settled, no ready report` once
 per launch after `builder.ready_report_minutes` from settlement (positive finite,
 default 15). For legacy attempts without a settlement timestamp, the timer starts
 at the first verified handoff observation and persists in supervisor state.
@@ -348,6 +349,14 @@ result settles, make this the last lane action, then stop:
 fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece handoff'
 ```
 
+When complete but no concrete next ref exists, settle `thread result`, then make
+`fleet --config CONFIG thread needs-next REF` the last lane action and end the
+turn. It proves a newer merged PR or explicit park completion and sends one
+`NEEDS-NEXT-REF` native question per launch. Never substitute a status report.
+The supervisor also requests the next task once per launch for a canonically
+settled, positively idle OMP/shell with verified merge/park completion and no
+ready/needs-next report. Blocked, stalled or unknown idle never qualifies.
+
 After a successful ready report, end your turn with a final message and do nothing
 else: no further tool calls, no background jobs, and never a job that waits on your
 own terminal/idle state or sends input to your own terminal. Main (or the owner)
@@ -382,10 +391,11 @@ per-project pinning, and coordinates rollout/rollback and owner-only approvals.
 Do not change other projects, restart shared services or imply installation from
 merge alone. Verify actual deployed CLI/service/browser and report receipts.
 
-For a published finished builder, Main can use
-`fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD` with merged-PR +
-Pad/handoff proof. For OLD != NEXT, require Pad OLD done or a post-publication
-handoff on NEXT. For OLD == NEXT, require a PR carrying that ref merged strictly
+For finished work, Main can use
+`fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD`.
+For OLD != NEXT, an explicit `thread parked` completion receipt qualifies, or
+require a merged PR carrying OLD and Pad OLD done or a post-publication handoff
+on NEXT. For OLD == NEXT, require a PR carrying that ref merged strictly
 after the retiring launch timestamp and a handoff on that ref strictly after the
 merge, with a non-empty next-piece description after the ref; Pad done alone
 never suffices. Both paths retain exact launch/session/foreground ownership,
@@ -413,8 +423,13 @@ Missing terminal, transport loss or a stale shell screen is not exit proof.
 Unknown/stale usage withholds new starts and **never** authorizes PARK/kill/retry.
 Known reserve may cooperatively request PARK of one lowest-priority lane; Fleet
 never injects exit/interrupt/kill. On durable PARK, finish the current step,
-commit and push WIP, write the Pad handoff, report PARKED with evidence to Main,
-then end your turn with a final message and do nothing else: no further tool calls,
+commit/push WIP, write a concrete Pad resume comment, then make
+`fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last lane
+action. It verifies a clean worktree and HEAD equal to the actual origin branch
+head, records park completion and settles the attempt without a merged PR.
+Main may use guarded different-ref restart to reassign the slot; same-ref
+restart/ready keep their newer-merge/later-handoff requirements.
+Then end the turn with a final message and do nothing else: no further tool calls,
 no background jobs, and never a job that waits on your own terminal/idle state or
 sends input to your own terminal. Main (or the owner) retires the idle session via
 the documented retirement path (`fleet restart` for eligible finished work, or

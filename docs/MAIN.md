@@ -135,6 +135,16 @@ FRESH-READY uses native `question`, waking the decision-filtered Main wait and
 classifying as `builder_decision_request`. Reply in its native thread with the
 launch ruling; the builder stops after sending and does not wait for the reply.
 
+TASK-83 completion without a next ref uses `fleet --config CONFIG thread
+needs-next REF` after primary settlement, then ends the turn. It sends one
+`NEEDS-NEXT-REF` decision request per launch after proving a newer merged PR or
+explicit pushed-WIP park completion. Do not substitute a status report.
+The supervisor's once-per-launch `Lane free: … needs next task` question covers
+settled, positively idle OMP/shell lanes with verified completion and no report;
+it replaces generic idle/missing-ready relays only for those proven lanes.
+Blocked/stalled/unknown observations retain their existing health treatment.
+Neither path dispatches or authorizes a fresh launch.
+
 Fresh independent read-only unadvised Sol medium reviewer is gate one for every
 PR; record reviewer/session/final-head findings. Fleet has no review bot: final
 head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
@@ -156,8 +166,9 @@ canonical thread result plus Pad done or a verified post-publication handoff on
 a different next item. Unknown evidence still alerts. Positive completion is
 cached only in supervisor memory per launch; replacement/restart rechecks it.
 Raw health flags and other urgent kinds remain unchanged.
-For a settled canonical attempt with a verified next-ref handoff but no ready
-message ID, the supervisor emits nonurgent `settled, no ready report` once per
+Outside TASK-83's verified idle merge/park lane-free case, a settled attempt with
+a verified next-ref handoff but no ready message retains nonurgent
+`settled, no ready report` once per
 launch after `builder.ready_report_minutes` (positive finite, default 15) from
 settlement. For legacy attempts without a settlement timestamp, the timer starts
 at the first verified handoff observation and persists in supervisor state.
@@ -267,18 +278,20 @@ background jobs, especially no job waiting on its own terminal/idle state or
 sending input to its own terminal. Main (or the owner), not the builder, retires
 the idle session. A job waiting for its owning turn to become idle deadlocks.
 
-For eligible finished work, use guarded `fleet restart` below. PARKed unfinished
-work does not satisfy its publication gate: Main must positively prove the exact
-launch/session/foreground binding, completed turn, idle pane and empty composer,
-then perform one manual `/exit`, verify the same-incarnation foreground shell
-and run `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence
-'observed non-secret exit proof'` from Main's configured terminal. Inspect any
-ambiguous send/exit before further action; never retry blindly or use Escape,
-interrupt or kill. Unknown liveness is not permission. Resume is a fresh,
-Main-confirmed launch; PARK does not authorize a next task or FRESH-READY.
+For eligible finished work, use guarded `fleet restart` below. An explicit
+`fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` also makes
+pushed WIP eligible for **different-ref** reassignment without a fake merge:
+the builder must have a clean worktree, local HEAD equal to the actual origin
+branch head, and a concrete Pad resume comment newer than launch. The command
+records the completion and settles the canonical attempt, then the builder ends
+its turn. Same-ref restart and ready still require a new merge and later handoff.
+Legacy PARK reports without this receipt still require positive manual exit and
+reconciliation; unknown liveness never permits input. Resume is always fresh
+and Main-confirmed.
 
-For OLD != NEXT, `restart` requires a merged PR carrying OLD and Pad OLD done or
-a post-publication handoff on NEXT. For OLD == NEXT, require a PR carrying that
+For OLD != NEXT, `restart` requires an explicit park completion receipt, or a
+merged PR carrying OLD and Pad OLD done or a post-publication handoff on NEXT.
+For OLD == NEXT, require a PR carrying that
 ref merged strictly after the retiring launch timestamp, then a handoff on the
 same ref strictly after the merge with a non-empty next-piece description after
 the ref; Pad done alone never suffices. Its launch must have a canonical

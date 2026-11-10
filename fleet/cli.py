@@ -83,6 +83,11 @@ def main():
     t = commands.add_parser('ready', help='report the next handoff after settling the current attempt')
     t.add_argument('ref', help='next Pad reference')
     t.add_argument('--body', default='')
+    t = commands.add_parser('needs-next', help='request a next ref after completed task settlement')
+    t.add_argument('ref')
+    t = commands.add_parser('parked', help='settle pushed WIP with a durable Pad resume note')
+    t.add_argument('ref')
+    t.add_argument('--resume-note', required=True, help='Pad resume comment ID on this task')
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     p.add_argument('--environment-file', help='private service token file (macOS: literal KEY=value)')
@@ -127,6 +132,11 @@ def main():
                 result = threads.wait(c, args.ref, args.timeout)
             elif args.thread_command == 'ready':
                 result = threads.ready(c, args.ref, args.body)
+            elif args.thread_command == 'needs-next':
+                result = threads.needs_next(c, args.ref)
+            elif args.thread_command == 'parked':
+                from . import parking
+                result = parking.parked(c, args.ref, args.resume_note)
             else:
                 result = threads.result(c, args.ref, args.body)
             print(json.dumps(result))

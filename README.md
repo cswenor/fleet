@@ -121,8 +121,8 @@ known reserve alerts remain immediate.
 Launches whose current canonical task-thread attempt is already settled are
 excluded from PARK selection; a reopened unsettled continuation is eligible again.
 The owner-builder inbox, coordinator Run and Pad task receive the request.
-The builder finishes its step, commits/pushes WIP, records a Pad handoff,
-reports PARKED, then ends its turn with a final message and does nothing else:
+The builder finishes its step, commits/pushes WIP, records a Pad resume note and
+reports via `thread parked REF --resume-note COMMENT_ID`, then ends its turn:
 no further tool calls, no background jobs, and never a job that waits on its own
 terminal/idle state or sends input to its own terminal. Main (or the owner)
 retires the idle session via the [documented retirement path](docs/MAIN.md#guarded-retirement):
@@ -369,8 +369,9 @@ is memoised per launch in supervisor process memory until replacement/restart;
 negative/unknown results retry each cycle. Raw health flags and all other alerts
 are unchanged. The supervisor never writes Pad to establish completion.
 
-After a canonical result is settled and a next-ref handoff is verified, a missing
-ready report produces a nonurgent `settled, no ready report` status once per launch.
+Outside the verified idle merge/park lane-free case described below, a settled
+canonical result with a verified next-ref handoff but no ready report retains the
+nonurgent `settled, no ready report` status once per launch.
 `builder.ready_report_minutes` is a positive finite number, default 15, measured
 from settlement. For legacy attempts without a settlement timestamp, the timer
 starts at the first verified handoff observation and persists in supervisor state.
@@ -731,6 +732,40 @@ or background jobs, never a job that waits on its own terminal/idle state or sen
 input to its own terminal. It does not wait for the reply or arrange self-exit;
 Main (or the owner) retires the idle session via the documented retirement path.
 
+#### Finished without a next ref; explicit park completion
+
+If the current primary attempt is settled but no concrete next ref exists, use
+`fleet --config CONFIG thread needs-next REF` as the last lane action, then end
+the turn. It verifies a PR carrying REF merged after this launch, or a recorded
+explicit park completion. It sends `NEEDS-NEXT-REF` as one native question to
+Main, classified as `builder_decision_request`, without inventing a handoff or
+scheduling a launch. The receipt deduplicates per launch; a known-ID Pad failure
+can be retried without resending, while an ambiguous native send requires
+reconciliation. A launch cannot send both ready and needs-next reports.
+
+On a durable PARK/reassign request, commit and push WIP and write a concrete
+resume-note comment on the current task. Run
+`fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` as the last
+lane action, then end the turn. It requires the current opened primary attempt,
+unchanged live terminal ownership, no pending decisions, a clean actual worktree,
+and local HEAD equal to the actual origin branch head (not a tracking cache).
+The exact Pad comment must exist on REF and be newer than the launch.
+The command reports PARKED, records the park receipt and settles the attempt;
+no merged PR or fake done status is required. Main can use guarded different-ref
+restart to reassign the slot; same-ref restart and ready retain their newer-merge
+and later-handoff requirements. All exact retirement and admission proofs remain.
+
+The supervisor requests a next task once per launch for a positively idle OMP
+or supported shell with canonical settlement and verified merge/park completion,
+unless a ready/needs-next report already exists. Its `Lane free: … needs next task`
+question replaces generic idle/missing-ready relays for that completed launch.
+Blocked, stalled and unproven idle states never qualify; this is not dispatch.
+Supervisor and builder share the same launch-level pre-send journal under the
+launcher lock. A later `needs-next` returns the existing supervisor message ID;
+uncertain native responses block both channels until reconciliation, never retry
+the question automatically.
+
+
 Main may approve a prerequisite in the existing session (Pad relations alone
 never authorize it). Record the decision on Pad, then from the configured Main
 terminal run:
@@ -878,9 +913,9 @@ active-builder claim are exempt from that preflight. Prepare NEXT's task branch
 in the existing clean lane **before** restart; restart does not switch branches.
 The still-live OLD session may inherit NEXT's cached branch label, but only its
 exact verified identity is exempt. Other terminals, slots and receipts still block.
-OLD must have a merged PR in this repository whose title or body contains its
-exact Pad ref. When OLD differs from NEXT, require either Pad OLD status `done`
-or a post-publication handoff comment on NEXT referencing OLD (unchanged).
+When OLD differs from NEXT, an explicit `thread parked` completion receipt
+qualifies without a merge; otherwise OLD must have a merged PR carrying its exact
+Pad ref and either Pad status `done` or a post-publication handoff on NEXT.
 When OLD equals NEXT, Pad `done` is insufficient: require a PR merged strictly
 after the retiring launch receipt's timestamp, and a handoff comment on that
 same ref strictly after the merge, with a non-empty next-piece description after
