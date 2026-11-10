@@ -269,7 +269,7 @@ def _mailbox(query, run_id):
                      '--run', run_id, '--peek')
                if run.get('id') == run_id and isinstance(terminal, str) and terminal else {})
     rows = pending.get('messages')
-    complete = (isinstance(rows, list) and len(rows) < 100 and
+    valid = (isinstance(rows, list) and len(rows) <= 100 and
                 type(pending.get('count')) is int and pending['count'] == len(rows) and
                 pending.get('runId') == run_id and not pending.get('truncated') and
                 not pending.get('cancelled') and not pending.get('connectionLost') and
@@ -281,13 +281,13 @@ def _mailbox(query, run_id):
                 row['id'] in ids or row.get('run_id') != run_id or
                 row.get('to_handle') != 'run:' + run_id or
                 row.get('delivery_contract') != 'current_delivery'):
-            complete = False
+            valid = False
         else:
             ids.add(row['id'])
     return {'run': _pick(run, RUN_FIELDS),
             'messages': [_pick(row, MESSAGE_FIELDS) for row in rows if isinstance(row, dict)]
                         if isinstance(rows, list) else [],
-            'complete': complete, 'limit': 100,
+            'complete': valid and len(rows) < 100, 'valid': valid, 'limit': 100,
             'returned': len(rows) if isinstance(rows, list) else None,
             'history': {'count_lower_bound': history_returned,
                         'returned': history_returned, 'limit': 1000},

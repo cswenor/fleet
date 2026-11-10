@@ -112,6 +112,34 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-82 — Wake an idle Main with unread Run mail
+
+The per-project supervisor peeks its own Run and submits the fixed inbox reminder
+only with old unread mail and positive bound-Run/exact-pane OMP idle proof using
+the shared composer recognizer. Default wake is enabled, age 120 seconds and
+per-set cooldown 600 seconds; all controls validate. Unsafe/unknown screens or
+identity relay `main_unread_unwakeable` nonurgently to the escalation Run once
+per unread set. Attempts are journaled before input, including screen-hash proof;
+no-deliver never inputs. Builder terminals and restart behavior are unchanged.
+Restored panes with null `programStatus` are accepted only with idle/done agent
+state, no interrupt and all remaining real-screen/identity guards. Both journal
+lists retain 200 entries. A validated 100-row oldest-first unread prefix still
+wakes/escalates; restart capture continues to report incomplete at that cap.
+Regressions cover the reported restored-pane shape, capped backlogs, unsafe
+surfaces, cooldown, consumption and journal bounds; all 470 tests pass.
+
+Scratch Run `run_897600d0861f`, session
+`01a1c597-189b-70f7-b8e6-a5fb126ab27a`: two read-only peeks retained
+`msg_79df3d249106`, and history still showed `read=0`. With a one-second scratch
+age threshold, the source supervisor submitted its fixed reminder from positive
+idle proof; the agent then checked, acknowledged `delivery_f0f7abc0af5b` and
+reported the probe body plus `INBOX-ACTED`. A later drained-mail cycle sent no
+second wake. Native notices worked in this fresh scratch pane, so the agent was
+explicitly instructed to leave the controlled probe unread until Fleet's fixed
+line; this proves the Fleet path, not reproduction of Orca's post-restart defect.
+No other project's Main received input. Independent final-head review, CI and
+Main exact-head GO remain mandatory before merge; no shared deployment performed.
+
 ### TASK-81 — Post-restart screenless Main observation
 
 Real busy Fleet and idle Email Main captures already classified as up. The

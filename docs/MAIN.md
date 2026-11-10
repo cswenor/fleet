@@ -178,9 +178,28 @@ missing/disconnected/orphaned terminals alert immediately as urgent `main_down`.
 Unknown observations emit ordinary `main_unknown` after
 `coordinator.unknown_alert_cycles` consecutive cycles (positive integer, default 3).
 Configure `coordinator.escalation_run` with another attended Run's bare ID so a dead Main's
-own inbox is not the only destination. Recovery clears dedupe; no automatic
-restart or terminal input is authorized. Scratch CLI proof and deployment
-boundaries are recorded in the roadmap; shared deployment remains Main-owned.
+own inbox is not the only destination. Recovery clears liveness dedupe; no automatic
+restart is authorized. Scratch CLI proof and deployment boundaries are recorded
+in the roadmap; shared deployment remains Main-owned.
+
+TASK-82 adds a narrow Main-only input exception. `coordinator.wake` (boolean,
+default true) peeks only this project's Run. Unread mail older than
+`wake_after_seconds` (positive finite seconds, default 120) permits one fixed
+inbox reminder only after proving the bound Run, connected writable OMP identity,
+exact idle pane and current empty composer via the shared recognizer. Draft,
+working/background, dialog, unavailable screen or unknown identity never permits
+input; `main_unread_unwakeable` relays nonurgently to `escalation_run` once per
+unread set. `wake_cooldown_seconds` (positive finite, default 600) limits each
+unchanged set, including ambiguous input attempts. `--no-deliver` never inputs.
+At the native 100-row cap, a validated oldest-first prefix can still wake Main;
+capture completeness remains unknown, and prefix IDs drive cooldown/dedupe.
+Restored panes with null `programStatus` need idle/done agent state, no interrupt
+and every other identity/real-screen proof; null never establishes idle alone.
+The private `supervisor.json` → `main_wakes.attempts` journal records time, Run,
+oldest unread ID, set digest, metadata/screen-hash proof and send outcome before
+any input. Peeking never delivers or acknowledges mail. No builder input,
+screenless idle inference, automatic restart or deployment permission is added.
+Both attempt history and unwakeable-set signatures retain their latest 200 entries.
 
 
 ### Carry a prerequisite

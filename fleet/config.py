@@ -123,6 +123,15 @@ def load(path):
     coordinator = c['coordinator']
     coordinator.setdefault('liveness_minutes', 5)
     coordinator.setdefault('unknown_alert_cycles', 3)
+    coordinator.setdefault('wake', True)
+    coordinator.setdefault('wake_after_seconds', 120)
+    coordinator.setdefault('wake_cooldown_seconds', 600)
+    if type(coordinator['wake']) is not bool:
+        raise ValueError('coordinator.wake must be a boolean')
+    for key in ('wake_after_seconds', 'wake_cooldown_seconds'):
+        value = coordinator[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f'coordinator.{key} must be a positive finite number')
     if type(coordinator['unknown_alert_cycles']) is not int or coordinator['unknown_alert_cycles'] < 1:
         raise ValueError('coordinator.unknown_alert_cycles must be a positive integer')
     minutes = coordinator['liveness_minutes']

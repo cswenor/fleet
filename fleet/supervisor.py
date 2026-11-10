@@ -1,5 +1,6 @@
-"""No model calls, no lane input. Durable inbox delivery is not an agent wake."""
+"""Per-project supervision; only positively idle Main may receive a fixed inbox wake."""
 from contextlib import nullcontext
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -388,6 +389,78 @@ def github_relays(ledger, events, current):
     return result
 
 
+def wake_main(c, ledger, now, deliver):
+    """Peek only. Journal before input so ambiguous sends cannot cause rapid repeats."""
+    coordinator = c['coordinator']
+    if not coordinator.get('wake', True) or not coordinator.get('terminal'):
+        return []
+    from .orca_capture import _mailbox
+    try:
+        mailbox = _mailbox(lambda label, *args: orca(c, *args), coordinator['run'])
+        if not mailbox['valid']:
+            return []
+        messages = mailbox['messages']
+        if not messages:
+            return []
+        dated = []
+        for message in messages:
+            created = datetime.fromisoformat(message['created_at'].replace('Z', '+00:00'))
+            if created.tzinfo is None:
+                return []
+            dated.append((created.timestamp(), message))
+        oldest_at, oldest = min(dated, key=lambda row: (row[0], row[1]['id']))
+        if not math.isfinite(oldest_at) or now - oldest_at < coordinator.get('wake_after_seconds', 120):
+            return []
+    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError, OverflowError, OSError):
+        return []
+    signature = digest([coordinator['run'], sorted(m['id'] for m in messages)])
+    journal = ledger.setdefault('main_wakes', {'attempts': [], 'unwakeable': []})
+    try:
+        if mailbox['run'].get('coordinator_handle') != coordinator['terminal']:
+            raise ValueError('Main Run binding unproven')
+        proof = health.main_wake_proof(c)
+    except ValueError as exc:
+        # Only our fixed proof diagnostics can enter the relay, not native output.
+        reason = str(exc) if str(exc) in (
+            'Main terminal identity unproven', 'Main Run binding unproven',
+            'Main pane inventory incomplete', 'Main exact pane is not idle',
+            'Main screen unavailable', 'Main terminal identity changed',
+            *(f'Main composer state: {ui}' for ui in
+              ('draft', 'working', 'dialog', 'background', 'unknown'))
+        ) else 'Main observation unavailable'
+    except (RuntimeError, KeyError, TypeError, AttributeError):
+        reason = 'Main observation unavailable'
+    else:
+        previous = [w['at'] for w in journal['attempts'] if w['messages'] == signature]
+        if not deliver or (previous and now - max(previous) < coordinator.get('wake_cooldown_seconds', 600)):
+            return []
+        since = datetime.fromtimestamp(oldest_at, timezone.utc).isoformat()
+        attempt = {'at': now, 'run': coordinator['run'], 'oldest_unread_id': oldest['id'],
+                   'messages': signature, 'proof': proof, 'status': 'attempted'}
+        journal['attempts'].append(attempt)
+        journal['attempts'] = journal['attempts'][-200:]
+        state.write(c, 'supervisor', ledger)
+        try:
+            attempt['receipt'] = orca(
+                c, 'terminal', 'send', '--terminal', coordinator['terminal'], '--text',
+                f'fleet: unread messages on Run {coordinator["run"]} since {since}; '
+                'check your inbox (fleet wait / orchestration check) and act on them.', '--enter')
+            attempt['status'] = 'sent'
+        except (RuntimeError, ValueError):
+            attempt['status'] = 'unknown'
+        state.write(c, 'supervisor', ledger)
+        return []
+    extra = coordinator.get('escalation_run')
+    if not extra or signature in journal['unwakeable']:
+        return []
+    journal['unwakeable'].append(signature)
+    journal['unwakeable'] = journal['unwakeable'][-200:]
+    return [{'key': 'main:main_unread_unwakeable:' + signature,
+             'subject': 'Main main_unread_unwakeable', 'type': 'status', 'branch': None,
+             'recipients': ['run:' + extra],
+             'body': f'Run {coordinator["run"]}; oldest unread {oldest["id"]}; {reason}'}]
+
+
 def cycle(c, deliver=True):
     s = snapshot.collect(c)
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
@@ -467,6 +540,7 @@ def cycle(c, deliver=True):
     ledger['active_alerts'] = next_active
     ledger['health_absent_cycles'] = next_missing
     pending.extend(missing_ready_reports(c, s, ledger, time.time()))
+    pending.extend(wake_main(c, ledger, time.time(), deliver))
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')

@@ -1,5 +1,6 @@
 """Read-only Orca inventory and conservative ownership mapping."""
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -123,6 +124,47 @@ def omp_ui(text):
     if background:
         return 'background'
     return 'working' if current_footer else 'unknown'
+
+def main_wake_proof(c):
+    """Positive own-Run, exact-pane OMP idle proof; never infer idle screenlessly."""
+    handle, run_id = c['coordinator']['terminal'], c['coordinator']['run']
+    terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
+    keys = ('handle', 'incarnationId', 'worktreeId', 'tabId', 'leafId')
+    if (terminal.get('handle') != handle or not all(terminal.get(k) for k in keys)
+            or terminal.get('connected') is not True or terminal.get('writable') is not True
+            or terminal.get('orphaned') or terminal.get('agentIdentity') != 'omp'):
+        raise ValueError('Main terminal identity unproven')
+    binding = orca(c, 'orchestration', 'run-current', '--from', handle)
+    if (binding.get('run') or {}).get('id') != run_id:
+        raise ValueError('Main Run binding unproven')
+    processes = orca(c, 'worktree', 'ps')
+    if processes.get('truncated') or processes.get('hostScope', {}).get('omittedHostIds'):
+        raise ValueError('Main pane inventory incomplete')
+    pane = terminal['tabId'] + ':' + terminal['leafId']
+    agents = [a for w in processes['worktrees'] if w.get('worktreeId') == terminal['worktreeId']
+              for a in w.get('agents', []) if a.get('paneKey') == pane and not a.get('parentPaneKey')]
+    if (len(agents) != 1 or agents[0].get('agentType') != 'omp'
+            or agents[0].get('state') not in ('idle', 'done') or agents[0].get('interrupted')
+            or (agents[0].get('programStatus') is not None
+                and agents[0]['programStatus'].get('state') not in ('idle', 'done'))):
+        raise ValueError('Main exact pane is not idle')
+    screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
+    if screen.get('source') == 'screen-unavailable':
+        raise ValueError('Main screen unavailable')
+    ui = omp_ui('\n'.join(screen.get('tail', [])))
+    if ui != 'idle':
+        raise ValueError('Main composer state: ' + ui)
+    current = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
+    if (any(current.get(k) != terminal[k] for k in keys)
+            or current.get('connected') is not True or current.get('writable') is not True
+            or current.get('orphaned') or current.get('agentIdentity') != 'omp'):
+        raise ValueError('Main terminal identity changed')
+    return {'terminal': handle, 'incarnation_id': terminal['incarnationId'],
+            'worktree': terminal['worktreeId'], 'pane': pane,
+            'ui': ui, 'composer': 'empty', 'source': screen.get('source'),
+            'screen_sha256': hashlib.sha256(
+                '\n'.join(screen.get('tail', [])).encode()).hexdigest()}
+
 
 def coordinator(c):
     """Read only the configured Main; missing metadata never proves a live agent."""
