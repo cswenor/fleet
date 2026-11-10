@@ -79,10 +79,12 @@ coordinator:
   liveness_minutes: 5
   # Consecutive unknown observations before nonurgent main_unknown.
   unknown_alert_cycles: 3
-  # Only own-Run unread mail + positively idle OMP + empty composer permits input.
+  # Only own-Run actionable unread mail + idle OMP + empty composer permits input.
   wake: true
   wake_after_seconds: 120
   wake_cooldown_seconds: 600
+  # Relay unsafe/unknown Main proof only after this actionable unread age.
+  unwakeable_after_seconds: 900
   # Optional additional Run ID receiving Main liveness alerts, not a terminal.
   escalation_run: null
 interval_seconds: 60

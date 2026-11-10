@@ -399,7 +399,9 @@ def wake_main(c, ledger, now, deliver):
         mailbox = _mailbox(lambda label, *args: orca(c, *args), coordinator['run'])
         if not mailbox['valid']:
             return []
-        messages = mailbox['messages']
+        # fleet wait classifies native question/escalation as decisions or urgent;
+        # ordinary status relays must not affect age, cooldown or relay dedupe.
+        messages = [m for m in mailbox['messages'] if m.get('type') in ('question', 'escalation')]
         if not messages:
             return []
         dated = []
@@ -451,7 +453,8 @@ def wake_main(c, ledger, now, deliver):
         state.write(c, 'supervisor', ledger)
         return []
     extra = coordinator.get('escalation_run')
-    if not extra or signature in journal['unwakeable']:
+    if (not extra or signature in journal['unwakeable'] or
+            now - oldest_at < coordinator.get('unwakeable_after_seconds', 900)):
         return []
     journal['unwakeable'].append(signature)
     journal['unwakeable'] = journal['unwakeable'][-200:]
