@@ -112,6 +112,30 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-81 — Post-restart screenless Main observation
+
+Real busy Fleet and idle Email Main captures already classified as up. The
+reported unknowns followed Orca restart: Project Alpha Main returned empty
+`source=screen-unavailable` and plain stream tails despite a connected terminal
+and an exact-pane OMP agent in `worktree ps`. Main re-scoped TASK-81 in
+`msg_218f40699deb`: no stale-history fallback and no readiness changes.
+
+For an unavailable/empty screen only, coordinator health now requires the same
+connected incarnation, `agentIdentity=omp`, stable worktree/tab/leaf routing and
+exactly one OMP agent on that worktree's exact pane. Truncated/partial inventory,
+missing or ambiguous agents and changed identity remain unknown. The result is
+observational `up`, reason `screen unavailable; omp agent present`; agent state
+does not establish idle. Builder health, shell readiness, launch, retirement,
+Main-down timing and unknown-alert debounce remain unchanged.
+
+The source-bound Project Alpha fixture reproduced unknown before the fix and up
+afterward; captured busy/idle screens and negative identity/inventory cases are
+covered too. Live source CLI status observed Fleet Main up. Project Alpha redrew before
+the post-change live smoke, which observed up through its real screen rather than
+the fallback; the pre-redraw receipts retain that acceptance evidence. Independent
+final-head review, CI and Main exact-head GO are required before merge; no shared
+deployment or terminal input was performed.
+
 ### TASK-70 — Main liveness in plain status
 
 Plain `fleet status` displays one `Main:` line with the snapshot coordinator's

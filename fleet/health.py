@@ -144,12 +144,32 @@ def coordinator(c):
         if terminal.get('connected') is not True or not result['incarnation_id']:
             return result
         screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
+        text = '\n'.join(screen.get('tail', []))
+        if screen.get('source') == 'screen-unavailable':
+            text = ''
+        screenless_agent = False
+        if not text.strip() and terminal.get('agentIdentity') == 'omp':
+            processes = orca(c, 'worktree', 'ps')
+            pane = (terminal.get('tabId'), terminal.get('leafId'))
+            if (all(pane) and terminal.get('worktreeId') and
+                    not processes.get('truncated') and
+                    not processes.get('hostScope', {}).get('omittedHostIds')):
+                agents = [agent for tree in processes['worktrees']
+                          if tree.get('worktreeId') == terminal['worktreeId']
+                          for agent in tree.get('agents', [])
+                          if agent.get('paneKey') == ':'.join(pane)]
+                screenless_agent = len(agents) == 1 and agents[0].get('agentType') == 'omp'
         # A replacement during the read cannot borrow the old incarnation's timer.
         current = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
         if (current.get('incarnationId') != result['incarnation_id'] or
                 current.get('connected') is not True or current.get('orphaned')):
             return result
-        text = '\n'.join(screen.get('tail', []))
+        # Pane inventory is observational only; never substitute it for a screen
+        # in shell readiness, idle proof, launch or retirement.
+        if (screenless_agent and current.get('agentIdentity') == 'omp' and
+                all(current.get(key) == terminal.get(key)
+                    for key in ('tabId', 'leafId', 'worktreeId'))):
+            return {**result, 'state': 'up', 'reason': 'screen unavailable; omp agent present'}
         if omp_ui(text) != 'unknown':
             return {**result, 'state': 'up', 'reason': 'live omp UI'}
         lines = [line for line in ANSI.sub('', text).splitlines() if line.strip()]

@@ -1,4 +1,5 @@
 import copy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,6 +25,65 @@ class MainObservationTests(unittest.TestCase):
             self.fail(args)
         with patch.object(health, 'orca', side_effect=native):
             return health.coordinator({'coordinator': {'terminal': 'main'}})
+
+    def test_captured_busy_and_idle_main_screens_remain_up(self):
+        screens = json.loads((Path(__file__).parent / 'fixtures' /
+                              'orca-main-ui.json').read_text())
+        for name, screen in screens.items():
+            with self.subTest(name=name):
+                self.assertEqual(self.observe('\n'.join(screen['tail']))['state'], 'up')
+
+    def test_screenless_main_requires_unique_exact_pane_agent(self):
+        captured = json.loads((Path(__file__).parent / 'fixtures' /
+                               'orca-screen-unavailable.json').read_text())
+        terminal = captured['terminal']
+        processes = captured['processes']
+
+        def observe(screen=None, inventory=None, current=None):
+            def native(c, *args):
+                if args[:2] == ('terminal', 'list'):
+                    return {'terminals': [terminal]}
+                if args[:2] == ('terminal', 'read'):
+                    return {'terminal': captured['screen'] if screen is None else screen}
+                if args[:2] == ('worktree', 'ps'):
+                    return processes if inventory is None else inventory
+                if args[:2] == ('terminal', 'show'):
+                    return {'terminal': terminal if current is None else current}
+                self.fail(args)
+            with patch.object(health, 'orca', side_effect=native):
+                return health.coordinator({'coordinator': {'terminal': terminal['handle']}})
+
+        self.assertEqual(observe()['state'], 'up')
+        self.assertEqual(observe()['reason'], 'screen unavailable; omp agent present')
+        self.assertFalse(health.shell_ready(captured['screen']))
+        self.assertEqual(health.omp_ui('\n'.join(captured['screen']['tail'])), 'unknown')
+        for change in ('missing', 'other-pane', 'other-type', 'duplicate', 'truncated',
+                       'omitted-host', 'other-worktree'):
+            inventory = copy.deepcopy(processes)
+            agents = inventory['worktrees'][0]['agents']
+            if change == 'missing':
+                agents.clear()
+            elif change == 'other-pane':
+                agents[0]['paneKey'] = 'another:pane'
+            elif change == 'other-type':
+                agents[0]['agentType'] = 'codex'
+            elif change == 'duplicate':
+                agents.append(copy.deepcopy(agents[0]))
+            elif change == 'truncated':
+                inventory['truncated'] = True
+            elif change == 'omitted-host':
+                inventory['hostScope']['omittedHostIds'] = ['remote']
+            else:
+                inventory['worktrees'][0]['worktreeId'] = 'another'
+            with self.subTest(change=change):
+                self.assertEqual(observe(inventory=inventory)['state'], 'unknown')
+        self.assertEqual(observe(current={**terminal, 'incarnationId': 'replacement'})['state'],
+                         'unknown')
+        self.assertEqual(observe(current={**terminal, 'agentIdentity': None})['state'], 'unknown')
+        self.assertEqual(observe(current={**terminal, 'connected': False})['state'], 'unknown')
+        self.assertEqual(observe(current={**terminal, 'leafId': 'replacement'})['state'], 'unknown')
+        self.assertEqual(observe(screen={'tail': ['garbled']})['state'], 'unknown')
+        self.assertEqual(observe(screen={'tail': ['dev@host:~/project$']})['state'], 'suspect')
 
     def test_shell_crash_and_healthy_ui(self):
         self.assertEqual(self.observe('dev@host:~/project$')['state'], 'suspect')

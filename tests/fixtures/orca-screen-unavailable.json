@@ -1,0 +1,59 @@
+{
+  "captured_at": "2026-11-10T12:59:20.760258+00:00",
+  "terminal": {
+    "handle": "term_0ed4c055-cbda-43b9-b391-15c28881ceba",
+    "incarnationId": "fe78953a-d1b2-46c7-a90e-c22925e324ab",
+    "connected": true,
+    "orphaned": false,
+    "agentIdentity": "omp",
+    "tabId": "6ae8d6f0-f61b-4cbd-95d7-05596fcb370d",
+    "leafId": "a3d7fe26-c879-4003-8394-226fdd15d80f",
+    "worktreeId": "b63af326-7971-40d1-9d62-ad34cd9b1e9d::/home/dev/dev/cswenor/project-alpha"
+  },
+  "screen": {
+    "handle": "term_0ed4c055-cbda-43b9-b391-15c28881ceba",
+    "status": "running",
+    "tail": [],
+    "truncated": false,
+    "limited": false,
+    "oldestCursor": "0",
+    "nextCursor": "0",
+    "latestCursor": "0",
+    "returnedLineCount": 0,
+    "source": "screen-unavailable"
+  },
+  "stream": {
+    "handle": "term_0ed4c055-cbda-43b9-b391-15c28881ceba",
+    "status": "running",
+    "tail": [],
+    "truncated": false,
+    "limited": false,
+    "oldestCursor": "0",
+    "nextCursor": "0",
+    "latestCursor": "0",
+    "returnedLineCount": 0,
+    "source": "stream"
+  },
+  "processes": {
+    "truncated": false,
+    "hostScope": {
+      "hostIds": [
+        "local"
+      ],
+      "omittedHostIds": []
+    },
+    "worktrees": [
+      {
+        "worktreeId": "b63af326-7971-40d1-9d62-ad34cd9b1e9d::/home/dev/dev/cswenor/project-alpha",
+        "path": "/home/dev/dev/cswenor/project-alpha",
+        "agents": [
+          {
+            "paneKey": "6ae8d6f0-f61b-4cbd-95d7-05596fcb370d:a3d7fe26-c879-4003-8394-226fdd15d80f",
+            "agentType": "omp",
+            "state": "done"
+          }
+        ]
+      }
+    ]
+  }
+}
