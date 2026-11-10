@@ -28,6 +28,7 @@ otherwise orca-ide on Linux outside managed terminals. Never blindly run bare
 | Main event wait | orchestration check --wait, FIFO Delivery replay until ack | `fleet wait` requires caller bound to configured Run; current Orca routes both Run and bound-terminal addresses there. Read-only legacy history diagnostics; Project Alpha cutover remains TASK-10. |
 | Builder waiting | Async bash completion; Actions run_watch; terminal wait tui-idle/exit | `fleet watch-pr` covers reviews, initial failure/DIRTY, merge-group failures and merged/closed, not only Actions. |
 | Durable communication | send to run/dispatch/terminal; ask/reply; checkpoint check/ack | Send enqueues only, no guaranteed turn. Use in-thread replies; do not report terminal launch as supervised worker_done. |
+| Busy builder steering (TASK-84, source-only) | Native status `send --thread-id`; inbox remains separate | `thread send REF --body TEXT`, `thread check REF [--ack TOKEN]`, and Main-only `thread pending` add configured caller/current-attempt ownership and a pre-send token journal. Normal delivery never uses terminal input; `--priority` refuses before side effects. |
 | Health/liveness | worker-list projection.liveness/attention/nextAction; PTY observation separately; terminal screen | Fleet collects terminal/worktree inventory, current model, provider/dialog/idle flags and strays. Unknown is not stopped. Never auto-destroy lanes. |
 | PR ownership/events | Worktree linkedPR/linkedItems, branch metadata | gh REST/GraphQL for PR/check/review/queue/commit state; unique branch->worktree->active terminal only. Coordinator-only on ambiguity; durable dedupe receipts. |
 | Budget | omp usage, reserve policy, empty fallback chains; broker account pooling | Aggregate windows without identities; fail-closed new-start gate. Known reserve cooperatively parks one lowest-priority lane with identity-bound delivery, exit-gated re-evaluation and recovery reporting (TASK-11). Unknown usage never parks; saved resets require prior recorded owner approval, and Fleet never spends them. |
@@ -210,6 +211,51 @@ owner decision.
   Missing configured slot may create one Orca top-level worktree; no ad hoc
   side worktrees allowed.
 
+### Busy builder checkpoints (TASK-84)
+
+Main's configured Run-bound terminal uses
+`fleet --config CONFIG thread send REF --body TEXT`; it returns JSON.
+The exact live unbound builder terminal/incarnation/worktree and unique
+authoritative unsettled opened attempt must match. A unique token is journaled
+before native status send in that attempt's thread; a known message ID records
+`sent`, while an ambiguous send stays `sending` with no automatic retry.
+`fleet --config CONFIG thread pending` returns JSON current-launch lanes with
+unacknowledged records, including ambiguous `sending` records and `age_seconds`.
+
+The current unbound builder uses `fleet --config CONFIG thread check REF`:
+one JSON object per sent unacknowledged message per line, empty output for none.
+Reading retains pending records. Process each message, then use
+`fleet --config CONFIG thread check REF --ack TOKEN`; unknown tokens refuse.
+Records belong to the current launch/attempt. These commands do not consume
+native mail or replace decision `thread wait`/other native inbox handling.
+Inspect all native message types at natural checkpoints. Sender IDs are
+advisory, not authentication.
+
+All foreground/background inbox/CI wait segments, including wait-tool calls
+and `watch-pr --timeout 600`, are at most 600 seconds. Between waits, run the
+steering check and act on events/messages before acknowledging and re-waiting.
+Long jobs remain async with their own expected-runtime-plus-margin timeout,
+which may exceed 600 seconds; bound each wait, not total job duration.
+Bounded event waits/checkpoints are not repeated model-turn status polling.
+
+**Priority is refused before side effects:** scratch omp 18.18.1 accepted 109
+bytes via native `terminal send --interrupt`, but the priority text and `^C`
+entered a foreground `sleep 90` child's PTY output; the child exited 1 after
+25.59 seconds. The model read the marker from tool output, not structured
+steering. This unsafe arbitrary-child input is not a proven stock enqueue path.
+`omp --help` exposes no enqueue CLI; `steeringMode` is one-at-a-time configuration,
+and collab exposes a control link, not an enqueue API. Normal steering uses
+native status transport only, never terminal input.
+
+The live private scratch Run proof read `msg_d07528856224` after one 60-second
+wait, printed its marker, then acknowledged the token; `pending` changed from
+one record to no lanes. Send-to-ack was 62.16 seconds including tool/model
+overhead. It used synthetic launch/thread state, but real native transport and
+unchanged live terminal ownership checks. Both scratch terminals were closed.
+Source-only; no shared deployment. Publication requires independent final-head
+review, green CI and Main exact-head GO; merge does not authorize deployment or
+service/runtime changes. No CLI enqueue is an upstream/owner capability gap.
+
 ### Lifecycle and recovery
 
 - Run = durable namespace/coordinator inbox, not scheduler. Task = work; Dispatch
@@ -295,7 +341,8 @@ transient systemd unit, new terminal or Main startup command is needed.
 Keep every Main's existing inbox wait job running; do not ask Mains to go quiet
 or stop `fleet wait`/main-inbox jobs. Use an async invocation with a deadline
 covering restart plus the consumption window so the initiating Main can still
-receive mail. `fleet wait` tolerates transport outages for up to 30 seconds;
+receive mail; keep each inbox/CI wait segment at most 600 seconds and act at
+checkpoints before re-arming. `fleet wait` tolerates transport outages for up to 30 seconds;
 ambiguous consuming requests are never replayed blindly. `rearm` (exit 4)
 means runtime recovered and Main must inspect receipts then re-arm; persistent
 outage returns `runtime_unavailable` (exit 2). Any returned native batch/request

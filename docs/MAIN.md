@@ -373,18 +373,74 @@ Upstream geometry/resize API changes require an owner decision. See
 [the feature map](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10).
 
 ## Waiting and inboxes
+### Busy builder steering (TASK-84, source-only)
+
+Main, from its configured terminal bound to the configured Run, may send to the
+unique authoritative open attempt in its exact live unbound builder terminal:
+
+```sh
+fleet --config CONFIG thread send REF --body 'Concrete instruction'
+fleet --config CONFIG thread pending
+```
+
+`send` returns JSON and journals a unique token before native status delivery in
+the attempt thread. A known message ID records `sent`; an ambiguous send remains
+`sending`, visible to Main in `pending`. Never automatically resend an ambiguous
+attempt. `pending` returns JSON lanes for configured current launches only, with
+unacknowledged records (including ambiguous `sending`) and `age_seconds`; it is
+read-only.
+Sender IDs are advisory, not authentication; configured caller/launch ownership
+checks provide the Fleet boundary.
+
+At each natural checkpoint and between every bounded wait, the current unbound
+builder runs:
+
+```sh
+fleet --config CONFIG thread check REF
+# Process each returned message, then acknowledge its token:
+fleet --config CONFIG thread check REF --ack TOKEN
+```
+
+`check` emits one JSON object per message per line; empty output means none.
+It exposes only sent, unacknowledged Fleet-managed steering for the current
+launch/attempt. Reading leaves messages pending; acknowledgment records processing,
+not receipt. Unknown tokens refuse. Main's `pending` reflects outstanding records.
+Neither command consumes native inbox mail. Inspect **all** other native inbox
+types at natural checkpoints; keep `thread wait` for decisions and native inbox
+handling for other mail. Act on every instruction/event before re-waiting.
+
+`thread send REF --body TEXT --priority` is refused **before side effects**.
+The scratch omp 18.18.1 probe accepted native `terminal send --interrupt` input
+but injected the priority text into a foreground `sleep` child's PTY output with
+`^C`; the child exited 1 after 25.59 seconds rather than its requested 90 seconds.
+The model read the marker from tool output, not structured steering. This is
+unsafe arbitrary-child input, not a supported enqueue path. `omp --help` exposed
+no enqueue CLI; `steeringMode` configures one-at-a-time delivery, and the collab
+control link is not an enqueue API. Normal steering never sends terminal input.
+
+This is source-only; the private scratch Run proof is recorded in ROADMAP.md.
+Publication requires independent exact-head review, green CI and Main's
+exact-head GO; merge does not authorize deployment.
+
 
 Finite long work runs via omp async shell; completion wakes the owning session.
+Its job timeout may exceed 600 seconds. Every foreground/background inbox or CI
+wait segment, including wait-tool calls and watcher timeouts, is at most
+**600 seconds (10 minutes)**, not an overall job-runtime limit. Between waits,
+builders run `thread check REF`, process each message before `--ack TOKEN`, and
+inspect all native inbox types at natural checkpoints. Never re-wait before
+acting. Bounded event waits plus checkpoints are not model-turn status polling.
 For PR state (including initial failure/DIRTY, reviews, queue failures and merge):
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml watch-pr PR_NUMBER
+fleet --config ~/.config/fleet/fleet.yml watch-pr PR_NUMBER --timeout 600
 ```
 
 While owning an open PR, builders **MUST** keep this armed as an **async background
-command**. Process each event and re-arm after every completion (including
-timeout/error) until merged or closed; work on actionable items or use omp wait
-only when blocked. Unchanged initial events are deduped per caller terminal/repo/PR
+command** with `--timeout 600` (or less). Process each event and the steering
+checkpoint before re-arming after every completion (including timeout/error)
+until merged or closed; work on actionable items or use a wait of at most 600
+seconds only when blocked. Unchanged initial events are deduped per caller terminal/repo/PR
 in private state; `--include-seen` re-emits them. Native `ORCA_TERMINAL_HANDLE` wins
 over the `--terminal` fallback; anonymous calls retain repeated initial delivery.
 Fix reported failures even if re-arm now waits; inbox silence is not success.
@@ -398,7 +454,7 @@ replace the full PR watcher with those or retired `pr-wait.sh` scripts. No model
 Main inbox wait, also as an async background command from Main's own terminal:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 900 --loop --save ~/.local/state/fleet/main-inbox.json --summary
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
 ```
 
 The save directory must already exist. No `main-inbox.sh` wrapper is needed.
@@ -476,7 +532,7 @@ same pending native subthread. `status` is only for reports.
 On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 900 --loop --save ~/.local/state/fleet/main-inbox.json --summary
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
 ```
 On newer native auto-handled checks, `nativeAutoAck: true` means the batch was
 already acknowledged natively: process it and re-arm **without** `--ack-run`.

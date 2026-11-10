@@ -431,13 +431,69 @@ execution without capture/restart. All 445 tests pass. Publication and real
 three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
 
 
+### TASK-84 — Busy builder steering (source-only)
+
+Main uses `fleet --config CONFIG thread send REF --body TEXT` from its configured,
+Run-bound terminal. The unique authoritative unsettled opened attempt and exact
+live unbound builder terminal/incarnation/worktree must match. A unique token is
+journaled before native status delivery in the attempt thread. Known message IDs
+record `sent`; ambiguous sends retain `sending` and must not be automatically
+retried. `thread pending` returns JSON current-launch lanes and unacknowledged
+records, including ambiguous sends and their age in seconds, without consuming
+native mail.
+
+The generated prompt supplies an explicit configured `thread check REF` command.
+The current unbound builder receives one JSON message object per line for sent,
+unacknowledged steering in its current launch/attempt; empty means none. Reading
+leaves messages pending. Process each message before `thread check REF --ack TOKEN`;
+unknown tokens refuse. Neither reading nor Fleet acknowledgment consumes the
+native inbox. This is Fleet-managed steering only: retain `thread wait` for
+decision replies and inspect all other native inbox types at natural checkpoints.
+Sender IDs are advisory, not authentication.
+
+Every foreground/background inbox or CI wait, including wait-tool calls and
+`watch-pr --timeout` segments, is at most 600 seconds. Between waits, run the
+steering check, process/ack messages and act on events before re-waiting. Long
+jobs remain async and may run beyond 600 seconds with their own runtime-plus-margin
+timeout; only each wait is bounded. This supersedes TASK-74's foreground-only
+wait wording below. Bounded event waits/checkpoints are not model-turn polling.
+
+`thread send REF --body TEXT --priority` refuses before side effects. In the
+scratch omp 18.18.1 probe, native `terminal send --interrupt` accepted 109 bytes,
+but text and `^C` appeared inside a foreground `sleep 90` child's PTY output.
+The child exited 1 after 25.59 seconds; the model read the desired marker from
+tool output. This is unsafe arbitrary-child input, not structured steering.
+`omp --help` lacked an enqueue CLI; `steeringMode` is one-at-a-time configuration,
+and collab exposes a control link rather than an enqueue API. Normal steering
+never uses terminal input; there is no proven safe stock priority path.
+
+All 530 tests pass after integrating TASK-88. The independent review's historical
+lane-collision finding is fixed: filter opened unsettled attempts before target
+uniqueness, so a settled receipt in another slot cannot block the sole active
+attempt. Its regression failed before and passes after; two active attempts
+still refuse as ambiguous. An owned scratch omp session in fleet-lane2 completed one
+60-second wait, read native steering `msg_d07528856224` through the real source
+CLI, printed `TASK84-BOUNDED-STEERING-OBSERVED`, then acknowledged its token.
+The send-to-ack interval was 62.16 seconds including CLI/model overhead; Main's
+real `pending` showed the message before processing and an empty lane list after.
+The first check used unavailable `python`; the scratch agent recovered with
+`python3`. The proof used a private scratch Run/config/state and a synthetic
+opened-attempt fixture; real terminal identity/incarnation checks and native
+delivery were unchanged. No real launch receipts were modified.
+Source-only: no shared deployment. Publication requires independent final-head
+review, green CI and Main exact-head GO. Merge does not authorize installation
+or shared service/runtime changes. The lack of a stock CLI steering enqueue is
+an upstream/owner gap, not permission to interrupt builders.
+
 ### TASK-74 — Bounded async builder jobs
 
 Builder default and project footers, the unconditional launch prompt, workflow
 skill, decision-rights template and README now require jobs that can exceed a
 few minutes to run asynchronously with an explicit expected-runtime-plus-margin
-timeout. Builders process completion wakes, never spend more than ~10 minutes
-in one foreground wait, and inspect output size, stack/py-spy or logs before
+timeout. TASK-84 supersedes the original foreground-only limit: every foreground
+or background inbox/CI wait segment is at most 600 seconds, including wait-tool
+and PR-watcher waits. Builders process completion wakes and inspect output size,
+stack/py-spy or logs before
 re-running a timed-out/non-progressing job. Background jobs remain exempt from
 `stalled`; their explicit timeout is the hang detector. No supervisor heuristic
 or CPU/output monitoring changed.
