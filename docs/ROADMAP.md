@@ -128,7 +128,8 @@ program status. Source `_idle` on the affected live launch confirms that the
 terminal session predates Orca and reports the runbook without sending input.
 Unavailable chronology retains the ordinary refusal; all retirement gates stay
 unchanged.
-All 478 tests pass, including the captured refusal and chronology boundary cases.
+All 509 tests pass after current-main integration, including the captured refusal
+and chronology boundary cases.
 
 [Operator recovery](MAIN.md#post-restart-clipped-screen) separates Main's
 owner-approved manual finished-builder exit/reconcile/launch exception from
@@ -137,6 +138,7 @@ executed by this builder. [Source-bound evidence](orca-feature-map.md#task-88-po
 records the suspected 80×24 fallback as inference, not measured emulator geometry.
 Publication receipts live on TASK-88/PR; shared deployment and a future live
 relaunch remain Main-owned.
+
 ### TASK-83 — Finished-lane decisions and explicit park completion
 
 `thread needs-next REF` sends one native `NEEDS-NEXT-REF` question per launch
