@@ -165,11 +165,17 @@ class DispatcherTests(unittest.TestCase):
                 self.inventory['worktrees'][0]['comment'] = comment
                 self.assertEqual(dispatcher.assignments(self.c, self.inventory), [])
 
-    def test_branch_claims_still_include_every_reference(self):
-        with patch.object(dispatcher, 'run', return_value='task-2-after-task-3'):
-            claims = dispatcher.assignments(self.c, self.inventory)
-        self.assertEqual(claims, [('TASK-2', self.path, 'branch'),
-                                  ('TASK-3', self.path, 'branch')])
+
+    def test_title_task_reference_does_not_block_another_task(self):
+        other = self.path + '/other'
+        self.c['builder']['slots'].append(other)
+        self.inventory['worktrees'].append({'path': other})
+        with patch.object(dispatcher, 'run', side_effect=lambda args, cwd:
+                          'task-2-unblock-task-3' if cwd == other else 'main'):
+            self.assertEqual(dispatcher.check_launch(
+                self.c, 'TASK-3', self.inventory, self.path)['ref'], 'TASK-3')
+            with self.assertRaisesRegex(ValueError, 'TASK-2 already assigned'):
+                dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
 
     def test_carried_ref_is_excluded_from_next_and_shared_launch_gate(self):
         receipt = {'id': 'launch', 'ref': 'TASK-1', 'worktree': {'path': self.path, 'id': 'tree'},

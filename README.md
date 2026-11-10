@@ -873,7 +873,21 @@ For other vocabularies set a complete `pad.statuses` mapping with `not_started`,
 `next` excludes in-progress tasks; only an explicit confirmed launch can continue them.
 
 There are **no automatic starts**. Main inspects `next`, writes the Pad brief,
-prepares the task branch, and explicitly runs `launch REF --slot PATH`.
+and explicitly runs `launch REF --slot PATH`. Same-ref recovery (the slot's last
+launch ref matches, or its current branch starts with the exact task ref) keeps
+the existing branch, index and dirty/unpushed WIP: no fetch or switch, even if
+the Pad title changed. Existing occupancy, receipt and admission guards remain.
+For different-ref launches the launcher fetches origin and refuses dirty,
+detached or unpushed current work before switching. It creates
+`task-<n>-<title-slug>` from `origin/main`, or reuses that exact
+unmerged, pushed task branch. A remote-only task branch is checked out locally;
+behind/diverged local task branches refuse for manual reconciliation.
+Merged names (including GitHub squash/rebase merges) are preserved and skipped
+with numeric suffixes (`-2`, `-3`, …). No stash, reset or clean is used.
+The prepared branch is recorded in the launch receipt and builder prompt;
+`thread open` refuses a different actual branch for that primary launch.
+Only the leading task ref in a branch claims ownership; task refs mentioned in
+the title slug do not assign those other tasks.
 Launch re-reads Pad state/dependencies and ownership under the shared launcher
 lock, rechecks admission and terminal identity after preparation hooks, and
 refuses duplicate live/unresolved task attempts or occupied slots. An explicit
@@ -948,10 +962,10 @@ manually exiting a finished builder. Main still confirms the next task/launch.
 Before `/exit`, restart checks quota/disk/cap and the next task's status, plan,
 dependencies, duplicate assignments and competing receipts. Only the exact
 proven retiring launch receipt and its matching slot/worktree/terminal/incarnation
-active-builder claim are exempt from that preflight. Prepare NEXT's task branch
-in the existing clean lane **before** restart; restart does not switch branches.
-The still-live OLD session may inherit NEXT's cached branch label, but only its
-exact verified identity is exempt. Other terminals, slots and receipts still block.
+active-builder claim are exempt from that preflight. Keep OLD's branch intact
+while its session is live. After verified retirement, normal launch prepares
+NEXT's task branch; no branch switch occurs before `/exit`.
+Other terminals, slots and receipts still block.
 When OLD differs from NEXT, an explicit `thread parked` completion receipt
 qualifies without a merge; otherwise OLD must have a merged PR carrying its exact
 Pad ref and either Pad status `done` or a post-publication handoff on NEXT.

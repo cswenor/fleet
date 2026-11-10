@@ -101,9 +101,13 @@ Observable acceptance: real CLI/service/browser scenario, failure boundaries,
 independent read-only unadvised Sol review then final-head green CI, small PR.
 ```
 
-Check slot state and preserve user work. Launcher does not switch/reset branches:
-prepare a task branch in the **existing lane** only after checkout ownership and
-cleanliness are known. Fast-forward to actual main without resetting user work.
+Check slot state and preserve user work. Same-ref recovery (last launch ref or
+current task-branch ref matches) keeps the exact branch and dirty/unpushed WIP,
+without fetch or switch. Different-ref launch fetches origin, refuses dirty
+or unpushed work, and prepares `task-<n>-<title-slug>` from `origin/main` (or reuses
+a pushed unmerged exact task branch). Merged names are preserved with numeric
+suffixes for new pieces. No stash/reset/clean. Branch, prompt and launch receipt
+agree before builder input. Keep OLD's branch intact until restart verifies exit.
 For a finished idle builder, prefer guarded `fleet restart` below over manual
 `/exit`: it verifies publication, exact session binding and idle evidence before
 one exit, then verifies the shell before fresh launch. Unknown/working/dialog

@@ -231,9 +231,14 @@ Observable acceptance: real scenario, failure boundaries, review + CI receipts.
 
 `fleet ... next --json` lists eligibility/slot exclusions; Main applies scope,
 prose dates, budget and dependencies. It reserves nothing. Launch rechecks under
-lock; unknown quota/liveness or unresolved receipts block starts. Prepare a task
-branch only in a positively free, reconciled lane after preserving user work;
-verify actual Git branch, not stale Orca card metadata. Then explicitly:
+lock; unknown quota/liveness or unresolved receipts block starts. Same-ref
+recovery (last launch ref or current task-branch ref matches) preserves the exact
+branch and dirty/unpushed WIP without fetch/switch. Different-ref launch fetches
+origin, refuses dirty/detached/unpushed work, then prepares the title-derived task
+branch from `origin/main` or reuses its pushed unmerged branch. Merged name
+collisions receive numeric suffixes; existing branches are never reset/deleted.
+The prompt and receipt name the prepared branch; primary `thread open` verifies
+it against actual Git. Main does not switch a live OLD session's branch. Explicitly:
 
 ```sh
 fleet --config /private/project/fleet.yml launch TASK-N --slot /path/to/lane
@@ -443,11 +448,10 @@ foreground bash/zsh/sh on the recorded pts with matching routing are required.
 Restart revalidates proof before input and requires the exact clean prompt after.
 Failure leaves `shell-verified-with-residue` and withholds launch; manually verify
 and clear the line, never retry cleanup or restart. Normal launch stays prompt-only.
-Inspect retirement receipts after partial failure. **TASK-34 caveat:** until its
-restart branch-preparation/self-claim fix is merged and deployed, do not switch
-a still-running OLD lane to NEXT to satisfy branch preflight. Keep OLD intact;
-escalate refusal to Main for positively verified retirement, receipt reconciliation,
-then branch preparation and explicit fresh launch. Never weaken the guard.
+Inspect retirement receipts after partial failure. Only after verified retirement
+does normal launch prepare NEXT's branch. If preparation refuses, preserve the
+slot and inspect `launch-preparations`; after confirming no new builder input,
+reconcile the Git/admission issue and retry `launch`, never repeat retirement.
 
 For positively observed manual exit only, Main's configured terminal may run:
 `fleet ... reconcile --slot /path/to/lane --launch EXACT_ID --evidence 'observed non-secret exit proof'`.

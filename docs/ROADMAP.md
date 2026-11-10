@@ -113,6 +113,44 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-90 — Fresh launch prepares the task branch
+
+Main's required same-ref recovery ruling (`msg_2b61fd450783`) preserves the
+existing branch, index and dirty/unpushed WIP without fetch/switch whenever the
+slot's last launch ref or current task-branch ref matches. Title changes do not
+rename resumed work. Occupancy, admission and receipt guards remain unchanged.
+Different-ref launch fetches origin and refuses uncommitted work, detached HEAD or unpushed
+commits before changing branches. Deleted squash/rebase branches require an exact
+merged-PR head match; later local commits still refuse. It creates the title-derived
+`task-<n>-<slug>` from `origin/main`, reuses a pushed unmerged exact branch, and
+preserves merged names with numeric suffixes for fresh pieces. Remote-only
+branches are supported; behind/diverged local task branches require reconciliation.
+GitHub merged-PR state handles squash/rebase merges and deleted historical names,
+without mistaking an unused prepared branch at main for completed work.
+No stash, reset or clean is used.
+Restart keeps OLD's branch until verified exit, then uses normal preparation.
+The launch receipt and prompt name the actual prepared branch; primary
+`thread open` refuses a changed branch before recording it.
+Main approved leading-only branch ownership in `msg_41260eb681d4`: title mentions
+no longer create additional assignments. A real generated
+`task-123-unblock-task-456` branch permits TASK-456 elsewhere while TASK-123
+still refuses as a duplicate. Cards, active builders and launch receipts retain
+their independent ownership claims.
+
+All 158 focused launcher/thread/retirement/dispatcher regressions pass. A source CLI
+subprocess with a real isolated bare origin/checkout proved launch selects a
+fresh branch at fetched main and receipt, prompt and thread agree; only native
+transport/admission were fixtures, so no real builder was started.
+A second source CLI smoke with offline origin, renamed same-ref title and
+private commits plus staged/unstaged/untracked work preserved the exact branch,
+HEAD, index and file bytes. Native transport/admission remained fixtures.
+Main authorized this session's bootstrap correction from inherited TASK-87
+branch in `msg_3e3fd59c8753`, retaining its immutable older thread receipt.
+Main owns next-real-lane-launch acceptance after merge and shared deployment.
+Publication requires independent final-head review, green CI and exact-head GO;
+durable receipts belong on TASK-90/PR.
+
+
 ### TASK-87 — Main inbox wrapper absorbed into `fleet wait`
 
 `--loop` rearms internally across timeout/recovered transport checkpoints,

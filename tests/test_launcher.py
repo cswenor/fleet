@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+import subprocess
 from unittest.mock import patch
 import yaml
 from fleet import dispatcher, health, launcher, snapshot, state
@@ -57,7 +58,7 @@ class RestartTests(unittest.TestCase):
         return {}
 
     def launch(self, snapshots=None, automatic=False):
-        with patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
+        with patch.object(launcher, '_prepare_branch', return_value='task-123-test'), patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'title': 'Test', 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
             return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot)
 
     def test_builder_cannot_automatically_spend_saved_resets(self):
@@ -217,11 +218,10 @@ class RestartTests(unittest.TestCase):
         initial['inventory']['worktrees'] = []
         fresh = deepcopy(initial)
         fresh['quota'] = {'may_start': False, 'reason': 'quota unknown'}
-        with patch.object(launcher.snapshot, 'collect', side_effect=[initial, fresh]), patch.object(launcher, 'orca', return_value={'worktree': {'id': 'new-tree', 'path': missing}}) as orca, patch.object(dispatcher, 'check_launch'), patch.object(launcher, 'run'):
+        with patch.object(launcher, '_prepare_branch', return_value='task-123-test'), patch.object(launcher.snapshot, 'collect', side_effect=[initial, fresh]), patch.object(launcher, 'orca', return_value={'worktree': {'id': 'new-tree', 'path': missing}}) as orca, patch.object(dispatcher, 'check_launch'), patch.object(launcher, 'run'):
             with self.assertRaisesRegex(ValueError, 'no builder input sent.*retry fleet launch'):
                 launcher.launch(self.c, 'TASK-123', missing)
         receipt = state.read(self.c, 'launch-preparations')[missing]
-        self.assertEqual(receipt['worktree'], {'id': 'new-tree', 'path': missing})
         self.assertEqual(receipt['safe_state'], 'no-builder-input-sent')
         self.assertEqual(receipt['admission']['reasons'], ['quota unknown'])
         self.assertEqual([call.args[1:3] for call in orca.call_args_list],
@@ -302,6 +302,158 @@ class RestartTests(unittest.TestCase):
         for rows in ([], [{'wrapped': True}], [{'wrapped': 'false'}, {'wrapped': False}]):
             with self.subTest(rows=rows):
                 self.assertFalse(health.shell_ready({'tail': tail, 'tailRows': rows}))
+
+
+class BranchPreparationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.remote = self.root / 'origin.git'
+        self.slot = self.root / 'lane'
+        subprocess.run(['git', 'init', '--bare', str(self.remote)], check=True, capture_output=True)
+        subprocess.run(['git', 'clone', str(self.remote), str(self.slot)], check=True, capture_output=True)
+        self.git('config', 'user.email', 'test@example.invalid')
+        self.git('config', 'user.name', 'Test')
+        self.git('switch', '-c', 'main')
+        (self.slot / 'file').write_text('base')
+        self.git('add', '.')
+        self.git('commit', '-m', 'base')
+        self.git('push', '-u', 'origin', 'main')
+        self.base = self.git('rev-parse', 'HEAD').strip()
+        self.c = {'repo': 'owner/repo', '_state': str(self.root / 'state')}
+        self.github = patch.object(launcher, 'gh', return_value=[])
+        self.github.start()
+        self.addCleanup(self.github.stop)
+
+    def git(self, *args):
+        return subprocess.run(['git', *args], cwd=self.slot, check=True,
+                              capture_output=True, text=True).stdout
+
+    def prepare(self):
+        return launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'}, str(self.slot))
+
+    def commit(self):
+        (self.slot / 'file').write_text('changed')
+        self.git('add', '.')
+        self.git('commit', '-m', 'change')
+
+    def test_same_ref_dirty_unpushed_recovery_preserves_everything(self):
+        for branch, previous_ref in (('task-123-original-title', 'TASK-122'),
+                                     ('custom-existing-branch', 'TASK-123')):
+            with self.subTest(branch=branch):
+                self.git('switch', '-c', branch)
+                self.git('commit', '--allow-empty', '-m', 'private WIP')
+                state.write(self.c, 'launches', {str(self.slot): {'ref': previous_ref}})
+                (self.slot / 'file').write_text('staged WIP')
+                self.git('add', 'file')
+                (self.slot / 'file').write_text('unstaged WIP')
+                (self.slot / 'untracked').write_bytes(b'private\\x00bytes')
+                before = {name: self.git(*args) for name, args in (
+                    ('head', ('rev-parse', 'HEAD')),
+                    ('index', ('diff', '--cached')),
+                    ('worktree', ('diff',)),
+                    ('status', ('status', '--porcelain')))}
+                # Fetch would fail; same-ref recovery must not need the network.
+                self.git('remote', 'set-url', 'origin', str(self.root / 'absent-origin'))
+                self.assertEqual(self.prepare(), branch)
+                for name, args in (('head', ('rev-parse', 'HEAD')),
+                                   ('index', ('diff', '--cached')),
+                                   ('worktree', ('diff',)),
+                                   ('status', ('status', '--porcelain'))):
+                    self.assertEqual(self.git(*args), before[name])
+                self.assertEqual((self.slot / 'untracked').read_bytes(), b'private\\x00bytes')
+                self.assertEqual(self.git('branch', '--show-current').strip(), branch)
+                self.git('add', '.')
+                self.git('commit', '--allow-empty', '-m', 'retain fixture WIP')
+
+    def test_merged_previous_branch_starts_at_fetched_main(self):
+        self.git('switch', '-c', 'task-122-old')
+        self.commit()
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        self.git('merge', '--ff-only', 'task-122-old')
+        self.git('push', 'origin', 'main')
+        self.git('switch', 'task-122-old')
+        expected = self.git('rev-parse', 'origin/main').strip()
+        self.assertEqual(self.prepare(), 'task-123-fix-branch')
+        self.assertEqual(self.git('rev-parse', 'HEAD').strip(), expected)
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'task-123-fix-branch')
+
+    def test_squash_merged_previous_branch_with_deleted_remote_is_safe(self):
+        self.git('switch', '-c', 'task-122-old')
+        self.commit()
+        self.git('push', 'origin', 'HEAD')
+        published = self.git('rev-parse', 'HEAD').strip()
+        self.git('switch', 'main')
+        self.git('merge', '--squash', 'task-122-old')
+        self.git('commit', '-m', 'squash publication')
+        self.git('push', 'origin', 'main')
+        self.git('push', 'origin', '--delete', 'task-122-old')
+        self.git('switch', 'task-122-old')
+        def history(c, *args):
+            return [{'headRefOid': published}] if args[args.index('--head') + 1] == 'task-122-old' else []
+        with patch.object(launcher, 'gh', side_effect=history):
+            self.assertEqual(self.prepare(), 'task-123-fix-branch')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.git('rev-parse', 'origin/main'))
+        self.git('switch', 'task-122-old')
+        self.git('commit', '--allow-empty', '-m', 'private after publication')
+        with patch.object(launcher, 'gh', side_effect=history):
+            with self.assertRaisesRegex(ValueError, 'unpushed'):
+                self.prepare()
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'task-122-old')
+
+    def test_retry_reuses_unused_prepared_branch(self):
+        self.git('branch', 'task-123-fix-branch')
+        self.assertEqual(self.prepare(), 'task-123-fix-branch')
+        self.assertEqual(self.prepare(), 'task-123-fix-branch')
+        self.assertEqual(self.git('rev-parse', 'HEAD').strip(), self.base)
+
+
+    def test_dirty_and_unpushed_work_refuse_without_switching(self):
+        (self.slot / 'untracked').write_text('user work')
+        with self.assertRaisesRegex(ValueError, 'uncommitted'):
+            self.prepare()
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+        self.git('add', '.')
+        self.git('commit', '-m', 'private')
+        with self.assertRaisesRegex(ValueError, 'unpushed'):
+            self.prepare()
+        self.assertEqual((self.slot / 'untracked').read_text(), 'user work')
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
+    def test_reuses_pushed_unmerged_task_branch_without_repointing(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        self.commit()
+        expected = self.git('rev-parse', 'HEAD').strip()
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        self.assertEqual(self.prepare(), 'task-123-fix-branch')
+        self.assertEqual(self.git('rev-parse', 'HEAD').strip(), expected)
+
+    def test_merged_exact_name_is_preserved_and_new_suffix_starts_at_main(self):
+        self.git('branch', 'task-123-fix-branch')
+        with patch.object(launcher, 'gh', side_effect=lambda c, *args:
+                          [{'number': 1}] if args[args.index('--head') + 1] == 'task-123-fix-branch' else []):
+            self.assertEqual(self.prepare(), 'task-123-fix-branch-2')
+        self.assertEqual(self.git('rev-parse', 'HEAD').strip(), self.base)
+        self.assertEqual(self.git('rev-parse', 'task-123-fix-branch').strip(), self.base)
+
+    def test_deleted_merged_name_is_not_recreated(self):
+        def history(c, *args):
+            return [{'number': 1}] if args[args.index('--head') + 1] == 'task-123-fix-branch' else []
+        with patch.object(launcher, 'gh', side_effect=history):
+            self.assertEqual(self.prepare(), 'task-123-fix-branch-2')
+            self.assertEqual(self.prepare(), 'task-123-fix-branch-2')
+        self.assertEqual(self.git('rev-parse', 'HEAD').strip(), self.base)
+
+    def test_unpushed_existing_task_branch_refuses(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        self.commit()
+        self.git('switch', 'main')
+        with self.assertRaisesRegex(ValueError, 'existing task branch has unpushed'):
+            self.prepare()
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
 
 
 if __name__ == '__main__':

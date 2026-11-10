@@ -141,6 +141,8 @@ def open_thread(c, ref, slot=None):
     launch = state.read(c, 'launches', {}).get(slot, {})
     if not authorized(c, launch, slot, ref) or launch.get('terminal') != caller:
         raise ValueError('task/terminal must match the authoritative launch receipt')
+    if launch.get('ref') == ref and launch.get('branch') and branch != launch['branch']:
+        raise ValueError('task branch differs from prepared launch branch; restore it before thread open')
     with state.lock(c, name):
         ledger = state.read(c, name, {})
         task = ledger.setdefault(ref, {'id': 'fleet-' + str(uuid.uuid4()), 'attempts': {}})

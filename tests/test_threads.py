@@ -51,6 +51,16 @@ class ThreadTests(unittest.TestCase):
         return {'id': ident, 'thread_id': q['thread_id'], 'from_handle': 'term_main',
                 'to_handle': 'term_builder', 'type': 'status', 'body': 'approved', **changes}
 
+    def test_open_refuses_branch_changed_since_prepared_launch(self):
+        launches = state.read(self.c, 'launches')
+        launches[self.temp.name]['branch'] = 'task-1-prepared'
+        state.write(self.c, 'launches', launches)
+        with self.assertRaisesRegex(ValueError, 'differs from prepared launch branch'):
+            self.open()
+        self.assertEqual(self.pads, [])
+        with patch.object(threads, 'run', return_value='task-1-prepared\n'):
+            self.assertEqual(self.open()['branch'], 'task-1-prepared')
+
     def test_late_previous_task_reply_does_not_resolve_new_task(self):
         first = self.open()
         old = threads.question(self.c, 'TASK-1', 'old question')

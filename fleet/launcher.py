@@ -6,7 +6,7 @@ import shlex
 import time
 import yaml
 from . import dispatcher, health, snapshot, state
-from .commands import CommandError, orca, run
+from .commands import CommandError, gh, orca, run
 
 
 @contextmanager
@@ -34,6 +34,58 @@ def _preparation_receipt(c, ref):
             raise CommandError(f'{exc}; {guidance} (launch-preparations receipt)', code=exc.code) from exc
         exc.add_note(guidance + ' (launch-preparations receipt)')
         raise
+
+
+def _prepare_branch(c, ref, item, slot):
+    """Prepare different-ref launches; same-ref recovery preserves exact WIP."""
+    current = run(['git', 'branch', '--show-current'], slot).strip()
+    if not current:
+        raise ValueError('launch withheld: slot has detached HEAD')
+    previous = state.read(c, 'launches', {}).get(slot, {})
+    if previous.get('ref') == ref or re.match(re.escape(ref.lower()) + r'(?:-|$)', current.lower()):
+        return current
+    run(['git', 'fetch', '--prune', 'origin'], slot)
+    if run(['git', 'status', '--porcelain'], slot).strip():
+        raise ValueError('launch withheld: slot has uncommitted work')
+    if run(['git', 'rev-list', 'HEAD', '--not', '--remotes=origin'], slot).strip():
+        # Squash/rebase publication may outlive the deleted origin task ref.
+        head = run(['git', 'rev-parse', 'HEAD'], slot).strip()
+        published = gh(c, 'pr', 'list', '--repo', c['repo'], '--state', 'merged',
+                       '--head', current, '--limit', '1', '--json', 'headRefOid')
+        if not published or published[0].get('headRefOid') != head:
+            raise ValueError('launch withheld: current branch has unpushed work')
+    slug = re.sub(r'[^a-z0-9]+', '-', item['title'].lower()).strip('-')[:80].rstrip('-')
+    base = ref.lower() + ('-' + slug if slug else '')
+    refs = set(run(['git', 'for-each-ref', '--format=%(refname)',
+                    'refs/heads/', 'refs/remotes/origin/'], slot).splitlines())
+    branch = base
+    suffix = 1
+    while True:
+        local = 'refs/heads/' + branch
+        remote = 'refs/remotes/origin/' + branch
+        target = local if local in refs else remote if remote in refs else None
+        # An unused prepared branch can equal main without ever being published.
+        # PR state also recognizes squash/rebase merges without guessing ancestry.
+        merged = bool(gh(c, 'pr', 'list', '--repo', c['repo'], '--state', 'merged',
+                         '--head', branch, '--limit', '1', '--json', 'number'))
+        if merged:
+            suffix += 1
+            branch = f'{base}-{suffix}'
+            continue
+        if target is None:
+            run(['git', 'switch', '--no-track', '-c', branch, 'origin/main'], slot)
+            break
+        if run(['git', 'rev-list', target, '--not', '--remotes=origin'], slot).strip():
+            raise ValueError('launch withheld: existing task branch has unpushed work')
+        if local in refs and remote in refs:
+            if run(['git', 'rev-list', remote, '--not', local], slot).strip():
+                raise ValueError('launch withheld: existing task branch is behind or diverged from origin')
+        if local in refs:
+            run(['git', 'switch', branch], slot)
+        else:
+            run(['git', 'switch', '--track', '-c', branch, 'origin/' + branch], slot)
+        break
+    return branch
 
 
 def launch(c, ref, slot=None, *, _locked=False):
@@ -65,7 +117,7 @@ def launch(c, ref, slot=None, *, _locked=False):
         orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
         if chosen in occupied:
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
-        dispatcher.check_launch(c, ref, inventory, chosen)
+        item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
         shells = []
         skipped = []
@@ -101,6 +153,10 @@ def launch(c, ref, slot=None, *, _locked=False):
             preparation.update(slot=w['path'], worktree=w, stage='preparation-attempted', action='before-launch-hook')
             run(c['hooks']['before_launch'], w['path'])
         preparation.update(slot=w['path'], worktree=w, stage='prepared')
+        preparation.update(stage='preparation-attempted', action='task-branch')
+        branch = _prepare_branch(c, ref, item, w['path'])
+        w = dict(w, branch=branch)
+        preparation.update(worktree=w, branch=branch, stage='prepared')
         fresh = snapshot.collect(c)
         admission = snapshot.may_start(c, fresh)
         preparation['admission'] = admission
@@ -136,6 +192,7 @@ def launch(c, ref, slot=None, *, _locked=False):
                                      'thread', 'parked', ref])
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
+Prepared task branch: {branch}. Publish this task from this branch.
 Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
 Never create extra git worktrees. Self-publish according to project rules.
 Open the durable task thread before working: {thread_command}
@@ -201,7 +258,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
             preparation['stage'] = 'launch-attempted'
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
-        receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'worktree': w,
+        receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'branch': branch, 'worktree': w,
                    'terminal': handle if handle is not None else result['terminal']['handle'],
                    'terminal_incarnation_id': (terminal if handle is not None else result['terminal']).get('incarnationId'),
                    'terminal_selection': {'action': 'reuse' if handle is not None else 'create',

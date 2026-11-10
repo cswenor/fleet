@@ -232,7 +232,8 @@ def assignments(c, inventory, *, retiring=None):
         if w['path'] not in c['builder']['slots']:
             continue
         branch = run(['git', 'branch', '--show-current'], w['path']).strip()
-        for match in health.REF.finditer(branch):
+        match = health.REF.match(branch)
+        if match:
             claims.append((match[1].upper(), w['path'], 'branch'))
         card = w.get('comment') or ''
         match = _card_ref(card)
