@@ -99,6 +99,10 @@ def main():
     t.add_argument('ref')
     t.add_argument('--ack', help='acknowledge a steering token only after processing it')
     commands.add_parser('pending', help='Main lists unacknowledged and ambiguous steering per lane')
+    t = commands.add_parser('stop', help='Main interrupts one proven OMP lane; never blindly retry')
+    t.add_argument('ref')
+    t.add_argument('--reason', required=True)
+    t.add_argument('--timeout', type=int, default=120, help='bounded idle wait, 1–600 seconds')
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     p.add_argument('--environment-file', help='private service token file (macOS: literal KEY=value)')
@@ -131,6 +135,10 @@ def main():
             c['_drill_usage_file'] = args.drill_usage_file
         if args.command == 'thread':
             from . import threads
+            if args.thread_command == 'stop':
+                from .stop import stop
+                print(json.dumps(stop(c, args.ref, args.reason, args.timeout)))
+                return 0
             if args.thread_command in ('send', 'check', 'pending'):
                 from . import steering
                 if args.thread_command == 'send':

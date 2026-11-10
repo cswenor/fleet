@@ -422,6 +422,46 @@ This is source-only; the private scratch Run proof is recorded in ROADMAP.md.
 Publication requires independent exact-head review, green CI and Main's
 exact-head GO; merge does not authorize deployment.
 
+### Emergency lane stop (TASK-89, source-only)
+
+From the configured Main terminal bound to its Run (owner uses that same
+terminal), run asynchronously:
+
+```sh
+fleet --config CONFIG thread stop REF --reason 'Concrete emergency' --timeout 120
+```
+
+This is the sanctioned emergency interruption, not routine steering, PARK,
+retirement or restart. It resolves the unique active opened unsettled attempt;
+requires an unbound live terminal/incarnation, exact-pane OMP agent, exact
+foreground argv/cwd/routing and live session lease. Linux `/proc` proof is
+required; unsupported platforms refuse. No `terminal send --interrupt`.
+
+It journals intent before exactly one bare Escape byte, then waits for positive
+idle evidence (default 120 seconds, `--timeout` 1–600). OMP's foreground console
+aborts the tool but may let the model finish a continuation. If idle is not
+reached, it reports **turn did not stop**, sends no STOP line, and never sends a
+second Escape. Unknown/clipped screens and dialogs refuse.
+
+After idle proof, a nonempty composer receives at most one raw Ctrl-C to clear
+the whole draft; this is never sent into a working child PTY. Fresh empty
+composer/process proof precedes the fixed single-line STOP submission. The same
+instruction is sent as native status and retained in PR84's steering journal.
+Its check command embeds the absolute shell-quoted configuration path, so a
+builder's cwd cannot select another project's journal. Builders act on that
+check result before acknowledging its token, and do not
+resume interrupted work unless Main says so. `thread pending` exposes all steps,
+including ambiguous or refused stops, in the private 0600 task journal.
+
+A terminal acceptance receipt is not proof of model consumption. Inspect the
+recipient's actual check/response. A launch-wide 0600 `stops.json` guard blocks
+another stop across primary/carried refs and continuations, including after a
+transport error or successful submission; reconcile
+the recorded phase and native request/message IDs manually. Never delete a
+journal or reissue input to overcome ambiguity. Review/CI and exact-head Main
+GO remain required before publication; merge is not shared deployment.
+
+
 
 Finite long work runs via omp async shell; completion wakes the owning session.
 Its job timeout may exceed 600 seconds. Every foreground/background inbox or CI

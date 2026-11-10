@@ -440,6 +440,49 @@ execution without capture/restart. All 445 tests pass. Publication and real
 three-project CLI evidence belong on TASK-73/PR; merge requires Main exact-head GO.
 
 
+### TASK-89 — Sanctioned emergency lane stop (source-only)
+
+Owner approved `fleet thread stop REF --reason TEXT`; Main's ruling
+`msg_e8abade9e41f` approves exactly one bare Escape, bounded idle wait (default
+120 seconds, configurable 1–600), empty composer proof and one fixed STOP line.
+Normal steering/PARK remain cooperative. Main-only current-attempt identity,
+terminal incarnation, exact pane/process/session lease and Linux foreground
+proofs refuse mismatches. The private 0600 steering journal records every input
+intent/outcome and exposes the unacknowledged STOP in check/pending. A launch-wide
+0600 `stops.json` guard prevents retries across primary/carried refs and reopened
+continuations; timeout reports “turn did not stop.”
+
+Source CLI smoke on isolated Run `run_6931dfeff680` / OMP session
+`01a1c5df-cd05-70fb-835b-fcb5bf533a34` (18.18.6, actual Sol medium events):
+foreground `sleep 120` aborted after exactly one Escape byte; tool output was
+only `TASK89_LIVE_CHILD_STARTED` and `[Command aborted]`, with no injected text.
+Idle+empty composer proof preceded native STOP `msg_1d603c46d849` and one terminal
+submission. The actual recipient ran scratch `thread check TASK-89`, printed
+token `f09cf20f-4ef5-4910-86ef-a258b365bb42`, left it unacknowledged and stopped.
+Main's real scratch `pending` showed that token. Separate 18.18.1 scratch proof
+confirmed idle multiline draft clearing with raw Ctrl-C; Ctrl-U alone did not
+reliably clear it. No child Ctrl-C or Orca `--interrupt` was used.
+
+An earlier scratch attempt refused before input because its private config
+omitted the auto-injected status extension. Its journal was retained and that
+scratch session replaced, not retried. All 559 tests pass, including 22 stop
+tests for refusal/ambiguity/composer races, actual custom-config CLI consumption,
+single-line path safety and the real captured console footer.
+Independent reviews found a ref-local retry bypass and ignored fresh working
+state before composer input. Launch-wide guarding and fresh agent/screen checks
+before each input fix both, with carried-ref, partial-write and resume-race regressions.
+Main ruling `msg_9a318614d8e8` authorizes the reviewer-requested correction to
+embed the absolute shell-quoted configuration in the STOP check command.
+Final fresh-input live proof on 18.18.6 repeated mid-child Escape, empty composer,
+STOP submission and actual recipient check without acknowledgement or resumed work.
+Final config reproof used a private path containing spaces and an apostrophe;
+the actual recipient executed the exact submitted check command and read the STOP.
+All ten owned scratch terminals closed with positive `ptyKilled=true` receipts.
+Publication receipts and scratch cleanup belong on TASK-89/PR; independent
+final-head review, green CI and Main exact-head GO remain gates. No shared
+installation/restart was performed. Launcher inherited-branch behavior remains
+a separate Main-owned follow-up, not changed here.
+
 ### TASK-84 — Busy builder steering (source-only)
 
 Main uses `fleet --config CONFIG thread send REF --body TEXT` from its configured,

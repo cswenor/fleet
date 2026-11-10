@@ -275,6 +275,19 @@ logs) before re-running; a timeout is evidence, not a retry signal.
 Background jobs are exempt from the `stalled` alert, so the explicit timeout
 is the hang detector.
 
+Emergency only: configured Run-bound Main (or owner in that Main terminal) may
+use `fleet --config CONFIG thread stop TASK-N --reason TEXT [--timeout 120]`.
+It journals one bare Escape after exact OMP pane/process/session-lease proof,
+waits for idle, clears a draft only in the idle composer, proves it empty, and
+submits one fixed STOP line whose check command embeds the absolute shell-quoted
+configuration path. No Orca `--interrupt`, child Ctrl-C, repeated Escape
+or blind retry. Timeout/unknown identity or screen refuses; inspect the private
+task journal and recipient response. Acceptance is not consumption. Builders
+process the journaled instruction with `thread check` before acknowledging and
+never resume interrupted work unless Main says so. This is not routine steering
+or cooperative PARK, and does not authorize restart/retirement.
+
+
 Run thread waits asynchronously. Do not bind a builder terminal to **any** Run.
 Decision requests use **exactly one channel**: `fleet thread question`, which
 sends native type `question` to `run:<coordinator.run>` itself. Never also send a

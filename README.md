@@ -676,6 +676,16 @@ interrupt path injects text into a child PTY and sends Ctrl-C, not safe steering
 Normal sends never type into a terminal. Ambiguous sends remain journaled and
 block further sends on that attempt until manually reconciled; never resend.
 
+For an emergency only, configured Run-bound Main may run
+`fleet --config CONFIG thread stop TASK-123 --reason TEXT [--timeout 120]`.
+It proves the exact OMP process/pane/session lease, journals one bare Escape,
+waits for idle, clears a draft only in an idle composer, proves it empty, and
+submits one fixed STOP line with an absolute shell-quoted `--config` check
+command. The instruction remains unacknowledged in
+`thread check` / `thread pending`. Unknown identity/screen or timeout refuses;
+an existing stop journal forbids blind retries. Terminal acceptance does not
+prove consumption. See [the stop runbook](docs/MAIN.md#emergency-lane-stop-task-89-source-only).
+
 `open` requires the caller's authoritative launch receipt and records Pad ref,
 canonical task thread ID, attempt, actual Git branch and reusable slot together.
 That task ID survives fresh attempts; each question has a unique native subthread

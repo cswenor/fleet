@@ -256,6 +256,53 @@ Source-only; no shared deployment. Publication requires independent final-head
 review, green CI and Main exact-head GO; merge does not authorize deployment or
 service/runtime changes. No CLI enqueue is an upstream/owner capability gap.
 
+### Emergency lane stop (TASK-89, source-only)
+
+`fleet thread stop REF --reason TEXT [--timeout 120]` is the owner-sanctioned
+exception to cooperative steering. Configured Run-bound Main only; exact
+authoritative opened unsettled attempt, unbound terminal/incarnation, exact OMP
+pane, live session lease and foreground argv/cwd/routing proofs are mandatory.
+The current Linux `/proc` process guard is reused; unsupported platforms refuse.
+
+**Proven raw surface:** `terminal send --text` with exactly one ESC byte, no
+`--interrupt` and no Enter. On scratch OMP 18.18.1 and 18.18.6, the console
+intercepts it and aborts the foreground tool, without text entering its PTY.
+The model may finish a continuation; positive idle and composer proof must follow
+within the configured 1–600-second wait, otherwise “turn did not stop,” no second
+Escape and no STOP submission. A raw Ctrl-C clears the whole multiline draft
+only after exact-pane/process/lease and idle-composer proof; never into a working
+child. Unknown/clipped/dialog input surfaces refuse.
+
+The private 0600 attempt steering journal records each input intent and outcome.
+The fixed STOP line embeds an absolute shell-quoted `--config` in its check
+command. It is native status mail plus one terminal submission, and
+remains in `thread check`/`pending` until processed and acknowledged. The
+launch-wide 0600 `stops.json` guard forbids another stop across primary/carried
+refs and continuations. Terminal input acceptance is not a started
+turn or consumption receipt; inspect the recipient response.
+
+Live source proof: isolated scratch Run `run_6931dfeff680`, OMP
+`01a1c5df-cd05-70fb-835b-fcb5bf533a34` (actual Sol medium, 18.18.6), native STOP
+`msg_1d603c46d849`, terminal request `b02eaea3-9795-42a3-bc9e-6605970d738a`.
+Foreground child output was only `TASK89_LIVE_CHILD_STARTED` and
+`[Command aborted]`. The actual scratch recipient ran `thread check TASK-89`,
+reported token `f09cf20f-4ef5-4910-86ef-a258b365bb42` without acknowledgement,
+and did not resume work. Real scratch Main `pending` retained that token.
+Receipts/session logs remain private under `/tmp/fleet-task89-ULz64E`;
+synthetic scratch launch/thread records never touched production receipts.
+See [the operational refusal/reconciliation runbook](MAIN.md#emergency-lane-stop-task-89-source-only).
+
+After fixing the independent review's ref-local retry bypass, a fresh scratch
+Run `run_1d00ef94a5c2` / session `01a1c5e8-0bb3-76fd-b742-8ce29bb98b98`
+repeated the real mid-tool stop and actual recipient check. STOP
+`msg_7e3e199ea71b`, token `4afc07f7-68e5-4d3d-9ddd-ec2202c2d433`,
+submission `712c3035-7f6a-48c0-a07d-b6378e1de9db`. A real CLI stop on a
+synthetic opened carried ref then refused “stop already journaled for this
+launch” without changing the launch guard. Both added scratch terminals closed
+with `ptyKilled=true`; all six scratch terminals from this task were cleaned up.
+
+
+
 ### Lifecycle and recovery
 
 - Run = durable namespace/coordinator inbox, not scheduler. Task = work; Dispatch
