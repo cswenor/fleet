@@ -356,6 +356,13 @@ def _stuck_pr_paused(c, p):
         for label in p.get('labels', []) for configured in parked)
 
 
+def _stuck_progress_unknown(current, number):
+    return current.get('merge_queue_unknown', False) or any(
+        entry.get('progress_unknown', False)
+        for entry in current.get('merge_queue', [])
+        if entry.get('pullRequest', {}).get('number') == number)
+
+
 def stuck_pr_alerts(c, ledger, current, now):
     """Persist observed semantic progress, ignoring comments and updated_at."""
     timers = ledger.setdefault('pr_progress', {})
@@ -366,11 +373,17 @@ def stuck_pr_alerts(c, ledger, current, now):
         if p['state'] != 'open' or _stuck_pr_paused(c, p):
             continue
         key = str(p['number'])
+        if _stuck_progress_unknown(current, p['number']):
+            if key in timers:
+                active[key] = timers[key]
+            continue
         progress = {field: p.get(field) for field in ('state', 'head', 'merge_state')}
         for field in ('checks', 'reviews'):
             progress[field] = sorted(p.get(field, []), key=lambda row: json.dumps(row, sort_keys=True))
-        progress['queue'] = [entry.get('state') for entry in current.get('merge_queue', [])
-                             if entry.get('pullRequest', {}).get('number') == p['number']]
+        progress['queue'] = [
+            {field: entry.get(field) for field in ('state', 'headCommit', 'runs')}
+            for entry in current.get('merge_queue', [])
+            if entry.get('pullRequest', {}).get('number') == p['number']]
         signature = digest(progress)
         prior = timers.get(key)
         timer = prior if prior and prior['signature'] == signature else {'signature': signature, 'since': now}
@@ -606,12 +619,14 @@ def cycle(c, deliver=True):
         if candidate:
             lane_free[builder['path']] = candidate
     active = alerts(s, c, lane_free) + pr_alerts + main_alerts(c, s, ledger, time.time())
-    if current_g is None:
-        # Unknown collection is not recovery: keep stuck occurrences deduplicated.
-        active_stuck = {key: value for key, value in ledger.get('active_alerts', {}).items()
-                        if key.startswith('pr_stuck:')} if isinstance(ledger.get('active_alerts'), dict) else {}
-    else:
-        active_stuck = {}
+    # Unknown collection/progress is not recovery: retain occurrence dedupe.
+    prior_alerts = ledger.get('active_alerts', {})
+    active_stuck = {
+        key: value for key, value in prior_alerts.items()
+        if key.startswith('pr_stuck:') and (
+            current_g is None or
+            _stuck_progress_unknown(current_g, int(key.split(':')[1])))
+    } if isinstance(prior_alerts, dict) else {}
     if s.get('coordinator', {}).get('state') == 'unknown':
         prior_main = ledger.get('active_alerts', {})
         if isinstance(prior_main, dict):
@@ -702,6 +717,11 @@ def cycle(c, deliver=True):
         owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
         if owning_terminal:
             recipients.append(owning_terminal)
+        if (event['key'].startswith('pr_stuck:') and current_g is not None
+                and _stuck_progress_unknown(current_g, event.get('pr'))):
+            remaining.append(event)
+            protected.update(digest([event['key'], r]) for r in recipients)
+            continue
         for recipient in recipients:
             key = digest([event['key'], recipient])
             if key in ledger['sent']:

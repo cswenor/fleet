@@ -126,6 +126,43 @@ def _uncached_workflow_checks(c, sha, checks, unavailable=None):
     return [check for check in checks if not obsolete(check)], complete
 
 
+def _queue_progress(c, entries, unavailable):
+    """Enrich only queued synthetic heads; never confuse a lead PR with all members."""
+    by_head = {}
+    for entry in entries:
+        head = (entry.get('headCommit') or {}).get('oid')
+        if not head:
+            entry['progress_unknown'] = True
+            continue
+        if head not in by_head:
+            try:
+                data = gh(c, 'api', '--paginate', '--slurp',
+                          f'repos/{c["repo"]}/actions/runs?event=merge_group&head_sha={head}&per_page=100')
+                runs = []
+                for page in data:
+                    for run in page['workflow_runs']:
+                        if run['head_sha'] != head:
+                            continue
+                        job_pages = gh(c, 'api', '--paginate', '--slurp',
+                                       f'repos/{c["repo"]}/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100')
+                        jobs = [job for page in job_pages for job in page['jobs']]
+                        runs.append({
+                            'id': run['id'], 'status': run['status'],
+                            'conclusion': run['conclusion'], 'updated_at': run.get('updated_at'),
+                            'jobs': sorted(
+                                ({field: job.get(field) for field in
+                                  ('id', 'status', 'conclusion', 'started_at', 'completed_at', 'steps')}
+                                 for job in jobs), key=lambda job: job['id'])})
+                by_head[head] = sorted(runs, key=lambda run: run['id'])
+            except (CommandError, ValueError, KeyError) as error:
+                unavailable.append(f'Merge queue progress unavailable: {error}')
+                by_head[head] = None
+        if by_head[head] is None:
+            entry['progress_unknown'] = True
+        else:
+            entry['runs'] = by_head[head]
+
+
 def collect(c, pr_number=None):
     repo = c['repo']
     unavailable = []
@@ -237,7 +274,8 @@ def collect(c, pr_number=None):
                 'merge_group_unknown': merge_group_unknown}
     owner, name = repo.split('/')
     default_branch = gh(c, 'api', f'repos/{repo}')['default_branch']
-    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{state pullRequest{number}} pageInfo{hasNextPage}}}}}'
+    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
+    queue_unknown = False
     try:
         queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
         if queue.get('errors'):
@@ -246,13 +284,16 @@ def collect(c, pr_number=None):
         mq = repository.get('mergeQueue')
         if mq and mq['entries']['pageInfo']['hasNextPage']:
             raise ValueError('merge queue exceeds 100 entries')
-    except CommandError as error:
-        if not _permission_unknown(error, unavailable):
-            raise
+    except (CommandError, ValueError, KeyError) as error:
+        unavailable.append(f'Merge queue unavailable: {error}')
         mq = None
+        queue_unknown = True
+    entries = mq['entries']['nodes'] if mq else []
+    _queue_progress(c, entries, unavailable)
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
     commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]
-    return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': mq['entries']['nodes'] if mq else [],
+    return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': entries,
+            'merge_queue_unknown': queue_unknown,
             'merge_group_runs': runs, 'merge_group_unknown': merge_group_unknown,
             'default_branch': default_branch, 'unavailable': unavailable,
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}

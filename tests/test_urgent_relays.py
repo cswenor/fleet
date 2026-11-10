@@ -197,6 +197,36 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual(stuck[0][0]['key'], stuck[-1][0]['key'])
         self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
 
+    def test_unknown_queue_holds_pending_stuck_delivery(self):
+        self.cycle(0)
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(2700)
+        before = len(self.calls)
+        self.s['github']['merge_queue_unknown'] = True
+        self.cycle(3000)
+        self.assertEqual(len(self.calls), before)
+        self.s['github']['merge_queue_unknown'] = False
+        self.cycle(3001)
+        self.assertEqual([r for e, r in self.calls if e['key'].startswith('pr_stuck:')],
+                         ['run:r', 'builder'])
+
+    def test_unknown_queue_preserves_partial_receipts_past_retention(self):
+        self.cycle(0)
+
+        def fail_builder(c, event, recipient):
+            if recipient == 'builder':
+                raise CommandError('offline')
+            return self.enqueue(c, event, recipient)
+
+        with patch.object(supervisor, 'enqueue', side_effect=fail_builder):
+            self.cycle(2700)
+        self.s['github']['merge_queue_unknown'] = True
+        self.cycle(8 * 86400)
+        self.s['github']['merge_queue_unknown'] = False
+        self.cycle(8 * 86400 + 1)
+        self.assertEqual([r for e, r in self.calls if e['key'].startswith('pr_stuck:')],
+                         ['run:r', 'builder'])
+
     def test_merge_group_failure_initial_delivery_dedup_recovery_and_recurrence(self):
         group = {'id': 42, 'conclusion': 'failure', 'prs': [1],
                  'url': 'https://example/group/42', 'membership_complete': True}

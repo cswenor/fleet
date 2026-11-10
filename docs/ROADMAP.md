@@ -113,6 +113,26 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-95 — Merge-queue CI progress participates in PR stuck timers
+
+Queued entries are matched to merge-group runs by the entry's synthetic
+`headCommit.oid`, not the lead PR encoded in a queue branch. At the existing
+snapshot cadence, only queued heads receive extra run/job reads; shared heads
+reuse one result. Run status/conclusion/update time and job/step transitions
+reset the timer. An unchanged running group or an entry with no run still
+alerts after `urgent.pr_stuck_minutes`. Dequeue resumes normal PR-head rules.
+Unknown queue/run/job data preserves the prior timer and alert occurrence,
+suppresses new stuck alerts, and holds undelivered stuck retries.
+Existing merge-group failure alerts and single-PR watch behavior are unchanged.
+
+Read-only source evaluation against the real Project Alpha config and queue observed
+#2512/#2511 with active runs 42865395363/42865396616 (12 jobs each), plus queued
+#2500/run 42867246057. Exact synthetic-head matching succeeded with no unknowns;
+an in-memory aged PR-head baseline produced no stuck alert after observing the
+queue progress. No live state, delivery or deployment was changed. Publication
+requires independent final-head Sol-medium review, green CI and Main exact-head
+GO; receipts belong on TASK-95/PR. Shared deployment remains Main-owned.
+
 ### TASK-94 — Quiet summaries and ack-time relay holding
 
 Legacy terminal history is opt-in via `--legacy-history`; saved JSON is unchanged.
