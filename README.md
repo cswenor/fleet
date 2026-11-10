@@ -510,6 +510,7 @@ Unusable save destinations fail before consuming mail. A later save failure
 returns exit 2 with full JSON on stdout (even with `--summary`) and `saveError`;
 preserve it because the native batch may already be acknowledged.
 `--summary` requires `--save`; otherwise Fleet refuses before consuming mail.
+Status-type `FRESH-READY` reports also appear; classification/wake/ack stay unchanged.
 An initial `--ack-run` is sent only once, never replayed after an ambiguous check.
 Interrupted native request metadata is retained in `rearmEvents`; reconcile
 unknown outcomes separately. Looping cannot recover a possibly auto-handled

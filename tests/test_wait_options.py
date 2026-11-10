@@ -94,6 +94,7 @@ class WaitOptionsTests(unittest.TestCase):
     def test_summary_includes_needs_next_lane_free_and_urgent_but_save_keeps_all(self):
         rows = [
             {'id': 'status', 'type': 'status', 'subject': 'report', 'body': 'keep full payload'},
+            {'id': 'ready', 'type': 'status', 'from_handle': 'builder', 'subject': 'TASK-87: FRESH-READY TASK-90', 'body': 'historical readiness'},
             {'id': 'next', 'type': 'question', 'from_handle': 'builder', 'subject': 'NEEDS-NEXT-REF TASK-87'},
             {'id': 'free', 'type': 'question', 'from_handle': 'main', 'subject': 'Lane free: TASK-87 needs next task', 'body': '[fleet x] free'},
             {'id': 'urgent', 'type': 'question', 'from_handle': 'main', 'subject': '[urgent] stalled\nsecond line', 'body': '[fleet x] stalled'}]
@@ -106,9 +107,10 @@ class WaitOptionsTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), result)
         self.assertEqual(code, 0)
         lines = text.splitlines()
-        self.assertEqual(len(lines), 5)
-        self.assertIn('DELIVERY "delivery1" source=run n=4', lines)
+        self.assertEqual(len(lines), 6)
+        self.assertIn('DELIVERY "delivery1" source=run n=5', lines)
         self.assertIn('"next" "builder" builder_decision_request "NEEDS-NEXT-REF TASK-87"', lines)
         self.assertIn('"free" "main" builder_decision_request "Lane free: TASK-87 needs next task"', lines)
         self.assertIn('"urgent" "main" supervisor_urgent "[urgent] stalled\\nsecond line"', lines)
+        self.assertIn('"ready" "builder" builder_report "TASK-87: FRESH-READY TASK-90"', lines)
         self.assertNotIn('keep full payload', text)

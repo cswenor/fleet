@@ -132,6 +132,10 @@ and full-JSON stdout fallback now preserve the batch/request IDs on exit 2,
 including with summary enabled. CLI subprocess smoke proved both failure paths.
 Summary-only calls require a save destination before consumption, so compact
 triage cannot silently discard an already-handled batch's full payload.
+Main live acceptance on frozen `2cf9096` returned six real messages after ~66s,
+with one decision summary row, all six payloads saved and mode 0600. Main then
+requested historical status-type `FRESH-READY` summary rows; these are included
+without changing classification/wake/ack. Final-head live acceptance remains required.
 Live Fleet-Run acceptance is Main-owned from its bound terminal; builders remain
 unbound. Publication/live receipts belong on TASK-87/PR; exact-head Main GO is
 required before merge, and shared deployment remains Main-owned.

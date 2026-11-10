@@ -330,7 +330,10 @@ def summary(result):
         lines.append(f"DELIVERY {field(batch['deliveryId'])} source={batch['source']} "
                      f"n={len(batch['messages'])}")
         for row in batch['messages']:
-            if row['classification'] in ('builder_decision_request', 'supervisor_urgent'):
+            subject = row.get('subject')
+            ready_report = (row.get('type') == 'status' and isinstance(subject, str)
+                            and re.search(r'\bFRESH-READY\b', subject))
+            if ready_report or row['classification'] in ('builder_decision_request', 'supervisor_urgent'):
                 sender = row.get('from_handle', row.get('from', ''))
                 lines.append(f"{field(row['id'])} {field(sender)} "
                              f"{row['classification']} {field(row.get('subject', ''))}")
