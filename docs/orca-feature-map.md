@@ -139,6 +139,47 @@ No production replacement is justified by these receipts. A future upstream
 OMP launch effort/config/session interface or standalone blocking question API
 needs a new real probe and Main approval before removing the corresponding glue.
 
+## TASK-88 post-restart screen investigation (2026-11-10)
+
+Read-only native captures of the surviving Fleet phase1 terminal
+`term_da1a300e-41ee-4026-b823-9c0ec134e8b7` show clipped 80-column tool
+borders, duplicate partial working footers and no composer border. The exact
+OMP process (PID 3795247, matching `ORCA_TERMINAL_HANDLE`) had `/dev/pts/6`
+as fd 0; `TIOCGWINSZ` returned **280 columns × 83 rows**. Increasing
+`terminal read --screen --limit 5000` still returned an unrecognized frame.
+`tests/fixtures/orca-stale-screen.json` retains the actual 22-row receipt;
+the real agent was working, not idle.
+
+The installed `orcad-template/orcad-server.js` exposes these implementation
+facts (diagnostic evidence, not a supported Fleet API):
+
+- `getTerminalSize` delegates to the PTY controller's in-memory `Ep` size map.
+  `seedHeadlessTerminal` defaults to 80×24 when no size is available.
+  **[INFERENCE]** missing restored geometry explains the observed clipping;
+  the live map and exact emulator dimensions are not exposed by the CLI.
+- `Qot` / `ska` remove blank rows. `returnedLineCount` is not frame height.
+  `tailRows.trailingSpaces` preserves whitespace before soft wraps, not
+  right-edge padding; it cannot establish screen width.
+- Native `terminal read/show`, the 288-command `agent-context` registry and
+  `diagnostics memory` expose no frame dimensions/cursor or supported terminal
+  resize/refresh command. The internal `terminal.resizeForClient` RPC is not a
+  documented CLI recovery surface and was not called.
+
+The same read-only sweep found an unaffected completed Project Alpha pane
+`term_24697da9-f443-423f-97c6-64518acc1815`: 75 returned rows, full-width
+280-column footer, empty `╰─` composer and exact-pane `done`. The existing
+`health.omp_ui` recognized it as idle. Missing footer plus `done`, including
+null `programStatus`, must still refuse retirement: an omitted draft is unknown.
+No terminal input, resize, signal, restart or shared deployment was performed.
+
+Main's revised scope (`msg_a0b4555866e0`) approves diagnostic-only publication:
+no exit override and no inferred geometry. The new refusal identifies proven
+terminal-session-before-runtime chronology but grants no input authority.
+[The operator runbook](MAIN.md#post-restart-clipped-screen) records Main's
+owner-approved manual finished-builder recovery and the UI resize alternative;
+the builder exercised neither. Upstream geometry/resize changes require an
+owner decision.
+
 ## Orca capabilities and caveats
 
 ### Placement and launch

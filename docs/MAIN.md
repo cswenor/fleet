@@ -324,6 +324,54 @@ exact clean prompt before guarded launch. Any mismatch/failure withholds launch
 at `shell-verified-with-residue`: inspect the receipt and manually verify/clear
 the line, never retry Ctrl-U, `/exit` or restart. Normal launch remains prompt-only.
 
+### Post-restart clipped screen
+
+If guarded retirement reports `screen model may be stale after Orca restart`,
+it has sent **no retirement input**. The diagnostic requires the exact foreground
+OMP's terminal session to predate the current Orca process, using same-host Linux
+process start ticks; unavailable chronology retains the ordinary refusal.
+This proves chronology, not frame geometry. TASK-88 observed clipped 80-column
+output while the exact OMP process's PTY was 280×83. Agent `done`/`idle`, a final
+assistant message or a thread result does not prove an empty omitted composer.
+
+1. Main retains the exact launch/terminal/incarnation and checks the exact pane
+   with `orca terminal show --terminal HANDLE --json` and `orca worktree ps --json`.
+   Read `orca terminal read --terminal HANDLE --screen --limit 5000 --json`.
+   Retain the receipt privately; a larger row limit does not repair the frame.
+2. Compare the PTY size read-only only after binding its pts to the recorded
+   foreground OMP PID (`TIOCGWINSZ`, or `stty -F /dev/pts/N size` on Linux).
+   Do not guess a pts, use sudo, or send a terminal query as input.
+   Native `tail` length is not frame height; `tailRows.trailingSpaces` is not
+   right-edge padding. The installed CLI exposes no authoritative frame geometry.
+3. **Recovery A — Main-only, owner-approved finished-builder exception.**
+   Main's TASK-88 ruling `msg_a0b4555866e0` records four manual recoveries and
+   permits this path only for finished builders. Verify the current launch's
+   settled completion receipt (or matching merged PR plus finished Pad task),
+   canonical final assistant stop, live session lease, exact foreground OMP
+   PID/starttime/pts and terminal incarnation. The exact pane must be done/idle,
+   not interrupted; any present program status must also be done/idle.
+   Main may then send fixed `/exit` plus Enter **once** despite the unproven
+   screen. This is an explicit manual exception, never normal empty-composer
+   proof or an automated Fleet fallback. Preserve any ambiguous send receipt;
+   never repeat it. Positively verify that exact OMP PID/starttime has exited
+   and the same-incarnation pts belongs solely to the foreground shell. Inspect
+   the shell input before redraw; do not submit unknown residue or a draft.
+   Record `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID
+   --evidence 'positive exit and shell proof'`, then use normal `fleet launch`
+   for the next Main-approved fresh task. Launch still requires its shell proof.
+4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
+   normal UI without touching the composer, then recapture and retry guarded
+   restart only with a full idle footer/empty composer and all existing gates.
+   Main approved this procedure; TASK-88 did not execute or verify it. Treat every
+   pre-existing builder pane as potentially needing recovery after another Orca
+   restart; a new builder session alone did not repair the affected pane.
+
+Neither recovery permits interrupting a working agent. If proof fails, stop and
+escalate to Main/owner. Never send Ctrl-L/Escape to an unproven composer.
+No stock CLI terminal resize/refresh command was found; no exit override was added.
+Upstream geometry/resize API changes require an owner decision. See
+[the feature map](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10).
+
 ## Waiting and inboxes
 
 Finite long work runs via omp async shell; completion wakes the owning session.

@@ -1,0 +1,134 @@
+{
+  "provenance": {
+    "captured_on": "2026-11-10",
+    "terminal": "term_da1a300e-41ee-4026-b823-9c0ec134e8b7",
+    "pty_rows": 83,
+    "pty_cols": 280,
+    "note": "Read-only capture after Orca restart; returnedLineCount is not frame height. Actual working agent; tests must not infer idle from missing footer."
+  },
+  "terminal": {
+    "handle": "term_da1a300e-41ee-4026-b823-9c0ec134e8b7",
+    "status": "running",
+    "tail": [
+      "│         tty=(p/'fd/0').resolve();                                            │",
+      "│         fd=os.open(tty,os.O_RDONLY|os.O_NOCTTY)                              │",
+      "│         print('bound omp',p.name,'tty',str(tty),'winsize',struct.unpack('HHHH│",
+      "│         os.close(fd)                                                         │",
+      "│     except (PermissionError,FileNotFoundError,OSError):                      │",
+      "│         pass                                                                 │",
+      "│ s=native('terminal','read','--terminal','term_da1a300e-41ee-4026-b823-9c0ec13│",
+      "│ print(json.dumps(s,ensure_ascii=False,indent=2))                             │",
+      "├─── Output ───────────────────────────────────────────────────────────────────┤",
+      "│ bound omp 3795247 tty /dev/pts/6 winsize (83, 280, 0, 0)                     │",
+      "│                                                                              │",
+      "╰──────────────────────────────────────────────────────────────────────────────╯",
+      " TODO",
+      "  ├─ Tasks · 0/4",
+      "  │  ├─ ☐ Investigate real terminal screen and cursor evidence",
+      "  │  ├─ ☐ Implement positive-proof retirement recovery with captured regression",
+      "  │  ├─ ☐ Verify runtime behavior and document boundaries",
+      "  │  └─ ☐ Publish reviewed green PR and obtain Main GO",
+      "  └─────",
+      "  ⎋ Comparing PTY dimensions and screen",
+      " ⠹ 2m > ◑ GPT-6.1 Sol > 🌳 fleet/fleet-phase1 > ⑂ task-88-screen-proof > S0.38 ─",
+      " ⠼ 2m > ◑ GPT-6.1 Sol > 🌳 fleet/fleet-phase1 > ⑂ task-88-screen-proof > S0.38 ─"
+    ],
+    "truncated": true,
+    "limited": true,
+    "oldestCursor": "97080",
+    "nextCursor": "99080",
+    "latestCursor": "99080",
+    "returnedLineCount": 22,
+    "tailRows": [
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 75
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 64
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 18
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 1
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 23
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 26
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 72
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 41
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      },
+      {
+        "wrapped": false,
+        "trailingSpaces": 0
+      }
+    ],
+    "source": "screen"
+  }
+}
