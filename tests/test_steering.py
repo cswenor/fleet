@@ -86,6 +86,64 @@ class SteeringTests(unittest.TestCase):
     def attempt(self):
         return state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts'][self.launch['id']]
 
+    def test_check_ack_and_pending_wait_for_launcher_release(self):
+        receipt = self.send('Preserve this instruction through contention.')
+        for action in ('check', 'pending', 'ack'):
+            with self.subTest(action=action), contextlib.ExitStack() as held:
+                held.enter_context(state.lock(self.c, 'launcher'))
+                with patch.object(state.time, 'sleep', side_effect=lambda _: held.close()):
+                    if action == 'pending':
+                        messages = self.pending()['lanes'][0]['messages']
+                    else:
+                        result = steering.check(self.c, 'TASK-1',
+                                                receipt['token'] if action == 'ack' else None)
+                        messages = result['messages']
+                self.assertEqual([m['token'] for m in messages],
+                                 [] if action == 'ack' else [receipt['token']])
+        self.assertTrue(self.attempt()['steering'][receipt['token']]['acknowledged_at'])
+
+    def test_checkpoint_timeout_cli_has_clear_error_and_does_not_ack(self):
+        receipt = self.send()
+        for args in (['check', 'TASK-1'], ['check', 'TASK-1', '--ack', receipt['token']],
+                     ['pending']):
+            with self.subTest(args=args), state.lock(self.c, 'launcher'), \
+                    patch.object(state.time, 'monotonic', side_effect=[0, 180]), \
+                    patch.object(cli, 'load', return_value=self.c), \
+                    patch('sys.argv', ['fleet', 'thread', *args]), \
+                    self.as_main() if args == ['pending'] else contextlib.nullcontext():
+                error = io.StringIO()
+                with contextlib.redirect_stderr(error):
+                    self.assertEqual(cli.main(), 2)
+                self.assertIn('fleet launcher busy for >180s; retry thread check', error.getvalue())
+        self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
+
+    def test_check_revalidates_launch_after_wait(self):
+        receipt = self.send()
+        with contextlib.ExitStack() as held:
+            held.enter_context(state.lock(self.c, 'launcher'))
+            def replace_launch(_):
+                state.write(self.c, 'launches', {self.slot: {**self.launch, 'id': 'replacement'}})
+                held.close()
+            with patch.object(state.time, 'sleep', side_effect=replace_launch):
+                with self.assertRaises(ValueError):
+                    steering.check(self.c, 'TASK-1', receipt['token'])
+        self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
+
+    def test_other_lock_callers_still_fail_immediately(self):
+        with state.lock(self.c, 'launcher'), patch.object(state.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'fleet launcher already running'):
+                self.send()
+            sleep.assert_not_called()
+
+    def test_bounded_lock_expires_without_oversleeping(self):
+        with state.lock(self.c, 'scratch'), \
+                patch.object(state.time, 'monotonic', side_effect=[0, 0.25, 0.3]), \
+                patch.object(state.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'fleet scratch already running'):
+                with state.lock(self.c, 'scratch', wait_seconds=0.3):
+                    self.fail('contended lock must not be acquired')
+            self.assertAlmostEqual(sleep.call_args.args[0], 0.05)
+
     def test_send_check_ack_round_trip_preserves_until_processed(self):
         body = 'Preserve the user edits; do not publish.'
         with patch.object(steering.time, 'time', return_value=1000):

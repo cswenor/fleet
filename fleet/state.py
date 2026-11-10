@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 
 
 def directory(c):
@@ -39,10 +40,18 @@ def write(c, name, value):
 
 
 @contextmanager
-def lock(c, name):
+def lock(c, name, wait_seconds=0):
     with (directory(c) / (name + '.lock')).open('a') as f:
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as e:
-            raise ValueError(f'fleet {name} already running') from e
+        deadline = time.monotonic() + wait_seconds if wait_seconds > 0 else None
+        while True:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as e:
+                if deadline is None:
+                    raise ValueError(f'fleet {name} already running') from e
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError(f'fleet {name} already running') from e
+                time.sleep(min(0.1, remaining))
         yield

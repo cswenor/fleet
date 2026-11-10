@@ -1,4 +1,5 @@
 """Attempt-scoped Main steering, surfaced explicitly without terminal input."""
+from contextlib import contextmanager, ExitStack
 import os
 import time
 import uuid
@@ -65,10 +66,22 @@ def send(c, ref, body, priority=False):
         return dict(receipt)
 
 
+@contextmanager
+def _checkpoint_lock(c):
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(state.lock(c, 'launcher', wait_seconds=180))
+        except ValueError as e:
+            if not isinstance(e.__cause__, BlockingIOError):
+                raise
+            raise ValueError('fleet launcher busy for >180s; retry thread check') from e
+        yield
+
+
 def check(c, ref, acknowledge=None):
     caller = threads.identity(c)
     name = threads._name(ref)
-    with state.lock(c, 'launcher'), state.lock(c, name):
+    with _checkpoint_lock(c), state.lock(c, name):
         ledger, task, key, attempt = threads.current(c, ref, caller)
         launch = state.read(c, 'launches', {})[attempt['slot']]
         threads._ownership(c, launch, attempt['slot'], caller)
@@ -87,7 +100,7 @@ def check(c, ref, acknowledge=None):
 def pending(c):
     _main(c)
     lanes = []
-    with state.lock(c, 'launcher'):
+    with _checkpoint_lock(c):
         for slot, launch in state.read(c, 'launches', {}).items():
             if slot not in c['builder']['slots']:
                 continue

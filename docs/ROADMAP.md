@@ -113,6 +113,25 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-96 — Steering checkpoints wait behind launcher contention
+
+`thread check` (including `--ack`) and `thread pending` retain exclusive
+launcher serialization and wait up to 180 seconds instead of failing immediately
+behind a launch/restart. Expiry exits 2 with
+`fleet launcher busy for >180s; retry thread check`. Ownership is read again
+after acquisition; a replacement launch cannot receive a stale acknowledgement.
+Other lock callers retain immediate refusal (`wait_seconds=0`).
+
+All 26 steering plus 99 retirement/stop regressions pass, covering release,
+timeout, stale ownership, ack preservation and unchanged immediate refusal.
+Zero-wait callers do not read the clock, preserving existing timing behavior.
+A source CLI smoke with
+isolated native ownership fixtures and a real scratch lock-holder subprocess
+held `launcher.lock` for 20 seconds: `thread check` returned the instruction with
+exit 0 after 20.06 seconds. No live launch/state or shared deployment changed.
+Publication requires independent final-head Sol-medium review, green CI and
+Main exact-head GO; durable receipts belong on TASK-96/PR.
+
 ### TASK-95 — Merge-queue CI progress participates in PR stuck timers
 
 Queued entries are matched to merge-group runs by the entry's synthetic
