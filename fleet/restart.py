@@ -264,6 +264,37 @@ def _session(record, slot, previous=None):
     return proof
 
 
+def _terminal_predates_runtime(c, record, tree, handle):
+    """Best-effort local chronology for diagnostics only, never input authority."""
+    try:
+        process = _foreground(c, record, tree['path'], handle)
+        fields = (PROC / str(process['pid']) / 'stat').read_text().rsplit(')', 1)[1].split()
+        shell = PROC / fields[3]  # The controlling terminal's session leader.
+        before = (shell / 'stat').read_text()
+        session = before.rsplit(')', 1)[1].split()
+        if (session[0] not in ('R', 'S') or session[3] != shell.name or
+                session[4] != process['tty'] or
+                (shell / 'exe').resolve(strict=True).name not in ('bash', 'zsh', 'sh') or
+                ('ORCA_TERMINAL_HANDLE=' + handle).encode()
+                not in (shell / 'environ').read_bytes().split(b'\0')):
+            return False
+        status = orca(c, 'status')
+        pid = status.get('app', {}).get('pid')
+        if type(pid) is not int or pid <= 0 or status.get('runtime', {}).get('reachable') is not True:
+            return False
+        runtime = PROC / str(pid) / 'stat'
+        runtime_fields = runtime.read_text().rsplit(')', 1)[1].split()
+        runtime_after = runtime.read_text().rsplit(')', 1)[1].split()
+        shell_after = (shell / 'stat').read_text().rsplit(')', 1)[1].split()
+        return (runtime_fields[0] in ('R', 'S') and runtime_after[0] in ('R', 'S') and
+                int(session[19]) < int(runtime_fields[19]) and
+                shell_after[19] == session[19] and shell_after[1:6] == session[1:6] and
+                runtime_after[19] == runtime_fields[19] and
+                _foreground(c, record, tree['path'], handle) == process)
+    except (CommandError, OSError, ValueError, IndexError, KeyError, TypeError):
+        return False
+
+
 def _idle(c, record, tree, handle, previous=None):
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
@@ -278,7 +309,12 @@ def _idle(c, record, tree, handle, previous=None):
     if ui == 'draft':
         raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
     if ui != 'idle':
-        raise ValueError('no positive idle OMP composer; working, dialog, background job, or stale screen')
+        raise ValueError(
+            'no positive idle OMP composer; working, dialog, background job, or stale screen'
+            + ('; terminal session predates the current Orca runtime: screen model may be '
+               'stale after Orca restart; see docs/MAIN.md#post-restart-clipped-screen. '
+               'Agent done/idle alone is insufficient; no retirement input sent'
+               if _terminal_predates_runtime(c, record, tree, handle) else ''))
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
         raise ValueError('agent status inventory incomplete')

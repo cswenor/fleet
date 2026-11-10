@@ -112,6 +112,32 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+
+### TASK-88 — Post-restart clipped-screen diagnosis and recovery
+
+Main revised scope in `msg_a0b4555866e0`: retain strict empty-composer proof,
+add a chronology-bound diagnostic and document manual recovery; no
+`--exit-stale-finished` override or inferred frame geometry. The installed stock
+Orca CLI exposes neither authoritative frame dimensions nor terminal resize/
+refresh. Upstream API changes remain an owner decision.
+
+Read-only live phase1 capture has clipped 80-column borders and no composer
+border while its exact bound OMP PTY is 280×83. A 5000-row read does not repair
+it. The real captured regression refuses even with exact-pane done/idle and null
+program status. Source `_idle` on the affected live launch confirms that the
+terminal session predates Orca and reports the runbook without sending input.
+Unavailable chronology retains the ordinary refusal; all retirement gates stay
+unchanged.
+All 478 tests pass, including the captured refusal and chronology boundary cases.
+
+[Operator recovery](MAIN.md#post-restart-clipped-screen) separates Main's
+owner-approved manual finished-builder exit/reconcile/launch exception from
+operator UI resize followed by fresh full idle/composer proof. Neither was
+executed by this builder. [Source-bound evidence](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10)
+records the suspected 80×24 fallback as inference, not measured emulator geometry.
+Publication receipts live on TASK-88/PR; shared deployment and a future live
+relaunch remain Main-owned.
+
 ### TASK-85 — Actionable-only Main wake and delayed unwakeable relays
 
 Main wake decisions now consider only native question/escalation messages, matching

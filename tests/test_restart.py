@@ -435,6 +435,62 @@ class RetirementTests(unittest.TestCase):
                 self.screen = screen
                 self.refused('idle|dialog|background')
 
+    def test_real_post_restart_clipped_screen_never_proves_empty_composer(self):
+        capture = json.loads((Path(__file__).parent / 'fixtures' /
+                              'orca-stale-screen.json').read_text())
+        self.screen = capture['terminal']['tail']
+        for agent_state in ('done', 'idle', 'working'):
+            with self.subTest(agent_state=agent_state):
+                self.agent.update(state=agent_state, programStatus=None, interrupted=False)
+                self.refused('no positive idle OMP composer')
+
+    def chronology_processes(self):
+        fields = (self.process / 'stat').read_text().rsplit(')', 1)[1].split()
+        fields[3] = '321'
+        (self.process / 'stat').write_text('123 (omp) ' + ' '.join(fields))
+        shell = self.proc / '321'
+        shell.mkdir()
+        shell_fields = ['S', '1', '321', '321', '456', '123'] + ['0'] * 13 + ['500']
+        (shell / 'stat').write_text('321 (bash) ' + ' '.join(shell_fields))
+        executable = Path(self.slot) / 'bash'
+        executable.touch()
+        (shell / 'exe').symlink_to(executable)
+        (shell / 'environ').write_bytes(b'ORCA_TERMINAL_HANDLE=target\0')
+        runtime = self.proc / '999'
+        runtime.mkdir()
+        return shell, runtime
+
+    def test_terminal_chronology_uses_shell_not_fresh_builder_start(self):
+        shell, runtime = self.chronology_processes()
+        # The builder starts at tick 1000, but its terminal survives from tick 500.
+        for started, expected in ((499, False), (500, False), (750, True)):
+            with self.subTest(runtime_start=started):
+                fields = ['S', '1', '999', '999', '0', '-1'] + ['0'] * 13 + [str(started)]
+                (runtime / 'stat').write_text('999 (node) ' + ' '.join(fields))
+                with patch.object(restart, 'orca', return_value={
+                        'app': {'pid': 999}, 'runtime': {'reachable': True}}):
+                    self.assertEqual(restart._terminal_predates_runtime(
+                        self.c, self.record, self.tree, 'target'), expected)
+        self.assertEqual(self.sent, [])
+
+    def test_unavailable_or_unbound_chronology_never_claims_restart(self):
+        shell, runtime = self.chronology_processes()
+        fields = ['S', '1', '999', '999', '0', '-1'] + ['0'] * 13 + ['750']
+        (runtime / 'stat').write_text('999 (node) ' + ' '.join(fields))
+        for status in ({}, {'app': {'pid': True}, 'runtime': {'reachable': True}},
+                       {'app': {'pid': 999}, 'runtime': {'reachable': False}},
+                       {'app': {'pid': 998}, 'runtime': {'reachable': True}}):
+            with self.subTest(status=status), patch.object(restart, 'orca', return_value=status):
+                self.assertFalse(restart._terminal_predates_runtime(
+                    self.c, self.record, self.tree, 'target'))
+        with patch.object(restart, 'orca', side_effect=CommandError('unavailable')):
+            self.assertFalse(restart._terminal_predates_runtime(
+                self.c, self.record, self.tree, 'target'))
+        (shell / 'environ').write_bytes(b'ORCA_TERMINAL_HANDLE=another\0')
+        self.assertFalse(restart._terminal_predates_runtime(
+            self.c, self.record, self.tree, 'target'))
+        self.assertEqual(self.sent, [])
+
     def test_post_restart_missing_program_status_preserves_guarded_retirement(self):
         for agent_state in ('done', 'idle'):
             for missing in (False, True):
