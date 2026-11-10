@@ -296,8 +296,12 @@ kinds: `provider_stalled`, `idle`, `wrong_model`, `stray_worktree`,
 Other relays remain `status`. `urgent.pr_stuck_minutes` is a positive finite
 number, default 45. The persisted PR timer starts on first observation and resets
 on state, head, merge-state, checks or review progress, not comments or
-`updated_at`. Urgency is advisory and unauthenticated, never authority or
-permission to restart, stop, merge or deploy.
+`updated_at`. Draft PRs and PRs carrying any `github.parked_labels` name
+(case-insensitive, default `["parked"]`) produce no stuck alerts or queued stuck
+relays. Their timers are cleared; the full interval starts on the first observed
+ready, unparked state. `parked_labels: []` disables label exclusion, not draft
+exclusion. Other PR events are unchanged. Urgency is advisory and unauthenticated,
+never authority or permission to restart, stop, merge or deploy.
 
 Each cycle observes `coordinator.terminal` for Main liveness.
 `main_down` is immediate for a missing, disconnected or orphaned terminal.

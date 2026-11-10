@@ -113,6 +113,24 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-92 — Exclude draft and parked PRs from stuck alerts
+
+The REST collector retains draft status and label names. Draft PRs or PRs
+carrying any `github.parked_labels` name (case-insensitive, default `["parked"]`)
+have no stuck timer or stuck relay, including pending delivery retries.
+The full configured interval starts again at the first ready, unparked
+observation. An empty label list disables only label exclusion.
+Other PR/check/merge relays and health alerts are unchanged.
+
+All 49 urgency/config regressions pass, covering pause/resume boundaries, custom
+and empty label lists, pending-relay cancellation and unchanged ordinary relays.
+Read-only source evaluation used the real Project Alpha config and REST-collected
+PRs #2477 (draft) and #2510 (ready). At the configured threshold on unchanged
+captured state, only #2510 would alert; #2477 had no timer. Ledger and clock
+advancement were in memory; no delivery, live-state write or deployment occurred.
+Publication requires independent final-head review, green CI and Main exact-head
+GO; receipts belong on TASK-92/PR. Shared deployment remains Main-owned.
+
 ### TASK-91 — Builder wake selection and typed Main action reports
 
 Main-approved `builder` wake selection matches builder report/decision classes;

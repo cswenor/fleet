@@ -104,6 +104,13 @@ def load(path):
     c.setdefault('interval_seconds', 60)
     if c['interval_seconds'] < 1 or s['push_seconds'] < 1:
         raise ValueError('intervals must be positive')
+    github = c.setdefault('github', {})
+    if not isinstance(github, dict):
+        raise ValueError('github must be a mapping')
+    github.setdefault('parked_labels', ['parked'])
+    if (not isinstance(github['parked_labels'], list) or
+            any(not isinstance(label, str) or not label.strip() for label in github['parked_labels'])):
+        raise ValueError('github.parked_labels must be a list of nonempty label names')
     urgent = c.setdefault('urgent', {})
     if not isinstance(urgent, dict):
         raise ValueError('urgent must be a mapping')

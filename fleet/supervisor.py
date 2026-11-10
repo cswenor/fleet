@@ -349,6 +349,13 @@ def urgent_event(c, event):
     return event
 
 
+def _stuck_pr_paused(c, p):
+    parked = c.get('github', {}).get('parked_labels', ['parked'])
+    return p.get('draft', False) or any(
+        label.casefold() == configured.casefold()
+        for label in p.get('labels', []) for configured in parked)
+
+
 def stuck_pr_alerts(c, ledger, current, now):
     """Persist observed semantic progress, ignoring comments and updated_at."""
     timers = ledger.setdefault('pr_progress', {})
@@ -356,7 +363,7 @@ def stuck_pr_alerts(c, ledger, current, now):
     result = []
     minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
     for p in current['prs']:
-        if p['state'] != 'open':
+        if p['state'] != 'open' or _stuck_pr_paused(c, p):
             continue
         key = str(p['number'])
         progress = {field: p.get(field) for field in ('state', 'head', 'merge_state')}
@@ -655,7 +662,11 @@ def cycle(c, deliver=True):
     remaining = []
     failures = []
     protected = set()
+    paused_prs = {p['number'] for p in current_g['prs'] if _stuck_pr_paused(c, p)} if current_g else set()
     for event in pending:
+        if event['key'].startswith('pr_stuck:') and event.get('pr') in paused_prs:
+            # A newly observed pause also invalidates undelivered old occurrences.
+            continue
         if event.get('lane_free'):
             identity = event['lane_free']
             builder = next((b for b in (inventory or {}).get('builders', [])

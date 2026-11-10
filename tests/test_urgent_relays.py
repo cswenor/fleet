@@ -92,6 +92,56 @@ class UrgentRelayTests(unittest.TestCase):
         self.cycle(5200)
         self.assertEqual(len(self.urgent_calls()), 2)
 
+    def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
+        for pause in ({'draft': True}, {'labels': ['Parked']},
+                      {'draft': True, 'labels': ['parked']}):
+            with self.subTest(pause=pause):
+                current = snapshot()['github']
+                pr = current['prs'][0]
+                ledger = {}
+                supervisor.stuck_pr_alerts(self.c, ledger, current, 0)
+                pr.update(pause)
+                self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 2700), [])
+                self.assertEqual(ledger['pr_progress'], {})
+                self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 9000), [])
+                pr.update(draft=False, labels=[])
+                self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 9001), [])
+                self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 11700), [])
+                self.assertEqual([e['pr'] for e in supervisor.stuck_pr_alerts(
+                    self.c, ledger, current, 11701)], [1])
+
+    def test_configured_parked_labels_and_empty_override(self):
+        current = snapshot()['github']
+        current['prs'][0]['labels'] = ['On Hold']
+        self.c['github'] = {'parked_labels': ['on hold']}
+        ledger = {}
+        supervisor.stuck_pr_alerts(self.c, ledger, current, 0)
+        self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 2700), [])
+        self.c['github']['parked_labels'] = []
+        supervisor.stuck_pr_alerts(self.c, ledger, current, 2701)
+        self.assertEqual([e['pr'] for e in supervisor.stuck_pr_alerts(
+            self.c, ledger, current, 5401)], [1])
+        current['prs'][0]['draft'] = True
+        self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 8101), [])
+
+    def test_pause_discards_pending_stuck_but_keeps_other_relays(self):
+        for pause in ({'draft': True}, {'labels': ['parked']}):
+            with self.subTest(pause=pause):
+                self.s = snapshot()
+                self.calls.clear()
+                state.write(self.c, 'supervisor', {
+                    'pending': [], 'sent': {}, 'github': {}, 'active_alerts': {}})
+                self.cycle(0)
+                with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+                    self.cycle(2700)
+                self.assertEqual(len(state.read(self.c, 'supervisor')['pending']), 1)
+                self.s['github']['prs'][0].update(
+                    **pause, checks=[{'id': 1, 'name': 'CI', 'conclusion': 'failure'}])
+                self.cycle(2701)
+                self.assertFalse(any(e['key'].startswith('pr_stuck:') for e, _ in self.calls))
+                self.assertTrue(any(e['key'].startswith('pr:') for e, _ in self.calls))
+                self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
+
     def test_progress_recovers_then_stuck_can_recur(self):
         for field, value in [('state', 'closed'), ('head', 'newsha'), ('merge_state', 'CLEAN'),
                              ('checks', [{'id': 1, 'name': 'CI', 'status': 'completed', 'conclusion': 'success'}]),
@@ -703,6 +753,17 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(c))
             self.assertEqual(config.load(path)['urgent'],
                              {'events': list(config.URGENT_EVENTS), 'pr_stuck_minutes': 45})
+            for github in (None, [], {'parked_labels': 'parked'},
+                           {'parked_labels': [None]}, {'parked_labels': [' ']}):
+                c['github'] = github
+                path.write_text(yaml.safe_dump(c))
+                with self.subTest(github=github), self.assertRaisesRegex(ValueError, 'github'):
+                    config.load(path)
+            for labels in ([], ['parked'], ['on hold', 'paused']):
+                c['github'] = {'parked_labels': labels}
+                path.write_text(yaml.safe_dump(c))
+                self.assertEqual(config.load(path)['github']['parked_labels'], labels)
+            c.pop('github')
             for urgent in [{'events': []}, {'events': ['wrong_model'], 'pr_stuck_minutes': 0.5}]:
                 c['urgent'] = urgent
                 path.write_text(yaml.safe_dump(c))

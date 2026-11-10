@@ -180,6 +180,7 @@ def collect(c, pr_number=None):
         merged = p.get('merged_at')
         result.append({'number': number, 'title': p['title'], 'url': p['html_url'], 'branch': p['head']['ref'], 'head': p['head']['sha'],
                        'state': 'merged' if merged else p['state'], 'created_at': p['created_at'],
+                       'draft': p.get('draft', False), 'labels': [label['name'] for label in p.get('labels', [])],
                        'updated_at': p['updated_at'], 'merge_state': (p.get('mergeable_state') or 'unknown').upper(),
                        'closed_at': p['closed_at'], 'merged_at': merged,
                        'time_to_merge_seconds': int((datetime.fromisoformat(merged.replace('Z', '+00:00')) - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))).total_seconds()) if merged else None,

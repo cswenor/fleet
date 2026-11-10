@@ -92,6 +92,9 @@ coordinator:
   # Optional additional Run ID receiving Main liveness alerts, not a terminal.
   escalation_run: null
 interval_seconds: 60
+github:
+  # Case-insensitive names; [] disables label exclusion, never draft exclusion.
+  parked_labels: [parked]
 # Urgency is advisory, never authentication or additional authority.
 # Native Orca delivers these as question with an explicit [urgent] subject.
 urgent:
