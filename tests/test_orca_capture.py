@@ -6,8 +6,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from fleet import orca_capture as capture
-from fleet import orca_restart as conductor
-from fleet import orca_restart_preflight as preflight
 
 
 class CaptureTests(unittest.TestCase):
@@ -61,7 +59,7 @@ class CaptureTests(unittest.TestCase):
         c = {'root': '/root', 'builder': {'slots': ['/slot']}, 'coordinator': {'run': 'run'}}
         with patch.object(capture, 'orca', side_effect=native), \
                 patch.object(capture, '_processes', return_value=([], [], [])), \
-                patch.object(capture, 'run', return_value='ActiveState=active\nMainPID=9\n'):
+                patch.object(capture, 'run', return_value='ActiveState=active\nMainPID=9\n') as service_read:
             result = capture.collect(c, ['fleet-test.service'])
         self.assertIn('runtime_identity_unstable', result['errors'])
         self.assertEqual(result['mailboxes']['run']['messages'], [
@@ -69,6 +67,13 @@ class CaptureTests(unittest.TestCase):
              'delivery_contract': 'current_delivery'}])
         self.assertNotIn('private', json.dumps(result))
         self.assertEqual(result['services'][0]['ActiveState'], 'active')
+        service_read.assert_called_once_with([
+            '/usr/bin/systemctl', '--user', 'show', 'fleet-test.service',
+            '--property=LoadState,ActiveState,SubState,MainPID,NRestarts'])
+        checks = [args for args in calls if args[:2] == ('orchestration', 'check')]
+        self.assertEqual(checks, [('orchestration', 'check', '--terminal', 'term',
+                                   '--run', 'run', '--peek')])
+        self.assertFalse(any('ack' in args for args in calls))
 
     def test_pending_completeness_independent_of_history_size(self):
         row = {'id': 'pending', 'run_id': 'run', 'to_handle': 'run:run',
@@ -262,7 +267,6 @@ class ArgvSessionTests(unittest.TestCase):
         self.command()
         for mocked in (
             patch.object(capture, 'PROC', self.root),
-            patch.object(preflight, 'PROC', self.root),
             patch.object(capture.sys, 'platform', 'linux'),
             patch.object(capture.time, 'CLOCK_BOOTTIME', 7, create=True),
             patch.object(capture.time, 'clock_gettime', return_value=100),
@@ -324,10 +328,8 @@ class ArgvSessionTests(unittest.TestCase):
         self.assertIn('argv_session_unproven', self.row()['errors'])
 
     def test_recorded_session_id_mismatch_refuses_argv_binding(self):
-        row = self.row()
-        record = {'session_dir': str(self.logs), 'session_id': 'different-session'}
         with self.assertRaises(ValueError):
-            preflight._match_logs(row, record, set())
+            capture._argv_session(self.proc, expected_id='different-session')
 
     def test_resume_never_uses_argv_directory_as_session_proof(self):
         self.command(extra=('--resume', 'old-session'))
@@ -339,39 +341,6 @@ class ArgvSessionTests(unittest.TestCase):
         self.events[0]['timestamp'] = datetime.fromtimestamp(self.now - 90, timezone.utc).isoformat()
         self.write_log()
         self.assertIn('argv_session_unproven', self.row()['errors'])
-
-    def cached_config(self):
-        row = self.row()
-        plan = {'id': 'argv-guard', 'state_dir': str(self.root / 'journal'),
-                'execute_after': '2019-01-01T00:00:00+00:00',
-                'expires_at': '2099-01-01T00:00:00+00:00'}
-        journal = conductor.Journal(plan)
-        proof = {'snapshot': {'boot_id': 'boot', 'processes': [row]}}
-        conductor._atomic(journal.directory / 'preflight.json', proof)
-        journal.event('preflight', 'done', {'sha256': conductor._digest(proof)})
-        config = self.root / 'config.yml'
-        config.write_text('coordinator:\n  terminal: old\n  run: run\n')
-        config.chmod(0o600)
-        project = {'name': 'test', 'terminal': 'old', 'run': 'run', 'config': str(config)}
-        return journal, project, config
-
-    def test_cached_directory_permissions_cannot_authorize_config_cutover(self):
-        journal, project, config = self.cached_config()
-        before = config.read_bytes()
-        self.logs.chmod(0o770)
-        with patch.object(conductor, '_process_state', return_value='live'), self.assertRaises(ValueError):
-            conductor._configure(project, 'replacement', journal)
-        self.assertEqual(config.read_bytes(), before)
-        self.assertFalse(journal.step('config-test'))
-
-    def test_changed_live_argv_cannot_authorize_config_cutover(self):
-        journal, project, config = self.cached_config()
-        before = config.read_bytes()
-        self.command(extra=('--no-extensions',))
-        with patch.object(conductor, '_process_state', return_value='live'), self.assertRaises(ValueError):
-            conductor._configure(project, 'replacement', journal)
-        self.assertEqual(config.read_bytes(), before)
-        self.assertFalse(journal.step('config-test'))
 
     def test_resumed_legacy_main_remains_fd_bound(self):
         self.command(extra=('--resume', 'old-session'))

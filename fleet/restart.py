@@ -287,7 +287,9 @@ def _idle(c, record, tree, handle, previous=None):
     agents = [a for w in trees for a in w.get('agents', []) if a.get('paneKey') == key and not a.get('parentPaneKey')]
     if (len(agents) != 1 or agents[0].get('agentType') != 'omp' or
             agents[0].get('state') not in ('done', 'idle') or agents[0].get('interrupted') or
-            agents[0].get('programStatus', {}).get('state') not in ('done', 'idle')):
+            (agents[0].get('programStatus') is not None and
+             (not isinstance(agents[0]['programStatus'], dict) or
+              agents[0]['programStatus'].get('state') not in ('done', 'idle')))):
         raise ValueError('exact-pane agent is running, interrupted, or unknown')
     proof = _session(record, tree['path'], previous)
     lease = json_run(['omp', 'session', 'lease', '--json', '--', proof['id']], c['root'])

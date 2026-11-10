@@ -182,338 +182,133 @@ needs a new real probe and Main approval before removing the corresponding glue.
 - Retry of failed/stopped attempt repeats task, retry-of, explicit placement,
   agent/model; placement is not inherited. Lost mutations use request replay;
   three failed attempts circuit-break. Runtime restart alone is not failed attempt.
-- Terminal handles are runtime-scoped. Re-list after restart/stale-handle; use
-  replacement only, never dual-send. Rebind Run, update private supervisor config,
-  reconcile possible live workers. Actual restart/model/handle/Run replay semantics
-  remain **unverified**, not solved by fresh launch evidence.
+- Terminal handles are runtime-scoped. Re-list after restart/stale-handle; never
+  dual-send or assume a missing handle authorizes another agent. The 2026-11-10
+  live service restart preserved all 15 handles and Main processes (below).
 
-#### TASK-13 restart runbook (phase A; phase B not exercised)
+#### TASK-80 restart runbook: restart, verify, report
 
-The latest owner authorization permits **one unattended shared Orca restart**
-through an approved external conductor; it supersedes the owner-present,
-immediate-final-go and owner-manual-stop/start requirements recorded earlier.
-Scheduled window: **2026-11-07 14:00 UTC**; Main must give Project Alpha Main the
-cross-project notice by **13:00 UTC** (at least 60 minutes). This builder
-assignment is **rehearsal only**: no shared restart, production scheduling or
-rollout. Publishing the tooling still requires independent review, CI and
-Main's announcement confirmation. The rehearsals below do not establish
-shared-runtime restart acceptance.
+TASK-13's live restart on 2026-11-10 at 12:41:58Z took about six seconds.
+All 15 terminal handles and every omp process survived: PTYs live outside the
+system Orca service. The old conductor nevertheless failed at
+`coordinator-fleet`, because its Main-relaunch reconciliation assumptions were
+wrong. Private receipts: `~/.local/state/fleet/orca-restart/2026-11-10b/`.
+This supersedes the old timer, idle-confirmation, handoff-freshness and Main
+relaunch procedure. It does not prove mailbox replay/ack preservation.
 
-Orca 1.4.242 has no documented isolated profile startup recipe or quit command;
-`serve --data-root` is stale-lock recovery, not isolation. The approved target
-is the stock **system** unit `orca-serve.service`, not an executable launch or
-generic signal. The sole sudo mutation exception is exactly
-`sudo -n systemctl restart orca-serve.service`; read-only unit show/status is
-permitted. No other sudo, direct process signal, second server, lock recovery,
-stash or extra worktree is authorized.
+Only Main runs a live shared restart, after owner approval and notice to every
+affected project Main. Builders may run `--dry-run` only. Merge is not deployment
+or restart permission. Keep supervisors running; no Main or builder relaunch,
+Run rebind, private config rewrite or supervisor reinstall is part of restart.
 
-**Before scheduling**
+**Private plan (version 2)**
 
-1. Project Alpha Main prevents new build/cohort/CG jobs, finishes or safely stops
-   current work, persists Pad handoffs and confirms all eight lanes safe/idle.
-   Fleet Main does the same for fleet lanes. Unknown/disconnected is not idle;
-   no interrupt injection. Keep both project supervisors running.
-2. Deploy TASK-22 with both Mains informed. Each Main writes a durable project
-   handoff with exact fresh-Main startup argv, Run ID, task/PR/WIP evidence and
-   unresolved attempts. Start a fresh Main only after proving its incumbent
-   exited and no restored attempt exists; reconcile survivors without duplicate
-   launches. Builders are not automatically relaunched.
-3. Builders require explicit launch records, actual cmdline `--session-dir`,
-   readable session JSONL, stable PID/start ticks and complete actual
-   model/thinking events. Manually started Mains may instead use the exact
-   configured coordinator handle plus BEFORE-captured PID/start ticks, cwd,
-   argv shape and session file, with complete model/thinking. These explicit
-   Main records are not launch receipts or guesses from title/cwd. Missing/
-   unknown bindings block; project Mains safely retire or replace unverifiable
-   legacy sessions first, never kill live work.
-   Fleet lane readiness requires exact launch-bound positive idle proof or a
-   positively verified shell, not merely absence of activity.
-4. Save the last observed `fleet wait` receipt privately, mode 0600: native
-   Delivery ID, message IDs and read/ack state only; explicitly record no
-   outstanding Delivery when applicable. Keep known delivered-unacked and
-   pending IDs for replay comparison without discarding/acking real work.
-   No bodies, subjects, payloads, prompts or credentials. Orca 1.4.242's read-only
-   API cannot recover native unacked Delivery identity; inbox `read` is not ack.
-   At T-10, each Main stops **ALL of its own** async/background jobs (inbox
-   waits, wake timers, PR watches and deploy checks), confirms none remain,
-   sends its final safe-idle confirmation, ends its turn and leaves an empty
-   composer. Send the nominal T-5 confirmation before going quiet (or confirm
-   then immediately go quiet); do not leave any job running to send it.
-   No other agent injects interrupts. Keep project supervisors running.
-   Main idle proof accepts the shared `health.omp_ui` thinking-glyph set but
-   still rejects every background job, working pane, draft and pending dialog.
-5. Main supplies the approved private plan at exactly
-   `/home/dev/.local/state/fleet/orca-restart/plan.yml`, pins the reviewed fleet
-   checkout, verifies a live user systemd manager and uses an **external shell**
-   that survives Orca exit. Plan files are 0600 in private 0700 directories;
-   journal/capture directories are 0700 and their files 0600. Do not commit or
-   publish the plan, confirmations, session records, journal or full snapshots.
-
-**Private plan schema (version 1)**
-
-The following is a schema example, **not an executable approved plan**. Every
-`<...>` value (including integer placeholders) is an operator input obtained
-from current verified evidence; do not invent commands, runtime IDs or PIDs.
-Repeat `projects` and `session_records` to cover all projects and every Main
-and builder. All filesystem paths are absolute; IDs/project names are safe
-slugs. Unknown keys are rejected. There is no launch/environment schema.
+Use an owned 0600 plan in a private directory. Every path is absolute; project
+names and the plan ID are safe slugs. Unknown/obsolete fields are rejected.
+The state directory must be private (0700), or have a private existing parent.
+Do not overwrite an earlier restart's journal or reuse its ID for a new restart.
 
 ```yaml
-version: 1
-id: "<approved-safe-slug>"
-state_dir: "/<private-absolute-journal-directory>"
-execute_after: "2026-11-07T14:00:00+00:00"
-expires_at: "<approved-timezone-qualified-ISO-expiry>"
+version: 2
+id: approved-restart-id
+state_dir: /private/fleet/restart-evidence
 service: orca-serve.service
-allow_systemd_sigkill: true # Approved by ruling msg_dc4d07132417; default false.
-target:
-  pid: <integer-exact-target-pid>
-  start_ticks: <integer-proc-start-ticks>
-  exe: "/<exact-proc-executable>"
-  argv: ["<exact-target-argv0>", "<each-exact-argument>"]
-  cwd: "/<exact-target-cwd>"
-  runtime_id: "<current-status-runtime-id>"
-  runtime_pid: <integer-current-status-runtime-pid>
+allow_systemd_sigkill: true # Only with approval for the unit's existing policy.
+timeout_seconds: 60 # Optional; integer 1..300.
+consumption_timeout_seconds: 120 # Optional; integer 1..600, default two minutes.
 projects:
-  - name: "<project-safe-slug>"
-    mode: main
-    config: "/<project-private-fleet-config>"
-    handoff: "/<durable-project-main-handoff>"
-    worktree: "/<existing-project-main-worktree>"
-    command: ["<approved-fresh-main-argv0>", "<each-exact-argument>"]
-    delivery: false # Operator chooses approved supervisor delivery policy.
+  - name: fleet
+    config: /home/dev/.config/fleet/fleet.yml
+  - name: project-alpha
+    config: /home/dev/.config/fleet/project-alpha.yml
   - name: project-beta
-    mode: main
-    config: "/home/dev/.config/fleet/project-beta.yml"
-    worktree: "/home/dev/dev/example-org/project-beta"
-    handoff: "/home/dev/.local/state/fleet/cswenor--project-beta/main-handoff.md"
-    command: [] # Unresolved template; fill the exact approved fresh argv privately.
-    delivery: false # Operator input, not a rollout recommendation.
-session_records:
-  - "/<canonical-launches-json-or-explicit-main-record-json>"
-confirmations:
-  project_alpha_idle: "/<private-project-alpha-idle-confirmation-json>"
-  fleet_idle: "/<private-fleet-idle-confirmation-json>"
-timeout_seconds: 60 # Optional; integer 1..300, default 60.
-launch_attempts: 2 # Optional; integer 1..3, default 2.
+    config: /home/dev/.config/fleet/project-beta.yml
 ```
 
-Each confirmation is JSON with exactly the operator's plan ID and fresh,
-timezone-qualified timestamps, for example this **non-executable template**:
+No Main commands, session directories, process records, handoffs, confirmations
+or execution timestamps belong in the plan. The actual service/runtime identity
+is discovered and revalidated immediately before the sole restart attempt.
+`allow_systemd_sigkill` records approval of systemd's existing stop policy; Fleet
+does not change it or send its own signals. The privileged operation remains
+exactly the approved stock `systemctl restart orca-serve.service` through sudo.
+No other sudo, lock recovery, second server or generic signal is authorized.
 
-```json
-{"plan_id":"<approved-safe-slug>","confirmed_at":"<ISO-time>","expires_at":"<ISO-time>","idle":true}
-```
+**Dry run and execution**
 
-Both confirmations must be unexpired and less than one hour old at execution;
-they may precede `execute_after` so Mains can confirm and become idle before
-the external timer fires. Their expiry cannot exceed the plan expiry. A timer
-is not an idle confirmation.
-
-Main ruling `msg_1bd7a113d407` defines `fleet_idle` as attesting safe-idle for
-both fleet and Project Beta Main/lane work; Fleet Main coordinates Email for
-this restart. The existing per-project native/process idle gates still run for
-Email too. No third confirmation field or gate waiver was introduced.
-
-A launch-bound Main
-record includes `session_dir`, `terminal`, `worktree: {path, id}` and
-`terminal_incarnation_id` with normal launch identity fields. The approved
-alternative for a manually started Main is an explicit JSON record with
-`terminal`, `pid`, `start_ticks`, `session_path`, `worktree: {path, id}` and
-`terminal_incarnation_id`. Its exact configured coordinator handle must match
-the BEFORE capture's process/cwd/argv-shape/session-file evidence; survival
-requires the same boot/PID/start/session. This exception does not loosen
-builder launch/session-directory requirements. Handoffs must be nonempty,
-private (0600), and modified no earlier than T-30 minutes, never future-dated;
-all three Mains refresh them at T-15. Validate each project's config with fleet's
-normal config loader, terminal bindings and readable handoffs.
-
-Refresh manual records with explicit `session_id` and `boot_id`; changed values
-are refused rather than inferred from a title or working directory alone.
-
-Main ruling `msg_65510e97c8bc` permits FD-less discovery only through the exact
-live revalidated argv `--session-dir`: absolute, process-real-uid-owned, no
-symlink component, no group/other write. Exactly one canonical root must have
-the recorded session ID, matching cwd and complete actual model/thinking.
-Its header timestamp must follow that process's start; prior/future logs refuse.
-No default directory guessing. `--resume`, `--continue` and `--restore` retain
-FD-only binding, including the legacy resumed Project Alpha Main. Capture, preflight
-and mutation authorization share the same validator; cached argv/directory/
-session evidence is revalidated before every live mutation.
-
-Approved project bindings: Project Alpha config
-`/home/dev/.config/fleet/project-alpha.yml`, Run `run_9629bd883de6`, handoff
-`/var/tmp/project-alpha-scratch/TASK-2464/main-handoff.md`; Fleet handoff
-`/home/dev/.local/state/fleet/cswenor--fleet/main-handoff.md`; project-beta
-Run `run_c018565b177d` now has a Main, started by the owner at 22:05Z on
-2026-11-06. The private plan treats all three projects as Main mode. Main
-relayed Email's handoff path
-`/home/dev/.local/state/fleet/cswenor--project-beta/main-handoff.md`,
-to be written by Email Main at T-15, mode 0600 and subject to the same freshness gates.
-Email's exact fresh startup argv comes from its `docs/fleet.md` Future Main
-startup command. Main supplied Project Alpha's exact private startup command and
-approved only adding `--session-dir` immediately before each unchanged prompt.
-Fresh directories belong under each project's own private fleet state (`main-sessions-<UTC>`),
-created 0700 only if a fresh Main is positively required. The journal and
-durable messages to both the project Run and initiating Fleet Main record
-the new handle and session directory. The private plan remains **pending**:
-future timing, current process receipts, handoff freshness, idle confirmations
-and every legacy builder's launch evidence must all pass before scheduling.
-
-The observed stock unit has `KillMode=mixed`, `SendSIGKILL=yes` and a 90-second
-stop timeout. Final ruling **`msg_dc4d07132417` approves this existing policy**
-and bounded recovery; `allow_systemd_sigkill: true` may record that approval.
-Default false still fails closed. No unit edits are authorized. Record actual
-`TimeoutStopSec`, restart duration, whether systemd reached SIGKILL, and PTY
-scopes outside the service unit; do not infer those scopes stopped with it.
-The conductor never sends SIGKILL/custom signals itself or changes kill policy.
-
-**Read-only preflight and external conductor**
-
-CLI contract: `fleet orca-restart --plan PATH [--dry-run]` (global `--config`
-selects the primary project). First run the dry run externally:
+Run from the reviewed source checkout, with explicit config and Orca executable:
 
 ```sh
-fleet --config /home/dev/.config/fleet/fleet.yml orca-restart \
-  --plan /home/dev/.local/state/fleet/orca-restart/plan.yml --dry-run
+python3 -m fleet.cli --config /home/dev/.config/fleet/fleet.yml orca-restart \
+  --plan /private/fleet/restart-plan.yml --dry-run
 ```
 
-Dry run is strictly read-only: no journal creation, waiting/scheduling, stop,
-launch, terminal/config/service updates or mail consumption. It reports
-blockers rather than bypassing missing confirmations, timing or evidence.
-Per-project JSON `idle_checks` identifies health inventory, coordinator binding,
-Main process/idle proof and each `builder lane PATH`. For a matched Main,
-`main_idle_checks` separately reports terminal identity, footer/composer,
-background job, dialog, pane agent state, session final stop, lease and foreground
-process group. Each result is `passed`, `failed` with a bounded source-defined
-reason, or `skipped` with its missing prerequisite; raw exception text is omitted.
-The existing `PROJECT_idle_binding_unproven` blocker remains fail-closed.
-Check these reasons well before the window against a deliberately idle scratch
-Main: an “expected pre-window” blocker is not evidence that its gate can clear.
-Execution also refuses before `execute_after` or after `expires_at`; it never
-waits until the appointed time. External systemd scheduling provides that wait.
-Preflight checks the exact same-user target `/proc` executable, complete argv,
-cwd and start ticks against the plan, plus status runtime ID/PID. The target
-must be the runtime PID or its verified ancestor (the host's AppImage CLI
-`serve` parent may own the runtime node), never a process-name match. Reports
-retain only safe target identity and argv SHA256, not arbitrary observed argv.
-Every owned model-bearing OMP must have complete stable evidence. Capture
-errors other than the explicit `proc_scan_incomplete` diagnostic block;
-`owned_omp_incomplete` always blocks. List unreadable entries explicitly;
-never waive an unreadable same-user executable by mutable process name.
-Strict capture also recognizes the observed self-updater's deleted
-`omp.<digits>.<digits>.<digits>.bak` executable only with argv0 `omp`.
-It retains the exact executable link and revalidates that link, command bytes,
-start ticks and cwd; preflight still requires the exact session/record/handle.
-Mutable process names never justify an exclusion. Main approved this capture
-fix in `msg_bc52baf85deb`; the analogous builder-retirement fix is separate
-TASK-39, not included here.
+Dry run prints the BEFORE capture, blockers and exact planned actions. It never
+creates a journal, restarts anything, consumes mail or sends notifications.
+Inspect service identity/authority, coordinator Run bindings, terminal inventory,
+supervisor activity and pending-mail completeness. Process/session diagnostics
+remain evidence, not idle gates. No `omp session lease` subprocess is needed.
 
-Only after Main's verification, announcement confirmation and approved values,
-the authorized operator may schedule the conductor outside Orca. This is an
-operator template, **not a builder instruction to execute**: replace the
-checkout placeholder with the pinned reviewed absolute path. Use one unique
-unit for this plan; do not add `Restart=always` or an automatic retry timer.
+After approval, Main invokes the same command without `--dry-run` directly from
+its configured, Run-bound terminal. The caller survives the restart; no timer,
+transient systemd unit, new terminal or Main startup command is needed.
+Keep every Main's existing inbox wait job running; do not ask Mains to go quiet
+or stop `fleet wait`/main-inbox jobs. Use an async invocation with a deadline
+covering restart plus the consumption window so the initiating Main can still
+receive mail. `fleet wait` tolerates transport outages for up to 30 seconds;
+ambiguous consuming requests are never replayed blindly. `rearm` (exit 4)
+means runtime recovered and Main must inspect receipts then re-arm; persistent
+outage returns `runtime_unavailable` (exit 2). Any returned native batch/request
+metadata remains authoritative for replay/ack decisions.
+The conductor captures BEFORE, persists intent, restarts the service, waits
+boundedly for a new active service PID/runtime and captures AFTER. It verifies:
 
-```sh
-systemd-run --user --unit=fleet-orca-restart-2026-11-07 \
-  --on-calendar='2026-11-07 14:00:00 UTC' \
-  --property=UMask=0077 \
-  --working-directory=/<APPROVED-REVIEWED-FLEET-CHECKOUT> \
-  /usr/bin/python3 -m fleet.cli \
-  --config /home/dev/.config/fleet/fleet.yml orca-restart \
-  --plan /home/dev/.local/state/fleet/orca-restart/plan.yml
-```
+- Every BEFORE terminal handle is still listed and connected.
+- Every project's configured coordinator retains its Run binding.
+- Every project supervisor remains active.
+- Per-Run pending-message comparison reports retained, lost and new IDs.
+  A lost pending ID or incomplete inventory prevents success.
 
-The timer launches a transient **service**, not an Orca terminal/scope; it
-survives loss of the coordinating terminal. Do not export provider credentials
-or Orca terminal identity. Preserve timer/service invocation ID, result and
-sanitized output privately. At execution, the conductor must revalidate all
-gates, capture BEFORE, journal intent durably, recheck exact target and stock
-unit identity, then issue only `sudo -n systemctl restart orca-serve.service`.
-A timeout is not permission for another restart. Bounded recovery may repeat
-that same exact command only after positive old-process exit **and** a
-failed/inactive unit with MainPID=0, subject to `launch_attempts`. Every attempt
-revalidates both idle confirmations. Down-runtime recovery additionally requires
-a complete current owned-OMP census with no surviving model-bearing agents;
-survivors, unreadable entries or unknown actors retain manual state, never retry.
-Main accepted this reduced availability in `msg_e654aa00fe74`; filesystem-only
-completed-turn/lease proof is not an alternative. No custom launch, `sudo start`,
-escalation or unbounded loop. Capture AFTER before Main/config mutations.
-Follow the recovery sequence below.
+Capture uses read-only `check --peek`, never consuming check/ack. Fewer than
+100 validated pending rows proves completeness; a capped or malformed set
+blocks. Inbox history length is informational. Capture is sequential, not
+atomic: active Main waits may consume pending messages legitimately during the
+capture interval. A missing ID is conservatively flagged as loss requiring
+reconciliation, not proof that Orca lost it. Keep waits running; retain native
+Delivery receipts separately and reconcile them before ack.
 
-The private journal records plan-bound progress and before/after evidence
-across conductor failure. Resume uses the **same unchanged plan, ID and state
-directory** with the same CLI only after inspecting the journal. Never delete
-state or use a new ID to force a rerun. An ambiguous stop/launch/terminal-create
-intent is not permission to retry: reconcile actual process/runtime/terminal
-identity manually first. In particular, terminal creation accepted before a
-receipt was durably recorded requires manual reconciliation, not another Main.
-Refused/expired plans retain evidence; Main resolves the blocker explicitly.
-Fresh-Main authorization never reuses persisted AFTER evidence: immediately
-before creation it takes another live capture, checks unchanged boot/runtime,
-positive incumbent exit, no competing agent and a complete current census.
-The exact old terminal must still be connected/writable, same handle/incarnation,
-explicitly agent-free and at a positively ready shell; every other terminal
-in that Main worktree must also be positively agent-free/ready. Missing, closed
-without a retained positive closure proof, disconnected, orphaned or unknown
-terminals require manual reconciliation, never a duplicate. Retain the private
-`fresh-<project>.json` receipt. Partial proc-scan evidence can be reported by
-preflight but cannot authorize automatic fresh-Main creation.
-Shell-only coordinators also require a fresh `run-current` match, not just a
-connected ready prompt. Cached coordinator receipts are revalidated against
-current terminal/Run/shell or exact live Main evidence before continuing;
-past success cannot authorize a later stale cutover. Required announcements must return durable message IDs;
-failed, missing or ambiguous receipts make the outcome manual reconciliation,
-never `complete`. Persisted send intents are not retried automatically.
-Recorded Main creation is recovered without another create: verify the recorded
-handle/incarnation, current Run and exact sole live model process, then finish
-the coordinator receipt. An intent without a creation receipt remains manual.
-Fresh-Main and preflight checks share canonical-log validation: exactly one root
-JSONL, complete actual model/thinking headers, and only descendant helper logs.
-Nested helpers are accepted; foreign logs and ambiguous canonical roots refuse.
-Every listed supervisor must be loaded/active/running at preflight; unchanged
-shell coordinators and cached completed installs also recheck live activity
-before completion. A historical active receipt never repairs or hides failure.
-Reinstallation preserves the effective single `EnvironmentFiles` path and its
-optional/missing-file flag from systemd, without reading credential values.
-Multiple or unrecognized bindings require manual reconciliation before intent;
-the installer must not silently drop credentials while leaving a service active.
-Authorization is rechecked on every execution/resume and before each new live
-mutation, not inherited from a completed preflight or restart. Outside the
-window, return existing `blocked` / `execution_window_closed` output and leave
-recovery read-only; no fresh Main, config cutover, install or enqueue. Cached
-config receipts also require current terminal and Run equality; changed owner
-routing is preserved and requires reconciliation.
-Private startup argv/prompts remain only in the operator input plan. Public
-actions and persisted preflight carry a command digest and allowlisted metadata;
-execution hydrates argv in memory from the same digest-bound private plan,
-without mutating the stored proof. Never copy the plan into reports or logs.
-External sends use the same explicit `--from`/`--run` routing convention as the
-existing supervisor: the verified post-reconciliation project handle, or its
-preflight configured handle before mapping. Messages identify the automated
-conductor; sender text is routing context, never authority.
-Main approved this convention in `msg_96e2c57e8824`: status-only automated text
-to listed project Runs; binding must be verified before pre-restart sends and
-post-restart sends require the freshly verified mapping. Failed/ambiguous sends
-remain manual and are not retried. Probes must use scratch Runs.
-Every enqueue rechecks the sender's current incarnation, worktree, connectivity,
-handle and Run. Post-restart reporting requires a completed coordinator mapping.
-If identity is unproven, retain a blocked local receipt only; never borrow a
-configured or cached handle to report the failure of its own identity checks.
-Surviving Mains and reserved shells also require current terminal inventory;
-survivor session metadata is re-read from current processes, never saved AFTER.
-Both initial and cached Main reconciliation require a complete current census
-and exactly one model-bearing candidate in that Main's root. An original survivor
-does not resolve a competing restored agent; partial evidence remains manual.
-Positively foreign-user `non_owned` diagnostics are outside the owned census,
-not incompleteness; unreadable/unknown ownership still blocks.
-A created Main may wait boundedly for startup metadata to become complete;
-it is accepted only with a sole same-root agent and the shared process/native
-terminal proof: exact argv/session directory, current PID/start, process
-`ORCA_TERMINAL_HANDLE`, terminal incarnation/worktree/connectivity and cgroup.
-Competing agents refuse immediately; incomplete or wrong-terminal evidence at
-timeout retains the created receipt.
+Each project Run receives a native `question` outcome notification from the
+initiating caller identity, with a durable message-ID receipt. This wakes
+decision-filtered waits; enqueue alone still does not prove wake/read/approval.
+Missing or ambiguous notification receipts require reconciliation, never a
+false complete result or blind duplicate send.
+After enqueuing results, the conductor observes each Run with read-only peek
+for up to `consumption_timeout_seconds` (default 120). The report names the
+project/Main terminal, Run and result message ID, confirms a complete pending
+count of zero or flags undrained/unknown Runs in `attention_required`. It never
+sends another success message after that observation (which would refill the
+inbox), consumes mail itself or equates an empty pending set with human review.
+
+Post-restart `--screen` may be empty until the terminal redraws. Report it as
+unknown; do not auto-send Enter or any input to builders. The owner/Main may
+request a redraw only after positively identifying the terminal and safe state.
+TASK-81 adds observational Main health fallback, not shell-readiness permission.
+If a lane was manually exited/stopped, its launch receipt still requires
+`fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence TEXT`
+from Main after positive exit proof. Report unresolved receipts; neither a
+service restart nor missing screen/process evidence authorizes relaunch.
+
+Journal and BEFORE/AFTER evidence remain private, with 0600 files and fsynced
+receipts. After an interruption, inspect the existing journal and use the same
+unchanged plan only for receipt recovery. An unresolved restart intent never
+authorizes another restart. Missing terminals, lost mail, inactive services or
+unverified caller routing require manual reconciliation; Fleet does not repair
+them by creating agents or modifying other projects.
+
+Guarded **builder retirement** (`fleet restart`, not `orca-restart`) still
+requires positive empty-composer, launch/session lease and foreground proofs.
+After a service restart, absent/null `programStatus` is acceptable only with
+agent `state=done|idle` and no interruption. Present running/unknown program
+status and working agent state still refuse.
 
 **2026-11-06 conductor rehearsal evidence (source checkout, no shared restart)**
 

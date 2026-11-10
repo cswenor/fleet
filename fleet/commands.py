@@ -1,9 +1,9 @@
 """Bounded subprocess calls; only gh emits credential-sanitized diagnostics."""
-from functools import lru_cache
 import json
 import os
 import re
 import subprocess
+import time
 from urllib.parse import urlsplit
 
 
@@ -81,30 +81,49 @@ def json_run(argv, cwd=None):
     except json.JSONDecodeError as e:
         raise CommandError('invalid command JSON') from e
 
-@lru_cache(maxsize=64)
-def _orchestration_full(executable, verb):
+_ORCHESTRATION_CAPABILITIES = {}
+
+
+def _orchestration_full(executable, verb, timeout=60):
     # Discover before sending any mutation: retrying after a concise response
     # could send twice. Older Orca rejects --full even with --json.
-    help_text = run([executable, 'orchestration', verb, '--help'])
+    key = (executable, verb)
+    if key in _ORCHESTRATION_CAPABILITIES:
+        return _ORCHESTRATION_CAPABILITIES[key]
+    try:
+        help_text = run([executable, 'orchestration', verb, '--help'], timeout=timeout)
+    except CommandError as error:
+        if isinstance(error.__cause__, subprocess.TimeoutExpired):
+            raise CommandError('Orca capability discovery timed out',
+                               code='orca_capability_timeout') from error
+        raise
     _, separator, options = help_text.partition('\nOptions:\n')
     full = re.findall(r'(?m)^\s+--full(?:\s|$)', options)
     if (not separator or f'Usage: orca orchestration {verb}' not in help_text
             or len(full) > 1 or ('--full' in help_text and not full)):
         raise CommandError('ambiguous Orca orchestration capabilities')
-    return bool(full)
+    supported = bool(full)
+    if len(_ORCHESTRATION_CAPABILITIES) >= 64:
+        _ORCHESTRATION_CAPABILITIES.pop(next(iter(_ORCHESTRATION_CAPABILITIES)))
+    _ORCHESTRATION_CAPABILITIES[key] = supported
+    return supported
 
 
-def orchestration_args(executable, args):
-    if args and '--full' not in args and _orchestration_full(executable, args[0]):
+def orchestration_args(executable, args, timeout=60):
+    if args and '--full' not in args and _orchestration_full(executable, args[0], timeout=timeout):
         return (*args, '--full')
     return args
 
 
 
-def orca(c, *args):
+def orca(c, *args, timeout=60):
+    deadline = time.monotonic() + timeout
     if args[:1] == ('orchestration',):
-        args = ('orchestration', *orchestration_args(c['orca'], args[1:]))
-    p = _execute([c['orca'], *args, '--json'], c['root'])
+        args = ('orchestration', *orchestration_args(c['orca'], args[1:], timeout=timeout))
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise CommandError('Orca command deadline expired')
+    p = _execute([c['orca'], *args, '--json'], c['root'], timeout=remaining)
     try:
         data = json.loads(p.stdout)
     except (ValueError, TypeError) as e:

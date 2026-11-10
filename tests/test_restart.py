@@ -435,8 +435,23 @@ class RetirementTests(unittest.TestCase):
                 self.screen = screen
                 self.refused('idle|dialog|background')
 
+    def test_post_restart_missing_program_status_preserves_guarded_retirement(self):
+        for agent_state in ('done', 'idle'):
+            for missing in (False, True):
+                with self.subTest(state=agent_state, missing=missing):
+                    self.agent.update(state=agent_state, programStatus=None, interrupted=False)
+                    if missing:
+                        self.agent.pop('programStatus')
+                    proof = restart._idle(self.c, self.record, self.tree, 'target')
+                    self.assertEqual(proof['id'], 'session')
+                    self.assertEqual(self.sent, [])
+
     def test_running_unknown_and_interrupted_exact_panes_refuse(self):
-        for agent in ({}, {**self.agent, 'state': 'working'}, {**self.agent, 'programStatus': {}},
+        for agent in ({}, {**self.agent, 'state': 'working', 'programStatus': None},
+                      {**self.agent, 'programStatus': {}},
+                      {**self.agent, 'programStatus': {'state': 'running'}},
+                      {**self.agent, 'programStatus': {'state': 'unknown'}},
+                      {**self.agent, 'programStatus': 'idle'},
                       {**self.agent, 'interrupted': True}, {**self.agent, 'paneKey': 'other:leaf'}):
             with self.subTest(agent=agent):
                 self.agent = agent

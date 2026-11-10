@@ -1,27 +1,111 @@
 """One native Run wait; preserve native acknowledgment and recovery semantics."""
+import errno
 import json
 import math
 import os
 import re
 import subprocess
+import time
 from .commands import CommandError, orchestration_args
 
 
 class MailboxError(CommandError):
-    pass
+    def __init__(self, message, *, metadata=None):
+        super().__init__(message)
+        self.metadata = metadata or {}
+
+
+_UNAVAILABLE = frozenset(('orca_unavailable', 'runtime_unavailable',
+                          'service_unavailable', 'connection_lost',
+                          'connection_refused', 'transport_error'))
+
+
+def _metadata(data):
+    """Retain native recovery identifiers without interpreting mutation success."""
+    return {key: data[key] for key in (
+        'deliveryId', 'mutation', 'requestId', 'deliveryAcknowledged', 'acknowledged')
+        if key in data}
+
+
+def _binding(bound, run, caller):
+    if (not isinstance(bound, dict) or bound.get('id') != run
+            or bound.get('coordinator_handle') != caller or bound.get('legacy')):
+        raise MailboxError('caller_not_bound_to_configured_run')
+
+
+class _Recovery:
+    """One monotonic outage budget, shared by all read-only recovery operations."""
+    def __init__(self, c, run, caller):
+        self.c, self.run, self.caller = c, run, caller
+        self.deadline = None
+        self.recovered = False
+
+    def pause(self):
+        if self.deadline is None:
+            self.deadline = time.monotonic() + 30
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise MailboxError('runtime_unavailable')
+        time.sleep(min(1, remaining))
+        if time.monotonic() >= self.deadline:
+            raise MailboxError('runtime_unavailable')
+
+    def read(self, verb, *args):
+        if self.deadline is None:
+            self.deadline = time.monotonic() + 30
+        retry = False
+        while True:
+            try:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise MailboxError('runtime_unavailable')
+                if retry and verb != 'run-current':
+                    bound = self.read('run-current', '--from', self.caller).get('run')
+                    _binding(bound, self.run, self.caller)
+                    remaining = self.deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise MailboxError('runtime_unavailable')
+                value = request(self.c, verb, *args, timeout=min(30, remaining))
+                if retry:
+                    self.recovered = True
+                return value
+            except MailboxError as error:
+                if str(error) not in _UNAVAILABLE:
+                    raise
+                self.pause()
+                retry = True
+
+    def reconnect(self):
+        # Never reissue check or its --ack after an ambiguous response.
+        self.pause()
+        bound = self.read('run-current', '--from', self.caller).get('run')
+        _binding(bound, self.run, self.caller)
+        self.recovered = True
 
 
 def request(c, *args, timeout=60):
+    deadline = time.monotonic() + timeout
     try:
-        args = orchestration_args(c['orca'], args)
+        args = orchestration_args(c['orca'], args, timeout=min(30, timeout))
     except CommandError as e:
-        raise MailboxError('orca_capabilities_unavailable') from e
+        raise MailboxError('orca_unavailable' if e.code == 'orca_capability_timeout'
+                           else 'orca_capabilities_unavailable') from e
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise MailboxError('orca_unavailable')
     try:
         p = subprocess.run([c['orca'], 'orchestration', *args, '--json'],
                            cwd=c['root'], stdout=subprocess.PIPE,
-                           stderr=subprocess.DEVNULL, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as e:
+                           stderr=subprocess.DEVNULL, text=True, timeout=remaining)
+    except (FileNotFoundError, PermissionError) as e:
+        raise MailboxError('orca_executable_unavailable') from e
+    except subprocess.TimeoutExpired as e:
         raise MailboxError('orca_unavailable') from e
+    except OSError as e:
+        transport = e.errno in (errno.ECONNREFUSED, errno.ECONNRESET,
+                               errno.ECONNABORTED, errno.ETIMEDOUT,
+                               errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EPIPE)
+        raise MailboxError('orca_unavailable' if transport else 'orca_execution_failed') from e
     try:
         data = json.loads(p.stdout)
     except (ValueError, TypeError) as e:
@@ -32,7 +116,8 @@ def request(c, *args, timeout=60):
         error = data.get('error')
         code = error.get('code') if isinstance(error, dict) else None
         raise MailboxError(code if isinstance(code, str) and re.fullmatch('[a-z_]+', code)
-                           else 'orca_rejected')
+                           else 'orca_rejected',
+                           metadata={**_metadata(data), **_metadata(error if isinstance(error, dict) else {})})
     if p.returncode or data.get('ok') is not True or not isinstance(data.get('result'), dict):
         raise MailboxError('invalid_orca_response')
     return data['result']
@@ -132,18 +217,34 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
         caller = caller or terminal
         if not caller:
             raise MailboxError('caller_identity_required')
-        bound = request(c, 'run-current', '--from', caller).get('run')
-        if (not isinstance(bound, dict) or bound.get('id') != run
-                or bound.get('coordinator_handle') != caller or bound.get('legacy')):
-            raise MailboxError('caller_not_bound_to_configured_run')
+        recovery = _Recovery(c, run, caller)
+        bound = recovery.read('run-current', '--from', caller).get('run')
+        _binding(bound, run, caller)
+        # A later outage after the potentially long native wait gets its own
+        # budget; never extend the deadline within one recovery operation.
+        recovery.deadline = None
         args = ['check', '--terminal', caller, '--run', run, '--wait',
                 '--timeout-ms', str(int(timeout * 1000))]
         if types:
             args.extend(['--types', types])
         if ack_run:
             args.extend(['--ack', ack_run])
-        received = request(c, *args, timeout=timeout + 30)
-        batch = delivery(received, run)
+        try:
+            received = request(c, *args, timeout=timeout + 30)
+            result.update(_metadata(received))
+            batch = delivery(received, run)
+        except MailboxError as error:
+            result.update(error.metadata)
+            if 'received' in locals():
+                result['nativeResult'] = received
+            if str(error) not in _UNAVAILABLE:
+                raise
+            result.update(reason='consuming_wait_interrupted_outcome_unknown',
+                          interruptedOperation='check', acknowledgmentStatus='unknown; do not repeat acknowledgment',
+                          ackRunRequested=ack_run)
+            recovery.reconnect()
+            result.update(event='rearm', error=str(error), runtimeRecovered=True)
+            return result
         if batch:
             batch['messages'], batch['counts'] = classify(
                 batch['messages'], c['coordinator'].get('terminal'))
@@ -156,13 +257,21 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
                     result['acknowledgmentStatus'] = 'already acknowledged natively'
         result.update(event='messages' if batch else 'timeout',
                       acknowledged=received.get('acknowledged'))
+        if recovery.recovered:
+            result['runtimeRecovered'] = True
     except MailboxError as e:
         result['error'] = str(e)
+        if str(e) == 'runtime_unavailable':
+            result['event'] = 'runtime_unavailable'
+            return result
     # Never consume legacy terminal mail: its native check has no replay/ack.
     # Even failures carry diagnostics, without discarding an already fetched Run batch.
     if caller:
         try:
-            history = request(c, 'inbox', '--terminal', caller, '--limit', '1000')
+            diagnostics = recovery if 'recovery' in locals() else _Recovery(c, run, caller)
+            history = diagnostics.read('inbox', '--terminal', caller, '--limit', '1000')
+            if diagnostics.recovered:
+                result['runtimeRecovered'] = True
             if (not isinstance(history.get('messages'), list)
                     or not all(isinstance(m, dict) for m in history['messages'])
                     or history.get('count') != len(history['messages'])):
@@ -174,7 +283,10 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all'):
                 result['counts'][kind] += counts[kind]
         except MailboxError as e:
             result['legacyTerminalInbox']['error'] = str(e)
-            result.update(event='error', error=result.get('error', 'terminal_inbox_unavailable'))
+            if str(e) == 'runtime_unavailable':
+                result.update(event='runtime_unavailable', error=str(e))
+            else:
+                result.update(event='error', error=result.get('error', 'terminal_inbox_unavailable'))
     else:
         result['legacyTerminalInbox']['error'] = 'caller_identity_required'
     return result

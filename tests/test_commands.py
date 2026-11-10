@@ -45,8 +45,8 @@ class CapabilityMutationTests(unittest.TestCase):
         for verb in ('send', 'reply'):
             for failure in ('nonzero', 'timeout', 'empty', 'ambiguous'):
                 with self.subTest(verb=verb, failure=failure):
-                    commands._orchestration_full.cache_clear()
-                    self.addCleanup(commands._orchestration_full.cache_clear)
+                    commands._ORCHESTRATION_CAPABILITIES.clear()
+                    self.addCleanup(commands._ORCHESTRATION_CAPABILITIES.clear)
 
                     def execute(argv, **kwargs):
                         if argv[-1] != '--help':

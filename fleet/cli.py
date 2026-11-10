@@ -26,9 +26,11 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot')
     p.add_argument('--drill-usage-file', help='test-only additional launch withhold, never bypasses real quota')
-    p = sub.add_parser('orca-restart', help='external journaled Orca service restart')
-    p.add_argument('--plan', required=True)
-    p.add_argument('--dry-run', action='store_true')
+    p = sub.add_parser('orca-restart', help='restart Orca from the initiating Main and verify preservation',
+                       description='Journal one restart, preserve terminals/Run mail, and enqueue owner questions. '
+                                   'Exit 0 only for verified completion or an unblocked read-only dry-run; otherwise 2.')
+    p.add_argument('--plan', required=True, help='absolute path to private version-2 restart plan')
+    p.add_argument('--dry-run', action='store_true', help='read-only preflight, exact actions and BEFORE capture')
     p = sub.add_parser('restart')
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
@@ -52,7 +54,8 @@ def main():
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
     p.add_argument('--include-seen', action='store_true', help='re-emit an already returned initial event')
     p.add_argument('--debug', action='store_true', help='report GitHub request and 304 counts per poll')
-    p = sub.add_parser('wait')
+    p = sub.add_parser('wait', help='wait for Run mail; recover read-only API outages for up to 30s',
+                       description='Exit 0: messages; 3: timeout; 4: runtime recovered, rearm without replaying an ambiguous ack; 2: error/runtime_unavailable. Recovery is bounded to 30s; consuming checks are never retried.')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--wake-on', default='all',
                    help='comma-separated question,escalation,urgent,status,all; urgent aliases question; deliveries stay whole')
@@ -132,7 +135,8 @@ def main():
             from .mailbox import wait
             result = wait(c, args.timeout, args.ack_run, args.terminal, args.wake_on)
             print(json.dumps(result))
-            return {'messages': 0, 'timeout': 3, 'error': 2}[result['event']]
+            return {'messages': 0, 'timeout': 3, 'error': 2, 'rearm': 4,
+                    'runtime_unavailable': 2}[result['event']]
         if args.command == 'serve':
             from .supervisor import serve
             serve(c, not args.no_deliver, args.once)

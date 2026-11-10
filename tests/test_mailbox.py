@@ -91,17 +91,17 @@ class WaitTests(unittest.TestCase):
     def test_diagnostic_failure_preserves_unacked_run_delivery(self):
         with patch.object(mailbox, 'request', side_effect=[
                 {'run': {'id': RUN, 'coordinator_handle': CALLER}}, response(),
-                mailbox.MailboxError('orca_unavailable')]):
+                mailbox.MailboxError('invalid_orca_json')]):
             result = mailbox.wait(CONFIG)
         self.assertEqual(result['event'], 'error')
         self.assertEqual(result['batches'][0]['deliveryId'], 'delivery_one')
-        self.assertEqual(result['legacyTerminalInbox']['error'], 'orca_unavailable')
+        self.assertEqual(result['legacyTerminalInbox']['error'], 'invalid_orca_json')
 
     def test_auto_ack_survives_diagnostic_failure_with_native_recovery(self):
         with patch.object(mailbox, 'request', side_effect=[
                 {'run': {'id': RUN, 'coordinator_handle': CALLER}},
                 response(deliveryAcknowledged=True, mutation={'requestId': 'request_one'}),
-                mailbox.MailboxError('orca_unavailable')]):
+                mailbox.MailboxError('invalid_orca_json')]):
             result = mailbox.wait(CONFIG, ack_run='prior')
         self.assertEqual(result['event'], 'error')
         self.assertTrue(result['nativeAutoAck'])
@@ -169,14 +169,153 @@ class WaitTests(unittest.TestCase):
         self.assertEqual(classified[-1]['triageNote'], 'no reply expected')
         self.assertNotIn('replyExpected', classified[0])
 
+class RecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 0
+        patches = [
+            patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': CALLER}),
+            patch.object(mailbox.time, 'monotonic', side_effect=lambda: self.now),
+            patch.object(mailbox.time, 'sleep', side_effect=self.advance)]
+        for mocked in patches:
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def bound(self):
+        return {'run': {'id': RUN, 'coordinator_handle': CALLER}}
+
+    def test_read_outage_recovers_before_single_consuming_check(self):
+        with patch.object(mailbox, 'request', side_effect=[
+                mailbox.MailboxError('orca_unavailable'), self.bound(), response(),
+                {'messages': [], 'count': 0}]) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'messages')
+        self.assertTrue(result['runtimeRecovered'])
+        self.assertEqual(self.now, 1)
+        self.assertEqual([call.args[1] for call in native.call_args_list],
+                         ['run-current', 'run-current', 'check', 'inbox'])
+
+    def test_ambiguous_check_never_repeats_check_or_ack(self):
+        metadata = {'mutation': {'requestId': 'request_one'}, 'deliveryId': 'delivery_one'}
+        with patch.object(mailbox, 'request', side_effect=[
+                self.bound(), mailbox.MailboxError('connection_lost', metadata=metadata),
+                mailbox.MailboxError('runtime_unavailable'), self.bound()]) as native:
+            result = mailbox.wait(CONFIG, ack_run='prior')
+        self.assertEqual(result['event'], 'rearm')
+        self.assertEqual(result['reason'], 'consuming_wait_interrupted_outcome_unknown')
+        self.assertEqual(result['mutation']['requestId'], 'request_one')
+        self.assertEqual(result['deliveryId'], 'delivery_one')
+        self.assertEqual(result['ackRunRequested'], 'prior')
+        self.assertIn('do not repeat acknowledgment', result['acknowledgmentStatus'])
+        self.assertEqual([call.args[1] for call in native.call_args_list].count('check'), 1)
+        self.assertEqual(sum('--ack' in call.args for call in native.call_args_list), 1)
+
+    def test_persistent_outage_is_bounded_and_distinct(self):
+        with patch.object(mailbox, 'request', side_effect=mailbox.MailboxError('orca_unavailable')) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertEqual(result['error'], 'runtime_unavailable')
+        self.assertEqual(self.now, 30)
+        self.assertEqual(len(native.call_args_list), 30)
+        self.assertTrue(all(call.kwargs['timeout'] <= 30 for call in native.call_args_list))
+
+    def test_first_read_timeout_counts_toward_recovery_deadline(self):
+        def blocked(c, *args, timeout):
+            self.advance(timeout)
+            raise mailbox.MailboxError('orca_unavailable')
+        with patch.object(mailbox, 'request', side_effect=blocked) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertEqual(self.now, 30)
+        self.assertEqual(native.call_count, 1)
+
+    def test_interrupted_wait_persistent_outage_never_repeats_mutation(self):
+        def native(c, verb, *args, **kwargs):
+            if verb == 'run-current' and self.now == 0:
+                return self.bound()
+            raise mailbox.MailboxError('orca_unavailable')
+        with patch.object(mailbox, 'request', side_effect=native) as request:
+            result = mailbox.wait(CONFIG, ack_run='prior')
+        self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertEqual(self.now, 30)
+        self.assertEqual([call.args[1] for call in request.call_args_list].count('check'), 1)
+
+    def test_recovered_diagnostics_revalidate_binding_and_keep_batch(self):
+        with patch.object(mailbox, 'request', side_effect=[
+                self.bound(), response(deliveryAcknowledged=True, mutation={'requestId': 'native'}),
+                mailbox.MailboxError('orca_unavailable'), self.bound(),
+                {'messages': [], 'count': 0}]) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'messages')
+        self.assertTrue(result['runtimeRecovered'])
+        self.assertTrue(result['nativeAutoAck'])
+        self.assertEqual(result['batches'][0]['nativeRequestId'], 'native')
+        self.assertEqual([call.args[1] for call in native.call_args_list],
+                         ['run-current', 'check', 'inbox', 'run-current', 'inbox'])
+
+
+    def test_malformed_permission_and_binding_errors_do_not_retry(self):
+        for error in ('invalid_orca_json', 'invalid_orca_response', 'permission_denied',
+                      'consumer_fenced', 'orca_capabilities_unavailable'):
+            with self.subTest(error=error), patch.object(mailbox, 'request', side_effect=[
+                    mailbox.MailboxError(error), {'messages': [], 'count': 0}]) as native:
+                result = mailbox.wait(CONFIG)
+            self.assertEqual(result['event'], 'error')
+            self.assertEqual(result['error'], error)
+            self.assertEqual([call.args[1] for call in native.call_args_list],
+                             ['run-current', 'inbox'])
+        self.assertEqual(self.now, 0)
+
+    def test_recovery_rechecks_identity_before_diagnostic_retry(self):
+        with patch.object(mailbox, 'request', side_effect=[
+                self.bound(), response(deliveryAcknowledged=True, mutation={'requestId': 'native'}),
+                mailbox.MailboxError('orca_unavailable'),
+                {'run': {'id': 'wrong', 'coordinator_handle': CALLER}}]) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'error')
+        self.assertEqual(result['legacyTerminalInbox']['error'], 'caller_not_bound_to_configured_run')
+        self.assertEqual(result['batches'][0]['nativeRequestId'], 'native')
+        self.assertTrue(result['nativeAutoAck'])
+        self.assertEqual([call.args[1] for call in native.call_args_list].count('inbox'), 1)
+
+    def test_fetched_autoack_batch_survives_persistent_diagnostic_outage(self):
+        def native(c, verb, *args, **kwargs):
+            if verb == 'run-current':
+                return self.bound()
+            if verb == 'check':
+                return response(deliveryAcknowledged=True, mutation={'requestId': 'native'})
+            raise mailbox.MailboxError('orca_unavailable')
+        with patch.object(mailbox, 'request', side_effect=native) as request:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertEqual(self.now, 30)
+        self.assertEqual(result['batches'][0]['deliveryId'], 'delivery_one')
+        self.assertEqual(result['batches'][0]['nativeRequestId'], 'native')
+        self.assertTrue(result['nativeAutoAck'])
+        self.assertEqual(result['acknowledgmentStatus'], 'already acknowledged natively')
+        self.assertEqual([call.args[1] for call in request.call_args_list].count('check'), 1)
+
+    def test_disconnect_retains_native_response_identifiers(self):
+        received = response(connectionLost=True, mutation={'requestId': 'native'})
+        with patch.object(mailbox, 'request', side_effect=[
+                self.bound(), received, self.bound()]) as native:
+            result = mailbox.wait(CONFIG)
+        self.assertEqual(result['event'], 'rearm')
+        self.assertEqual(result['nativeResult'], received)
+        self.assertEqual(result['mutation']['requestId'], 'native')
+        self.assertEqual([call.args[1] for call in native.call_args_list].count('check'), 1)
+
+
 class CapabilitySafetyTests(unittest.TestCase):
     def test_failed_or_ambiguous_check_help_never_consumes_mail(self):
         for failure in (commands.CommandError('unavailable'), '',
                         'Usage: orca orchestration check\nOptions:\n  --full\n  --full\n'):
             with self.subTest(failure=failure):
-                commands._orchestration_full.cache_clear()
-                self.addCleanup(commands._orchestration_full.cache_clear)
-                def help_text(argv, *args):
+                commands._ORCHESTRATION_CAPABILITIES.clear()
+                self.addCleanup(commands._ORCHESTRATION_CAPABILITIES.clear)
+                def help_text(argv, *args, **kwargs):
                     if argv[2] == 'check':
                         if isinstance(failure, Exception):
                             raise failure
@@ -198,10 +337,32 @@ class CapabilitySafetyTests(unittest.TestCase):
                 self.assertEqual(result['error'], 'orca_capabilities_unavailable')
                 self.assertEqual(result['batches'], [])
 
+    def test_cold_capabilities_and_native_read_share_recovery_deadline(self):
+        for phase in ('capability', 'native'):
+            with self.subTest(phase=phase):
+                commands._ORCHESTRATION_CAPABILITIES.clear()
+                self.addCleanup(commands._ORCHESTRATION_CAPABILITIES.clear)
+                clock = [0.0]
+                def execute(argv, **kwargs):
+                    if '--help' in argv and phase == 'native':
+                        clock[0] += 20
+                        return subprocess.CompletedProcess(argv, 0,
+                            'Usage: orca orchestration run-current\nOptions:\n  --json\n', '')
+                    clock[0] += kwargs['timeout']
+                    raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+                with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': CALLER}), \
+                        patch.object(mailbox.time, 'monotonic', side_effect=lambda: clock[0]), \
+                        patch.object(mailbox.subprocess, 'run', side_effect=execute) as native:
+                    result = mailbox.wait(CONFIG, ack_run='unprocessed')
+                self.assertEqual(result['event'], 'runtime_unavailable')
+                self.assertEqual(clock[0], 30)
+                self.assertTrue(all('check' not in call.args[0] for call in native.call_args_list))
+
 
 class NativeErrorTests(unittest.TestCase):
     def setUp(self):
-        capability = patch.object(mailbox, 'orchestration_args', side_effect=lambda executable, args: args)
+        capability = patch.object(mailbox, 'orchestration_args',
+                                  side_effect=lambda executable, args, **kwargs: args)
         capability.start()
         self.addCleanup(capability.stop)
 
@@ -216,6 +377,21 @@ class NativeErrorTests(unittest.TestCase):
 
     def test_transport_timeout_is_failure_not_checkpoint(self):
         with patch.object(mailbox.subprocess, 'run', side_effect=subprocess.TimeoutExpired('orca', 1)), self.assertRaisesRegex(mailbox.MailboxError, 'orca_unavailable'):
+            mailbox.request(CONFIG, 'check')
+
+    def test_structured_transport_error_retains_native_identifiers(self):
+        payload = {'ok': False, 'error': {'code': 'runtime_unavailable',
+                   'requestId': 'native'}, 'deliveryId': 'delivery_one'}
+        with patch.object(mailbox.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                [], 1, json.dumps(payload))), self.assertRaises(mailbox.MailboxError) as raised:
+            mailbox.request(CONFIG, 'check')
+        self.assertEqual(str(raised.exception), 'runtime_unavailable')
+        self.assertEqual(raised.exception.metadata,
+                         {'requestId': 'native', 'deliveryId': 'delivery_one'})
+
+    def test_executable_permission_failure_is_not_a_transport_outage(self):
+        with patch.object(mailbox.subprocess, 'run', side_effect=PermissionError()), \
+                self.assertRaisesRegex(mailbox.MailboxError, 'orca_executable_unavailable'):
             mailbox.request(CONFIG, 'check')
 
 

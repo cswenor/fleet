@@ -571,54 +571,55 @@ wake/replay/ack behavior has been proved. Shared-checkout updates can deploy
 immediately; merge alone is not rollout approval. Builders remain unbound to Runs.
 
 Shared-runtime restart uses `fleet orca-restart --plan PATH [--dry-run]`, not
-`fleet restart` (which retires one proven finished builder). The latest owner
-authorization allows one unattended stock **system** `orca-serve.service`
-restart via an external transient systemd service, scheduled **2026-11-07
-14:00 UTC**, with cross-project notice by **13:00 UTC**. Builders only rehearse;
-Main released the announcement merge hold; final-head review and CI remain
-required. Source-bound dry-run and scratch service/terminal rehearsals are
-recorded in the runbook; shared-restart acceptance remains pending.
+`fleet restart` (which retires one proven finished builder). TASK-13's live
+2026-11-10 service restart preserved all 15 terminal handles and omp processes.
+TASK-80 therefore restarts and verifies; it never relaunches Mains, rebinds Runs,
+rewrites project configs or reinstalls supervisors.
 
-Main supplies `/home/dev/.local/state/fleet/orca-restart/plan.yml`; start with
-`fleet --config /home/dev/.config/fleet/fleet.yml orca-restart --plan
-/home/dev/.local/state/fleet/orca-restart/plan.yml --dry-run` externally.
-Dry run is strictly read-only and reports all blockers, including timing,
-fresh idle confirmations, exact process/unit identity, launch/session/model
-bindings and unreadable evidence. It does not schedule, write a journal or
-bypass gates. See the single [unattended restart runbook](docs/orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
-for the full private schema, approved stock-unit command, SIGKILL policy gate,
-external timer/service template, survival-first Main reconciliation and
-project-local config/service updates for the fleet, Project Alpha and Project Beta Mains.
-Dry-run JSON `projects[NAME].idle_checks` and `main_idle_checks` identify the exact
-failed gate, including footer/composer, background job, pane state, final session
-stop, lease, foreground process group and each builder lane. Only symbolic
-status/reason fields are exposed, never raw exception text or private process/
-session evidence. Preflight-blocked execution results and journal receipts retain
-the same section; refusal notifications include the receiving project's checks.
-At T-10 each Main stops **ALL of its own** async/background jobs (inbox waits,
-wake timers, PR watches and deploy checks), confirms none remain, sends its
-final safe-idle confirmation, ends its turn and leaves an empty composer.
-Send the nominal T-5 confirmation before going quiet, not from a running job.
-All thinking glyphs use `health.omp_ui`; background jobs remain blockers.
+Main supplies a private version-2 plan containing only ID, state directory,
+`service: orca-serve.service` and `{name, config}` project entries, plus optional
+bounded restart/consumption timeouts and approval of the existing systemd SIGKILL policy.
+See the [restart runbook](docs/orca-feature-map.md#task-80-restart-runbook-restart-verify-report)
+for the exact schema and authority checks. Old version-1 launch/session/idle/
+handoff fields are rejected, not silently ignored.
 
-The conductor retains BEFORE/AFTER read-only capture and resumable journal
-privately (0700 directories / 0600 files). No secrets, transcript text or mail bodies;
-preserve native Delivery/message/read/ack metadata separately before quiescing
-and after replay. `fleet.orca_capture` itself never mutates Orca or consumes/
-acks mail.
-Pending mail is captured in `mailboxes[RUN]` for every plan project Run via
-read-only `check --peek`: fewer than 100 validated rows proves completeness;
-100 rows, truncation or unknown/malformed pending data blocks capture. The
-1000-row history count is informational only (a lower bound, not the total).
-Compare BEFORE/AFTER pending IDs and counts manually before replay/ack; native
-Delivery identity still requires Main's separately retained receipt.
-Stop/launch timeout is not permission to retry: positive exit is
-required, recovery is bounded, and ambiguous terminal creation requires manual
-reconciliation. Every stock restart attempt revalidates idle confirmations;
-down-runtime retries also require a complete current owned-OMP census with no
-surviving model-bearing agents. Survivors or unknown evidence require manual
-reconciliation. Never delete state or blindly rerun. A surviving Main must not
-be duplicated. Neither preparation nor a fresh launch proves restart/replay.
+```sh
+python3 -m fleet.cli --config /home/dev/.config/fleet/fleet.yml orca-restart \
+  --plan /private/fleet/restart-plan.yml --dry-run
+```
+
+Dry run is read-only and prints the BEFORE capture, blockers and planned actions.
+Only Main executes without `--dry-run`, from its own configured Run-bound terminal,
+after owner approval and cross-project notice. No timer or external transient
+service is needed. Builders never execute a live shared restart.
+Keep all Main inbox waits running across the restart; do not ask them to go
+quiet. Run the conductor asynchronously, with a bounded deadline including its
+result-consumption window. `fleet wait` recovers transport outages for up to
+30 seconds. An ambiguous consuming request is never automatically replayed:
+`rearm` (exit 4) tells Main to inspect retained native receipts and re-arm;
+`runtime_unavailable` (exit 2) reports persistent outage.
+
+The conductor journals BEFORE/AFTER metadata privately (0700 directories, 0600
+files), verifies a new active service PID/runtime, every prior terminal handle
+connected, coordinator Run bindings and active supervisors. Automatic per-Run
+pending-message comparison reports lost and new IDs; loss or incomplete evidence
+prevents success. Capture uses read-only `check --peek`, never check/ack consumption;
+fewer than 100 validated rows proves completeness, while capped/malformed data
+blocks. History count is informational. Concurrent consumption can look like loss;
+Mains must reconcile native Delivery receipts separately.
+
+Outcome notifications use native `question` from the initiating Main identity
+to every project Run, retaining message-ID receipts. Enqueue is not proof of
+wake/read. Missing/ambiguous receipts or a timed-out restart require manual
+reconciliation, not duplicate sends or restarts. Resume only the unchanged plan
+after inspecting its private journal; never delete state to force retry.
+After sending results, read-only polling confirms complete zero-pending Run
+inventories, or names undrained/unknown Mains in `attention_required` after
+`consumption_timeout_seconds` (default 120, range 1..600). Empty pending is not
+human approval. Main must nudge flagged recipients through an attended channel.
+An empty post-restart screen needs safe operator redraw, never automatic builder
+input. Manually exited lanes still require Main's positive-exit `fleet reconcile`
+receipt before reuse; restart does not clear unresolved launches.
 
 Every result includes unfiltered, **read-only** terminal history diagnostics
 (requested limit 1000, subject to Orca's history cap), or an explicit diagnostic

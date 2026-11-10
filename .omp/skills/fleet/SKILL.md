@@ -169,7 +169,9 @@ Fleet has no local replay store; never fabricate terminal delivery IDs or consum
 legacy history to simulate reliable delivery. Full orchestration records are
 requested only when per-verb stock help advertises `--full` (in-memory cache);
 older Linux Orca keeps its explicit-ack output.
-Exit 0/messages is delivery, 3 timeout is a checkpoint, 2 error needs diagnosis.
+Exit 0/messages is delivery, 3/timeout a checkpoint, 4/rearm transport recovery
+requiring explicit re-arm. Exit 2/error or runtime_unavailable needs diagnosis;
+preserve returned batches/request IDs and never blindly repeat an ack.
 Inspect read-only legacy terminal history separately. Send proves durable enqueue,
 not wake/read; verify a real background completion before cutting reports over.
 No model-turn polling or repeated status questions while a wait can block.
@@ -424,42 +426,43 @@ or reset permission. Do not invoke a reset command merely to refresh usage.
 
 ## Orca shared-runtime restart / recovery
 
-Distinct from `fleet restart` (one builder). Builders never restart Orca. Current
-restart replay/model survival is not proven by fresh launches; consult the Fleet
-source's `docs/orca-feature-map.md` TASK-13 runbook and the project's owner-approved
-host procedure. No documented isolated profile or generic `open` restart is assumed.
+Distinct from `fleet restart` (one builder). Builders never restart Orca.
+TASK-13's 2026-11-10 live service restart preserved terminal handles and omp
+processes: PTYs run outside the service. Consult Fleet's
+`docs/orca-feature-map.md` restart-and-verify runbook and owner-approved host
+procedure; a different host/version still requires its own evidence.
 
-1. Main coordinates all affected project Mains with advance notice (the current
-   runbook requires at least 60 minutes). Stop new jobs; finish/persist work and
-   obtain explicit safe/idle confirmations. Unknown liveness blocks scheduling.
-   Keep per-project supervisors running. Record durable startup handoffs, Runs,
-   PR/WIP/attempts, and PID/start ticks/session bindings + actual model/thinking
-   for **every** model-bearing Main/builder; unverifiable bindings block GO.
-2. Use an external operator shell and user manager surviving Orca exit. Pin the
-   reviewed Fleet checkout. Before/after capture runs as an external transient
-   service with private output, never inside the dying Orca terminal:
-
-   ```sh
-   systemd-run --user --unit=fleet-orca-before --wait --pipe \
-     --property=UMask=0077 --working-directory=/path/to/fleet \
-     /usr/bin/python3 -m fleet.orca_capture \
-     --config /private/project/fleet.yml --out /private/new-before
-   ```
-
-   Use distinct units/new output directories afterward. Capture is read-only;
-   exit 0 alone is not restart permission. Inspect per-process incompleteness.
-   Retain metadata-only outstanding native Delivery/message IDs and ack state
-   privately; read-only inbox `read` does not establish batch ack. No raw payloads.
-3. Owner documents/performs the actual host stop/start, with immediate final GO.
-   No kill, lock reclamation, second server or improvised privilege escalation.
-4. Capture after **before** rebind/relaunch. Owner starts fresh Mains from handoffs;
-   re-list runtime-scoped handles, match incarnation/process/session evidence,
-   rebind each Main's own terminal to its Run, update private coordinator config,
-   and coordinate affected supervisor reinstall. Never dual-send to stale handles.
-5. Reconcile all possibly surviving/restored_unconfirmed attempts and actual
-   model/thinking before any new start. Missing PID is not proof of no restored
-   process. No blind retry/stop/auto-resume. Exercise Main wait replay against
-   retained IDs, process/reply to all types, ack once, verify newer pending mail
-   and re-arm async wait. Publish GO/NO-GO separately for process/model, handle
-   mapping, rebinding, replay/ack and supervisor continuity. Missing evidence or
-   duplicate/lost mail blocks cutover; enqueue alone is not wake proof.
+1. Main obtains owner approval and gives every affected project Main notice.
+   Keep supervisors and all Main inbox wait jobs running; do not go quiet.
+   Preserve native Delivery/message IDs and ack metadata privately; capture
+   cannot reconstruct native Delivery identity.
+2. Pin the reviewed source. Use a private version-2 plan: ID, state directory,
+   stock service and `{name, config}` project entries, optional bounded timeout
+   and existing systemd stop-policy approval. No Main commands/session records,
+   idle confirmations, handoff mtimes or external timer are required.
+3. Run `fleet --config CONFIG orca-restart --plan PRIVATE_PLAN --dry-run`.
+   It prints planned actions and BEFORE capture without mutations. Resolve
+   service identity/authority, incomplete pending mail, coordinator binding,
+   terminal inventory or supervisor blockers before execution.
+4. Only Main executes the same command without `--dry-run`, directly from its
+   configured Run-bound terminal, asynchronously with a bounded job deadline.
+   Verify the new active service PID/runtime, every prior handle connected,
+   coordinator bindings and active supervisors.
+   Automatic per-Run comparison reports lost/new pending IDs; lost or incomplete
+   evidence prevents success. Active waits may legitimately dequeue a pending
+   ID during capture; reconcile native receipts without stopping the waits.
+5. Inspect private 0600 journal/BEFORE/AFTER receipts and native question outcome
+   notifications to each project Run. Message IDs prove enqueue, not wake/read.
+   A bounded read-only consumption report confirms zero-pending Runs or names
+   undrained/unknown Mains after `consumption_timeout_seconds` (default 120).
+   Nudge flagged Mains; do not assume enqueue woke their pre-existing panes.
+   Reconcile Delivery replay/ack separately. No relaunch, rebind, config rewrite
+   or supervisor reinstall is automatic. An ambiguous restart/send intent
+   requires manual reconciliation, never a blind duplicate or new journal ID.
+6. `fleet wait` recovers transport outages for up to 30 seconds; after an
+   ambiguous consuming request it returns `rearm` (exit 4), never blind check/ack
+   replay. Persistent outage returns `runtime_unavailable` (exit 2). Preserve
+   returned batches/request IDs and re-arm explicitly.
+7. Empty post-restart screens need safe operator redraw, not automatic input.
+   Manually exited lanes retain launch claims until Main records positive exit
+   with `fleet reconcile`; missing screen/process evidence is not exit proof.

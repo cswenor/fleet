@@ -112,6 +112,72 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
+### TASK-80 — Restart and verify surviving terminals
+
+TASK-13's live 2026-11-10 12:41:58Z `orca-serve` restart took about six seconds;
+all 15 handles and omp processes survived. The old conductor then failed at
+`coordinator-fleet`; Main relaunch assumptions and screen/idle/handoff gates
+are superseded by restart-and-verify.
+
+Version-2 plans contain ID, private state directory, stock service and project
+config paths, with optional restart/consumption timeouts and existing-stop-policy approval. The
+conductor runs directly from the initiating Main terminal, retains private
+BEFORE/AFTER/journal receipts, verifies a new active service PID/runtime,
+connected surviving handles, coordinator bindings and active supervisors.
+Per-Run pending-ID comparison reports lost/new messages and refuses success
+on loss or incomplete evidence. Native question notifications to every project
+Run retain message-ID receipts from the real caller. No Main launch, Run rebind,
+config rewrite, supervisor reinstall or blind restart/send retry remains.
+
+Addendum 3 keeps all Main wait jobs running. `fleet wait` adds bounded 30-second
+transport recovery with explicit `rearm`/`runtime_unavailable` events and no
+blind consuming-check/ack replay. Result consumption is observed read-only for
+up to 120 seconds by default; zero-pending Runs are confirmed and undrained/
+unknown Runs name the Main to nudge. Native Delivery receipts still require
+separate replay/ack reconciliation.
+
+Guarded builder retirement separately accepts absent/null `programStatus` only
+with exact agent done/idle, no interruption and all existing positive
+composer/session/lease/foreground proofs. Present running/unknown status and
+working agents still refuse. The regression failed before the fix; all 74
+retirement tests passed afterward. Empty-screen health fallback is TASK-81.
+
+All 470 tests pass after integrating TASK-81 and TASK-82. The source CLI three-project
+dry-run on 2026-11-10 at 13:38:10Z returned no blockers, discovered the
+service/runtime ancestry, listed 17 connected terminals, verified all three
+supervisors active and captured complete pending sets of 0 Fleet, 5 Project Alpha
+and 0 Email messages. The read-only run created no journal. Private receipt:
+`~/.local/state/fleet/orca-restart/task80-final-source-dry-run.json` (0600).
+Actual `fleet wait` CLI subprocess smoke with isolated outage fixtures proved
+read recovery (exit 0), interrupted consumption/rearm (exit 4, exactly one
+check/ack), and persistent outage (exit 2 after 30.07s). Real journal/native-peek
+fixture smoke confirmed pending-to-zero, named undrained warning after 2s,
+read-only commands only and receipt-preserving resume. No live outage was induced.
+Review fixes restrict consumption evidence to scalar allowlisted identities;
+message bodies/subjects are never journaled. Cold-cache capability discovery
+and the native request share one remaining deadline; successful capabilities
+are cached independently of the caller's timeout. Actual CLI smoke with blocked
+cold-cache help returned runtime_unavailable/exit 2 after 30.08s, with no native
+operation sent. Journal/native-peek subprocess smoke retained request IDs and
+confirmed no private content persisted.
+Readiness service/status probes share one monotonic deadline and reject late
+success. Read-only real service/Orca probes accepted a synthetic old baseline;
+the unchanged real runtime refused after 1.000s. A real stalled subprocess
+substituted for the service probe timed out at 1.002s without a late status call.
+Before restart intent, resume refreshes BEFORE from the final authority inspection;
+only an existing restart intent freezes the original baseline. Regression covers
+new terminals/mail lost after pre-restart interruption. Real native inspection/
+private-journal smoke refreshed a stale empty baseline to 15 handles/three complete
+pending Runs, with caller/readiness fixtures and privileged restart suppressed.
+After preservation, resume retains the original AFTER and completed pending-ID
+comparison; current liveness is captured separately as `resume-observation`.
+Regression covers legitimate mail consumption and newly disconnected terminals.
+Real read-only observation/private-journal smoke with seeded completed receipts
+retained AFTER, observed 17 current handles and avoided false mail-loss failure;
+caller/readiness/notification fixtures sent no restart or notification.
+Publication receipts belong on TASK-80/PR. A live restart is owner/Main-only
+after merge; no builder shared restart or deployment was performed.
+
 ### TASK-82 — Wake an idle Main with unread Run mail
 
 The per-project supervisor peeks its own Run and submits the fixed inbox reminder
@@ -1330,41 +1396,15 @@ production service rollout were used. Publication receipts retained on TASK-22.
 
 ### TASK-13 — Orca restart semantics (Phase 0 d)
 
-The latest TASK-13 owner direction permits **one unattended shared restart**
-of the stock system unit `orca-serve.service` through an external conductor,
-not an owner-present manual stop/start. Planned time: **2026-11-07 14:00 UTC**;
-Main's cross-project notice is due by **13:00 UTC**. This implementation is
-**rehearsal only**: no builder shared restart, production scheduling or rollout.
-Main released the announcement merge hold at 21:11Z (`msg_96e2c57e8824`);
-final-head independent review and CI remain required. Merge is not deployment.
+The live shared restart occurred 2026-11-10 at 12:41:58Z. All 15 terminal
+handles and omp processes survived; the separate PTY daemon remained live.
+The old conductor failed at Main reconciliation afterward. TASK-80 supersedes
+its relaunch, timer, idle-confirmation, session-record and handoff requirements.
+The [current operator runbook](orca-feature-map.md#task-80-restart-runbook-restart-verify-report)
+defines restart-and-verify and the minimal private version-2 plan.
 
-The [single operator runbook](orca-feature-map.md#task-13-restart-runbook-phase-a-phase-b-not-exercised)
-owns the schema, dry-run blockers, exact stock-unit sudo exception, external
-systemd timer/service recipe, private journal/resume and manual reconciliation.
-CLI: `fleet orca-restart --plan PATH [--dry-run]`. Approved private plan location:
-`/home/dev/.local/state/fleet/orca-restart/plan.yml`; actual missing inputs
-(including Project Alpha Main command/handoff) must come from Main. No launch/env
-schema or invented operational commands. Final ruling `msg_dc4d07132417`
-approves existing stock systemd SIGKILL policy and bounded recovery; record
-`allow_systemd_sigkill: true`, actual stop timeout/duration/SIGKILL outcome and
-PTY scopes outside the unit, with no unit edits. Default false remains a gate.
-Read-only preflight validates all model-bearing session bindings and positive
-idle/shell evidence; incomplete owned OMP always blocks. No name exclusions.
-Manually started Mains may use the approved explicit process/session-file
-record instead of a launch receipt; builders retain strict launch bindings.
-Restored/remapped Main handles always require manual reconciliation, even
-when incarnation and Run match; automatic remapping is refused.
-
-The conductor must preserve metadata-only BEFORE/AFTER evidence, prove process
-survival before deciding whether a fresh Main is needed, never duplicate a
-survivor, and reconcile each project's Run/config/supervisor separately.
-Project Beta now has an owner-started Main (2026-11-06 22:05Z); all three
-projects use Main mode. Main `msg_1bd7a113d407` relayed Email's T-15 private
-handoff path and approved `fleet_idle` attesting both fleet and Email Main/lane
-safe-idle, without schema or native/process gate changes. Stop timeout cannot authorize blind
-relaunch; bounded recovery requires positive old-process exit and inactive/
-failed stock unit MainPID=0. Ambiguous terminal intent requires manual
-reconciliation, never a new plan ID/state reset to force retry.
+The following are **historical pre-live-restart implementation/rehearsal
+receipts**, not current operational requirements or restart approval.
 
 Historical BEFORE-only capture receipts and the superseded exit-0 process-name
 classifications remain in the runbook; the final strict capture honestly
@@ -1441,12 +1481,11 @@ census with two root agents refused; an adapter presenting the two complete real
 rows also refused the collision. No new Main, config or native mutation.
 PR35 final publication receipts remain on Pad/PR.
 
-**Phase B remains UNVERIFIED/NO-GO per dimension:** actual model/thinking,
-process survival versus fresh context, replacement handles/incarnations,
-coordinator Run rebinding, outstanding native Delivery replay/whole-batch ack
-and supervisor continuity. Preserve pre/post mail metadata privately; native
-unacked Delivery identity cannot be reconstructed from read-only inbox status.
-Only dated real before/after receipts can change these verdicts.
+Historical Phase B verdict before the 2026-11-10 run was UNVERIFIED/NO-GO.
+The live run now proves terminal/omp process survival for this host/runtime;
+mailbox replay/whole-batch ack remains a separate acceptance dimension. Preserve
+native Delivery receipts privately: read-only inbox capture cannot reconstruct
+their identity. TASK-80 adds automatic pending-ID comparison, not an ack claim.
 
 ### TASK-14 — Generic decision-rights/policy template
 

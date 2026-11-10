@@ -340,7 +340,7 @@ def collect(c, services, *, run_ids=()):
                 continue
             if not sys.platform.startswith('linux'):
                 raise CommandError('service capture unsupported on this platform')
-            text = run(['systemctl', '--user', 'show', service,
+            text = run(['/usr/bin/systemctl', '--user', 'show', service,
                         '--property=LoadState,ActiveState,SubState,MainPID,NRestarts'])
             states.append({'unit': service, **dict(line.split('=', 1) for line in text.splitlines() if '=' in line)})
         except CommandError:

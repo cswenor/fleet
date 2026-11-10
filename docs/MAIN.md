@@ -292,6 +292,11 @@ Inspect `retirements.json` and launch receipts on any partial error; never retry
 Pre-binding/legacy sessions without proof remain manual reconciliation, not
 permission for forced retirement. This does not restart Orca or the supervisor.
 
+After a shared Orca service restart, native `programStatus` may be absent/null.
+Guarded retirement accepts that only when the exact agent is done/idle and not
+interrupted; all composer, launch/session lease and foreground proofs still run.
+Present running/unknown program status and working agent state still refuse.
+
 TASK-42 terminal-reply recovery is the only cleanup-input exception: after a
 strict bounded reply body (`16;8t`, cursor `row;columnR`, or standard size reply)
 follows the prompt, restart requires same-boot exact OMP PID/starttime exit and
@@ -403,9 +408,11 @@ stock help (cached in memory); Linux 1.4.242 lacks the flag and keeps its output
 See [native acknowledgment and recovery](../README.md#inbox-wait) for details.
 
 Exit 0 / `messages` is delivery; exit 3 / `timeout` is a checkpoint, not worker
-death; exit 2 / `error` is a distinct binding/runtime/diagnostic failure. On error
-inspect any returned batches, including native auto-handled ones. Read-only
-legacy history is never locally acknowledged or claimed as a native terminal Delivery.
+death. Exit 4 / `rearm` requests explicit re-arming after transport recovery;
+exit 2 / `runtime_unavailable` means bounded recovery expired, while `error`
+means binding/validation/diagnostic failure. Inspect any returned batches,
+including native auto-handled ones, before deciding replay/ack.
+Read-only legacy history is never locally acknowledged or claimed as a native terminal Delivery.
 Pre-binding mail can remain there unread and cannot wake the Run; reconcile it
 separately before unattended waiting. An unbound terminal's native consuming
 check marks mail read without a replayable delivery ID. If terminal-addressed
@@ -417,8 +424,53 @@ Main still coordinates Project Alpha replacement acceptance and retirement of
 TASK-10 remains open for that step; the builder does not edit/retire those scripts.
 Send is enqueue, never proof of new turn. On reconnect/outage, inspect own lanes'
 screens and legacy history, reconcile PRs/pending threads before trusting quiet
-status. Never restart shared Orca without an owner-approved window; re-list
-handles and rebind the Run before retrying.
+status. Never restart shared Orca without owner approval and cross-project notice.
+Use the restart-and-verify procedure below; never infer a missing handle is dead.
+
+### Shared Orca service restart
+
+TASK-13's 2026-11-10 live restart preserved all 15 terminals and omp processes.
+Run `fleet --config CONFIG orca-restart --plan PRIVATE_PLAN --dry-run` from the
+reviewed checkout first. Version 2 needs only ID, private journal directory,
+stock service name and project config paths, with optional timeout/stop-policy
+approval. The [operator runbook](orca-feature-map.md#task-80-restart-runbook-restart-verify-report)
+defines the schema and service identity/privilege checks.
+
+After owner approval and notice to each project Main, execute directly from the
+configured Main terminal bound to its Run; it survives the service restart.
+No timer, fresh Main command, idle confirmation, handoff mtime gate, session lease
+or builder idle proof belongs in this shared-service operation. Do not restart
+supervisors, rewrite configs or launch replacement agents.
+Keep Main inbox waits running across the restart; do not go quiet or stop
+`fleet wait`/main-inbox jobs. Run the conductor asynchronously with a bounded
+deadline including its default 120-second consumption window. Fleet wait's
+30-second transport recovery returns `rearm` (exit 4) once available again after
+an ambiguous consuming request, or `runtime_unavailable` (exit 2) if still down.
+Inspect all preserved Delivery/request IDs, never blindly repeat an ack, and
+re-arm explicitly after the recovery event.
+
+Inspect private BEFORE/AFTER receipts: new active service PID/runtime, every prior
+handle still connected, each coordinator still bound and supervisors active.
+Automatic per-Run pending-ID comparison reports lost/new IDs; loss or incomplete
+capture prevents success. Capture never consumes or acknowledges mail. Active
+waits may legitimately remove pending IDs during capture; a reported loss needs
+native Delivery-receipt reconciliation, not stopping Main waits.
+
+Outcome notifications are native questions to all project Runs from the actual
+initiating Main, with durable message IDs. Enqueue is not proof of recipient
+wake/read. Missing/ambiguous receipts or an unresolved restart intent require
+manual reconciliation; never reset the journal or blindly repeat the mutation.
+The report then observes Run pending counts for up to
+`consumption_timeout_seconds` (default 120, plan range 1..600), confirms complete
+zero-pending sets, and names each undrained/unknown project's Main terminal in
+`attention_required`. Nudge the named Main through an attended channel; do not
+assume native enqueue woke an idle pre-existing pane.
+
+An empty post-restart screen needs a redraw, not automatic terminal input.
+TASK-81's Main health fallback does not establish shell readiness. Any manually
+exited/stopped lane keeps its launch receipt until Main records positive exit
+proof with `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT`.
+Report unreconciled receipts rather than resetting them or guessing a lane is free.
 
 ### Builder task threads
 
