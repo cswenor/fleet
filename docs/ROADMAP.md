@@ -113,6 +113,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-100 — Superseded cancelled merge groups are status
+
+Supervisor merge-group relays downgrade a cancelled run only when the current
+queue is known and its nonempty head SHA matches no entry head. One coordinator
+status per run says `superseded, cancelled`, including when group membership is
+discovered incrementally. Current-head cancellations, real failures/timeouts,
+missing head evidence and unknown/missing queue state retain existing urgency.
+Single-PR `watch-pr` semantics are unchanged. PR-stuck timers already use only
+current queue entries, so obsolete group conclusions do not enter that path.
+
+All 73 focused urgency/supervisor regressions pass, including queued retry
+reclassification and preservation of successful coordinator delivery receipts.
+Independent reviews caught the initial retry-path gap and the need to retain
+historical failure urgency across same-ID reruns; both are now covered.
+Read-only source evaluation
+against the real Project Alpha config/API observed six current queue entries and
+eleven cancelled runs; all eleven were superseded and classified as status,
+including runs 42915555803, 42915551278, 42915549524, 42914925624,
+42914921137, 42914920121 and 42914917384. No delivery, live-state write or
+shared deployment occurred. Publication requires independent final-head
+Sol-medium review, green CI and Main exact-head GO; durable receipts belong
+on TASK-100/PR. Shared deployment remains Main-owned.
+
 ### TASK-98 — Waiting queue entries inherit progress ahead
 
 Queue entries are ordered by their GitHub `position`. A queued PR with no own

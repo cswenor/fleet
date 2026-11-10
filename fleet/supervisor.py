@@ -339,7 +339,7 @@ def urgent_event(c, event):
         kind = key.split(':', 1)[1]
     elif key.startswith('stray:'):
         kind = 'stray_worktree'
-    elif key.startswith('group:'):
+    elif key.startswith('group:') and not event.get('superseded_cancelled'):
         kind = 'merge_group_failure'
     elif key.startswith('pr_stuck:'):
         kind = 'pr_stuck'
@@ -490,6 +490,35 @@ def push(c, s, receipt):
     return {'signature': signature, 'at': now}
 
 
+def _group_alerts(events, current):
+    """Downgrade only positively superseded cancellations, once per run."""
+    if 'merge_queue' not in current or current.get('merge_queue_unknown'):
+        return events
+    heads = {(entry.get('headCommit') or {}).get('oid')
+             for entry in current['merge_queue']}
+    superseded = {
+        str(run['id']): run for run in current.get('merge_group_runs', [])
+        if run['conclusion'] == 'cancelled' and run.get('head_sha')
+        and run['head_sha'] not in heads}
+    result = []
+    seen = set()
+    for event in events:
+        parts = event['key'].split(':')
+        run = (superseded.get(parts[1])
+               if parts[0] == 'group' and parts[2] == 'cancelled' else None)
+        if run:
+            if run['id'] in seen:
+                continue
+            seen.add(run['id'])
+            event = {**event, 'key': f'group:{run["id"]}:cancelled:superseded',
+                     'subject': f'Merge group {run["id"]} superseded, cancelled',
+                     'body': run['url'] + '\nsuperseded, cancelled',
+                     'branch': None, 'pr': None, 'type': 'status',
+                     'superseded_cancelled': True}
+        result.append(event)
+    return result
+
+
 def github_relays(ledger, events, current):
     """Collapse identical consecutive content per GitHub transition stream.
 
@@ -503,6 +532,9 @@ def github_relays(ledger, events, current):
         for r in current.get('merge_group_runs', [])
         if r['conclusion'] in ('failure', 'cancelled', 'timed_out', 'action_required')
         for number in r.get('prs', []) or [None]}
+    failed_groups.update(
+        f'group:{r["id"]}:cancelled:superseded'
+        for r in current.get('merge_group_runs', []) if r['conclusion'] == 'cancelled')
     for scope in list(streams):
         if scope.startswith('group:') and scope not in failed_groups:
             del streams[scope]
@@ -618,7 +650,8 @@ def cycle(c, deliver=True):
         diagnosed = {e['pr'] for e in initial}
         # A saved baseline from before initial-state support is not a notification receipt.
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
-        pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes + initial], current_g))
+        changes = _group_alerts(changes + initial, current_g)
+        pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes], current_g))
         pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time())
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
@@ -689,6 +722,20 @@ def cycle(c, deliver=True):
     failures = []
     protected = set()
     paused_prs = {p['number'] for p in current_g['prs'] if _stuck_pr_paused(c, p)} if current_g else set()
+    if current_g is not None:
+        reclassified = []
+        for event in pending:
+            updated = _group_alerts([event], current_g)[0]
+            if updated.get('superseded_cancelled'):
+                # Reclassify retries too; keep a successful coordinator receipt
+                # when collapsing old per-member urgent relays to one run status.
+                recipient = 'run:' + c['coordinator']['run']
+                old_key = digest([event['key'], recipient])
+                new_key = digest([updated['key'], recipient])
+                if old_key in ledger['sent']:
+                    ledger['sent'][new_key] = ledger['sent'][old_key]
+            reclassified.append(updated)
+        pending = reclassified
     for event in pending:
         if event['key'].startswith('pr_stuck:') and event.get('pr') in paused_prs:
             # A newly observed pause also invalidates undelivered old occurrences.

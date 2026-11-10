@@ -236,6 +236,98 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual([r for _, r in self.urgent_calls()], ['run:r', 'builder'] * 2)
         self.assertTrue(all(e['key'].startswith('group:') for e, _ in self.urgent_calls()))
 
+    def test_superseded_cancelled_group_is_one_status_per_run(self):
+        self.s['github']['merge_queue'] = [
+            {'headCommit': {'oid': 'current'}, 'pullRequest': {'number': 1}}]
+        group = {'id': 42, 'head_sha': 'old', 'conclusion': 'cancelled',
+                 'prs': [1, 2], 'url': 'https://example/group/42',
+                 'membership_complete': True}
+        self.s['github']['merge_group_runs'] = [group]
+        self.cycle(0)
+        # Later-discovered membership must not produce another run relay.
+        group['prs'].append(3)
+        self.cycle(1)
+        self.cycle(2)
+        self.assertEqual(len(self.calls), 1)
+        event, recipient = self.calls[0]
+        self.assertEqual(recipient, 'run:r')
+        self.assertEqual(event.get('type', 'status'), 'status')
+        self.assertEqual(event['subject'], 'Merge group 42 superseded, cancelled')
+        self.assertIn('superseded, cancelled', event['body'])
+
+    def test_current_cancelled_real_failure_and_unknown_queue_remain_urgent(self):
+        cases = [
+            ('cancelled', 'current', False, True),
+            ('failure', 'old', False, True),
+            ('timed_out', 'old', False, True),
+            ('cancelled', 'old', True, True),
+            ('cancelled', 'old', False, False),
+            ('cancelled', None, False, True),
+        ]
+        for index, (conclusion, head, unknown, has_queue) in enumerate(cases):
+            with self.subTest(case=cases[index]):
+                self.calls.clear()
+                self.s['github']['merge_queue_unknown'] = unknown
+                if has_queue:
+                    self.s['github']['merge_queue'] = [
+                        {'headCommit': {'oid': 'current'}}]
+                else:
+                    self.s['github'].pop('merge_queue', None)
+                self.s['github']['merge_group_runs'] = [{
+                    'id': index, 'head_sha': head, 'conclusion': conclusion, 'prs': [1],
+                    'url': 'https://example/group', 'membership_complete': True}]
+                self.cycle(index)
+                self.assertEqual([r for _, r in self.urgent_calls()], ['run:r', 'builder'])
+                self.assertTrue(all(e['subject'].startswith('[urgent] Merge group')
+                                    for e, _ in self.calls))
+
+    def test_pending_cancelled_group_downgrades_after_supersession(self):
+        self.s['github']['merge_queue'] = [{'headCommit': {'oid': 'old'}}]
+        self.s['github']['merge_group_runs'] = [{
+            'id': 42, 'head_sha': 'old', 'conclusion': 'cancelled', 'prs': [1, 2],
+            'url': 'https://example/group/42', 'membership_complete': True}]
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(0)
+        self.s['github']['merge_queue'] = []
+        self.cycle(1)
+        self.cycle(2)
+        self.assertEqual([(e['type'], r) for e, r in self.calls], [('status', 'run:r')])
+        self.assertIn('superseded, cancelled', self.calls[0][0]['body'])
+        self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
+
+    def test_supersession_retry_preserves_successful_coordinator_receipt(self):
+        self.s['github']['merge_queue'] = [{'headCommit': {'oid': 'old'}}]
+        self.s['github']['merge_group_runs'] = [{
+            'id': 42, 'head_sha': 'old', 'conclusion': 'cancelled', 'prs': [1],
+            'url': 'https://example/group/42', 'membership_complete': True}]
+
+        def fail_builder(c, event, recipient):
+            if recipient == 'builder':
+                raise CommandError('offline')
+            return self.enqueue(c, event, recipient)
+
+        with patch.object(supervisor, 'enqueue', side_effect=fail_builder):
+            self.cycle(0)
+        self.s['github']['merge_queue'] = []
+        self.cycle(1)
+        self.assertEqual([(e['type'], r) for e, r in self.calls], [('question', 'run:r')])
+        self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
+
+    def test_pending_real_failure_is_not_downgraded_by_later_cancellation(self):
+        self.s['github']['merge_queue'] = []
+        group = {'id': 42, 'head_sha': 'old', 'conclusion': 'failure', 'prs': [1],
+                 'url': 'https://example/group/42', 'membership_complete': True}
+        self.s['github']['merge_group_runs'] = [group]
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(0)
+        group['conclusion'] = 'cancelled'
+        self.cycle(1)
+        failures = [(e, r) for e, r in self.calls if ':failure:' in e['key']]
+        self.assertEqual([(e['type'], r) for e, r in failures],
+                         [('question', 'run:r'), ('question', 'builder')])
+        self.assertEqual([(e['type'], r) for e, r in self.calls if ':cancelled:' in e['key']],
+                         [('status', 'run:r')])
+
 
 class CompletedIdleTests(unittest.TestCase):
     enqueue = UrgentRelayTests.enqueue
