@@ -113,6 +113,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-99 — Model usage metadata after final stop
+
+Retirement accepts the exact observed omp 18.18.6 encoding
+`type=model_usage` with no `customType`, including background title-call usage
+after the final assistant stop. Later user/tool messages, unknown event types
+and misencoded custom events still refuse; other retirement proofs are unchanged.
+
+The unmodified fixture retains session `01a1c718-38e9-74cc-8d12-692918ac2b43`'s
+final stop `05b76182`, two model usage events, title change and todo HUD snapshot
+through `5af9a781` (`2026-11-10T20:19:17.359Z`), excluding the later session exit.
+All 82 retirement regressions pass. Read-only source replay accepts the captured
+session through that snapshot and still refuses the full capture's session exit.
+Main owns shared deployment and the next real finished-builder restart acceptance
+(the separate stale-screen refusal remains unchanged). Publication requires
+independent final-head Sol-medium review, green CI and Main exact-head GO;
+durable receipts belong on TASK-99/PR.
+
 ### TASK-97 — Hidden host eval-state metadata after final stop
 
 Retirement accepts the observed omp 18.18.6 encoding

@@ -13,6 +13,7 @@ from .process_identity import omp_executable
 # Exact observed omp (type, customType) encodings; never allow arbitrary custom events.
 POST_TURN_METADATA = frozenset({
     ('credential_pin', None), ('title_change', None), ('custom', 'todo_hud_state'),
+    ('model_usage', None),
     ('custom_message', 'eval-state-context'),
 })
 PROC = Path('/proc')

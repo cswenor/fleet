@@ -599,6 +599,29 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
 
     @staticmethod
+    def model_usage_tail():
+        # TASK-99: unmodified final stop and four trailing events from fleet
+        # session 01a1c718, 2026-11-10T20:18:25.127Z–20:19:17.359Z.
+        return [json.loads(line) for line in (Path(__file__).parent / 'fixtures' /
+                'omp-18.18.6-model-usage.jsonl').read_text().splitlines()]
+
+    def test_captured_post_turn_model_usage_sequence_allows_retirement(self):
+        self.events = self.events[:1] + self.model_usage_tail()
+        self.write_log()
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+
+    def test_model_usage_does_not_hide_later_work_or_unknown_events(self):
+        for event in (
+                {'type': 'message', 'message': {'role': 'user'}},
+                {'type': 'message', 'message': {'role': 'toolResult'}},
+                {'type': 'future_event'},
+                {**self.model_usage_tail()[1], 'customType': 'unknown'}):
+            with self.subTest(event=event):
+                self.events = self.events[:1] + self.model_usage_tail() + [event]
+                self.write_log()
+                self.refused('final assistant|later work')
+
+    @staticmethod
     def eval_state_context():
         # TASK-97: actual trailing event from project-gamma session 01a1c704,
         # 2026-11-10T20:11:32.153Z; only the host reminder body is redacted.
