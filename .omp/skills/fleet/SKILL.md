@@ -136,11 +136,24 @@ From Main's own terminal, bind the configured Run (never borrow another identity
 orca orchestration run-use --id RUN --json
 fleet --config /private/project/fleet.yml status
 fleet --config /private/project/fleet.yml may-start --json
-fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent --timeout 900
+fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent --timeout 900 --loop --save /private/project/main-inbox.json --summary
 ```
 
 Run `wait` as an async background command. Current native routing sends Run mail
 and bound-terminal mail into one Run Delivery, not two independent inboxes.
+The save parent must exist. `--loop` absorbs timeout/rearm checkpoints; the
+single-shot default is unchanged. Use an explicit async-job deadline.
+`--save PATH` atomically replaces the full JSON (0600); `--summary` prints batch
+IDs/counts and decision/urgent rows, including needs-next/lane-free questions.
+Read every saved row before ack, not only the compact summary.
+Save destinations are probed before consuming mail. A later save failure returns
+exit 2 with full JSON stdout and `saveError` even with `--summary`; preserve it
+because native delivery may already be acknowledged.
+`--summary` requires `--save`, refusing before consumption if absent.
+Historical status-type `FRESH-READY` subjects also print; wake/classification/ack stay unchanged.
+An initial ack is sent only once, never repeated after ambiguous recovery.
+Saved `rearmEvents` retain interrupted request metadata for reconciliation;
+looping cannot recover a potentially auto-handled batch with a lost response.
 `wait` refuses an unbound/wrong-Run caller. `--wake-on KINDS` accepts comma-separated
 `question`, `escalation`, `urgent`, `status`, or `all` (default `all`). Main selects
 `question,escalation,urgent`; `urgent` aliases native `question`, waking for all

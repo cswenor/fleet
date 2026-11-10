@@ -454,8 +454,29 @@ replace the full PR watcher with those or retired `pr-wait.sh` scripts. No model
 Main inbox wait, also as an async background command from Main's own terminal:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 600
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
 ```
+
+The save directory must already exist. No `main-inbox.sh` wrapper is needed.
+`--loop` continues internally across timeout checkpoints and recovered transport
+interruptions, returning only messages or a real error. Give the async job an
+explicit deadline. The default without `--loop` remains single-shot.
+An initial `--ack-run` is submitted only once, never replayed after an ambiguous
+check; inspect saved `rearmEvents` for native recovery/request IDs and reconcile
+unknown outcomes separately. Looping does not recover a potentially auto-handled
+batch lost during an interrupted native response.
+`--save PATH` atomically replaces the full JSON result with mode 0600 after each
+checkpoint/result. Unusable destinations fail before consuming mail. A later write
+failure returns exit 2 and the complete JSON on stdout even with `--summary`,
+including `saveError`; any prior saved file stays intact. Preserve that stdout.
+`--summary` replaces stdout JSON with an event/count header, a delivery ID/count
+line per batch and ID/sender/classification/subject lines for decision/urgent
+rows, including `NEEDS-NEXT-REF` and `Lane free` questions. Fields are JSON-escaped
+to keep each row on one line. Read **all** rows in the saved JSON before ack;
+the summary omits ordinary reports and legacy history, not their saved payloads.
+`--summary` requires `--save`, refusing before consuming mail if it is absent.
+Historical status-type `FRESH-READY` subjects also appear in the summary without
+changing classification, wake selection or acknowledgment.
 
 **Binding precondition:** the caller's own `ORCA_TERMINAL_HANDLE` must already be
 bound to the configured `coordinator.run`, using `orchestration run-use` from
@@ -492,7 +513,7 @@ two-mailbox multiplexing. Real arrivals through each address woke background
 mail, and timeout / SIGKILL-and-rerun lost no tested messages. No shared runtime
 restart was attempted.
 
-Output is one JSON document: `event`, source-tagged `batches` with native
+Default output is one JSON document: `event`, source-tagged `batches` with native
 `deliveryId` and **all** messages, plus `legacyTerminalInbox` read-only history
 diagnostics (requested limit 1000, subject to Orca's cap). Wake selection never
 filters returned status or questions: terminal builders have no supervised worker_done.
@@ -516,7 +537,7 @@ same pending native subthread. `status` is only for reports.
 On explicit-ack runtimes, acknowledge and re-arm:
 
 ```sh
-fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 600
+fleet --config ~/.config/fleet/fleet.yml wait --wake-on question,escalation,urgent --ack-run DELIVERY_ID --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary
 ```
 On newer native auto-handled checks, `nativeAutoAck: true` means the batch was
 already acknowledged natively: process it and re-arm **without** `--ack-run`.

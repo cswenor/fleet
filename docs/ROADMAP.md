@@ -113,6 +113,34 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-87 — Main inbox wrapper absorbed into `fleet wait`
+
+`--loop` rearms internally across timeout/recovered transport checkpoints,
+without replaying an initial acknowledgment. Default single-shot behavior and
+native whole-batch acknowledgment remain unchanged. Interrupted request metadata
+survives in `rearmEvents`; unknown native outcomes still require reconciliation.
+`--save PATH` atomically replaces complete JSON with mode 0600; `--summary`
+prints delivery IDs/counts and decision/urgent rows, including needs-next and
+lane-free questions. Main's documented single command replaces `main-inbox.sh`;
+all saved rows, not just the summary, must be processed before acknowledgment.
+
+All 537 tests pass after current-main integration. Actual source CLI subprocess smoke with isolated native
+fixtures exercised timeout → interrupted consuming check → delivery, exactly one
+initial ack, full report preservation, recovery request retention and private save.
+Review found save failures could hide auto-handled mail; destination preflight
+and full-JSON stdout fallback now preserve the batch/request IDs on exit 2,
+including with summary enabled. CLI subprocess smoke proved both failure paths.
+Summary-only calls require a save destination before consumption, so compact
+triage cannot silently discard an already-handled batch's full payload.
+Main live acceptance on frozen `2cf9096` returned six real messages after ~66s,
+with one decision summary row, all six payloads saved and mode 0600. Main then
+requested historical status-type `FRESH-READY` summary rows; these are included
+without changing classification/wake/ack. Final-head live acceptance remains required.
+Live Fleet-Run acceptance is Main-owned from its bound terminal; builders remain
+unbound. Publication/live receipts belong on TASK-87/PR; exact-head Main GO is
+required before merge, and shared deployment remains Main-owned.
+
+
 ### TASK-88 — Post-restart clipped-screen diagnosis and recovery
 
 Main revised scope in `msg_a0b4555866e0`: retain strict empty-composer proof,
