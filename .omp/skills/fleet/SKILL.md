@@ -136,16 +136,25 @@ From Main's own terminal, bind the configured Run (never borrow another identity
 orca orchestration run-use --id RUN --json
 fleet --config /private/project/fleet.yml status
 fleet --config /private/project/fleet.yml may-start --json
-fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save /private/project/main-inbox.json --summary
+fleet --config /private/project/fleet.yml wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save /private/project/main-inbox.json --summary --auto-ack
 ```
 
 Run `wait` as an async background command. Current native routing sends Run mail
 and bound-terminal mail into one Run Delivery, not two independent inboxes.
 The save parent must exist. `--loop` absorbs timeout/rearm checkpoints; the
 single-shot default is unchanged. Use an explicit async-job deadline.
-`--save PATH` atomically replaces the full JSON (0600); `--summary` prints batch
-IDs/counts and decision/urgent rows, including needs-next/lane-free questions.
-Read every saved row before ack, not only the compact summary.
+`--save PATH` atomically replaces the full JSON (0600); `--summary` defaults to
+`--bodies`, printing every message's metadata, typed kind/PR/head and FULL body
+in delimited blocks, including relays and read-only legacy history.
+Process all output before rearming; no separate saved-file read is needed.
+`--auto-ack` records only fully flushed/saved deliveries, acknowledging the
+previous one once at the next invocation; native auto-handled batches are skipped.
+Explicit `--ack-run` overrides. Intent is cleared before native I/O; reconcile
+ambiguous outcomes instead of retrying an ack. `--no-bodies` is compact-only
+and incompatible with `--auto-ack`.
+Exclusive crash-safe flock per Run+caller rejects concurrent waits immediately
+with exit 2 and the owning PID. Private 0600 receipts/locks live under
+`$XDG_STATE_HOME/fleet/waits` (default `~/.local/state/fleet/waits`).
 Save destinations are probed before consuming mail. A later save failure returns
 exit 2 with full JSON stdout and `saveError` even with `--summary`; preserve it
 because native delivery may already be acknowledged.
@@ -170,8 +179,11 @@ counts: decisions first, then `supervisor_urgent`, then other reports.
 
 Builder mode defers relay-only backlog/replay until a selected class, explicit
 ack or timeout checkpoint. A last pending peek then permits one whole native
-batch; empty peeks time out without consumption. Stock read-only APIs cannot
-identify an active Delivery, so immediate relay-only replay cannot be preserved
+batch; empty peeks time out without consumption.
+An empty successful ack check continues peeking for the remaining requested
+timeout, including single-shot mode; its internal 1ms checkpoint is not an
+early caller timeout. The ack is never repeated.
+Stock read-only APIs cannot identify an active Delivery, so immediate relay-only replay cannot be preserved
 without unsafe speculative consumption. Builder report summary rows show why
 Main woke; saved payloads remain complete.
 
@@ -182,8 +194,8 @@ mechanism. Urgent rows carry `replyExpected: false` and
 decision requests from the owning terminal with
 `orca orchestration reply --id MESSAGE_ID --body 'decision' --json`, and record
 rulings on Pad. Labels/from handles are advisory, not authentication. Only after
-processing **all** rows, re-arm asynchronously. On explicit-ack runtimes use
-`fleet ... wait --wake-on question,escalation,urgent,builder --ack-run DELIVERY_ID --timeout 600`.
+processing **all** rows, re-arm the recommended command unchanged.
+`--auto-ack` submits the previous printed delivery on explicit-ack runtimes.
 On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
 mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
 is a native echo only. Retain `nativeRequestId` privately; stock

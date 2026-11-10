@@ -113,6 +113,33 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-93 — One-step Main inbox
+
+`fleet wait --summary` now includes every full message body in delimited blocks,
+including relays and read-only legacy history. Recommended Main commands use
+`--auto-ack`: a private Run+caller receipt arms only after successful save and
+stdout flush, and is consumed before the next native check. Explicit ack wins;
+native auto-handled batches are skipped. Ambiguous ack intent is not retried.
+An exclusive Run+caller flock spans consumption, saving, printing and receipts;
+another CLI consumer refuses immediately with Run/PID evidence.
+Main's scope addition `msg_97501daaaa50` requires typed report heads to match
+the authoritative local task slot's Git HEAD before any send/record side effect.
+
+Fifteen option, 10 builder-wake, 30 mailbox and 34 thread regressions cover full bodies, prior-only
+ack, explicit override, output crash/save failure, private modes, concurrent
+refusal and report head mismatch. Independent review found premature receipt
+clearing on preflight failure; intent now clears only after validation/binding,
+immediately before native check, with a regression. Main-owned live sequential
+and concurrent Fleet-Run acceptance, final-head review, green CI and exact-head
+GO remain required. Shared deployment remains Main-owned.
+The next review found terminal-control injection in raw body output; controls
+and Unicode format overrides now render as visible escapes, without truncating
+printable text/newlines or changing saved mail. A regression covers ANSI/C1/bidi.
+Main live acceptance found the inherited PR88 builder+ack path returned its
+internal 1ms checkpoint as an early timeout. Empty successful ack checks now
+continue peeking for the remaining timeout without repeating the ack. CLI
+regressions cover both explicit/automatic ack and two real competing processes.
+
 ### TASK-92 — Exclude draft and parked PRs from stuck alerts
 
 The REST collector retains draft status and label names. Draft PRs or PRs

@@ -494,7 +494,7 @@ failure cannot end a watch or accompany its selected PR's initial diagnostic.
 
 ### Inbox wait
 
-Run `fleet wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary` using Main's
+Run `fleet wait --wake-on question,escalation,urgent,builder --timeout 600 --loop --save ~/.local/state/fleet/main-inbox.json --summary --auto-ack` using Main's
 **async background shell** from
 its own Orca terminal. The caller must already be bound to the configured
 `coordinator.run` (`orca orchestration run-use --id RUN` from that terminal).
@@ -507,15 +507,24 @@ never used as the caller.
 The save parent must exist. `--loop` continues across timeout/rearm checkpoints
 until messages or a real error; omit it for existing single-shot exit behavior.
 Use a bounded async-job deadline. `--save PATH` atomically replaces the complete
-JSON result (0600) after each result, including errors. `--summary` prints the
-event/count header, each delivery ID/count and decision/urgent rows, including
-needs-next/lane-free questions. Read all saved rows before acknowledging.
+JSON result (0600) after each result, including errors. `--summary` defaults to
+`--bodies`: delimited blocks show every ID, sender, type/classification, subject,
+typed kind/PR/head and full body, including relays and read-only legacy history.
+Process all blocks before rearming; no separate saved-file read is needed.
 Unusable save destinations fail before consuming mail. A later save failure
 returns exit 2 with full JSON on stdout (even with `--summary`) and `saveError`;
 preserve it because the native batch may already be acknowledged.
 `--summary` requires `--save`; otherwise Fleet refuses before consuming mail.
-Status-type `FRESH-READY` reports also appear; classification/wake/ack stay unchanged.
-An initial `--ack-run` is sent only once, never replayed after an ambiguous check.
+`--no-bodies` selects compact triage and is incompatible with `--auto-ack`.
+`--auto-ack` stores a delivery only after full stdout flush and successful save
+(when requested), then submits it once at the next invocation. Native
+auto-handled deliveries are never acknowledged again. Explicit `--ack-run`
+overrides the stored ID. Ack intent is cleared before native I/O: ambiguous
+outcomes require reconciliation, not automatic replay.
+Each CLI invocation holds an exclusive crash-safe flock per Run+caller.
+Concurrent consumers refuse immediately (exit 2, Run and owning PID).
+Private 0600 lock/ack files live under `$XDG_STATE_HOME/fleet/waits`
+(default `~/.local/state/fleet/waits`), shared across config paths.
 Interrupted native request metadata is retained in `rearmEvents`; reconcile
 unknown outcomes separately. Looping cannot recover a possibly auto-handled
 batch lost with its native response.
@@ -532,7 +541,9 @@ single async process, then consume one whole native batch when a class matches.
 A native 100-row peek without a match fails explicitly (`builder_peek_incomplete`),
 not silently ignoring an unseen tail. `all` and native-only selections use native blocking waits.
 Explicit `--ack-run` keeps immediate native check/ack precedence (including
-relay-only deliveries); loop mode then rearms via peeks. Every returned Delivery
+relay-only deliveries). An empty successful ack check continues classified peeking
+for the remaining requested timeout, even without `--loop`; it never repeats the
+ack or returns the internal 1ms checkpoint as the caller's timeout. Every returned Delivery
 stays whole, with native replay/ack and decision-first presentation unchanged.
 Builder mode defers relay-only backlog/replay until a selected class, explicit
 ack or timeout checkpoint; a last pending peek then permits one whole batch.
@@ -545,6 +556,10 @@ or `result`. This sends a native question with `payload.fleet_report`
 (`ref`, `kind`, `pr`, `head`), summarized as kind/PR/head. Use `thread wait`
 for its reply; pending/ambiguous-question guards apply. Typed result requests
 do not settle the attempt: use `thread result` for final settlement.
+The supplied head must equal the authoritative local task slot's current Git
+HEAD; mismatches refuse before sending or recording a question.
+Terminal-control and Unicode format characters are escaped visibly in bodies;
+printable text/newlines remain complete and saved JSON retains original bytes.
 One JSON document returns `event`, `runId`, `terminal`, `batches`, and
 `legacyTerminalInbox`. Each batch contains `source: "run"`, the native
 `deliveryId`, every message in that FIFO batch, and `replayed`.
@@ -563,11 +578,9 @@ auto-ack or downgrade a message; inspect every original payload.
 
 Process **all** message types. Reply to actual decision requests in-thread with
 `orca orchestration reply --id MESSAGE_ID --body 'answer'`; urgent supervisor
-questions do not request replies. On explicit-ack runtimes, acknowledge and re-arm:
-
-```sh
-fleet wait --wake-on question,escalation,urgent,builder --ack-run DELIVERY_ID --timeout 600
-```
+questions do not request replies. After processing all output, re-arm the
+recommended command unchanged; `--auto-ack` handles explicit-ack runtimes.
+Manual recovery can override it with `--ack-run DELIVERY_ID`.
 
 Fleet discovers stock `--full` support from each orchestration verb's `--help`,
 cached in memory. It requests full records when advertised. Failed or ambiguous
@@ -583,7 +596,7 @@ and result. True adds `acknowledgmentStatus: "already acknowledged natively"`;
 re-arm **without** `--ack-run`. This flag comes from native evidence, not version
 sniffing. `acknowledged` is only the native echo, not proof Fleet performed an ack;
 an empty timeout may omit auto-ack metadata. Use `--ack-run` for legacy unacked
-batches only. Fleet does not add a local acknowledgment/replay store.
+batches only. The local ack receipt is not a replay store.
 
 Auto-handled batches retain `nativeRequestId` when native mutation metadata is
 available. On 1.4.251, `orca orchestration request-show --request ID --full --json`

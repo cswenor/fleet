@@ -1,10 +1,14 @@
 """One native Run wait; preserve native acknowledgment and recovery semantics."""
 import errno
+from contextlib import contextmanager
+import fcntl
+import hashlib
 import json
 import math
 import os
 import re
 from pathlib import Path
+import unicodedata
 import tempfile
 import subprocess
 import time
@@ -230,7 +234,8 @@ def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
         time.sleep(min(interval, remaining))
 
 
-def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3):
+def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
+         *, before_check=None):
     run = c['coordinator']['run']
     caller = os.environ.get('ORCA_TERMINAL_HANDLE')
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
@@ -251,6 +256,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3)
             raise MailboxError('caller_identity_required')
         recovery = _Recovery(c, run, caller)
         bound = recovery.read('run-current', '--from', caller).get('run')
+        wait_deadline = time.monotonic() + timeout
         _binding(bound, run, caller)
         # A later outage after the potentially long native wait gets its own
         # budget; never extend the deadline within one recovery operation.
@@ -270,12 +276,29 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3)
             args.extend(['--types', types])
         if ack_run:
             args.extend(['--ack', ack_run])
+        if pending and ack_run and before_check:
+            before_check()
         try:
             received = (request(c, *args, timeout=(30 if builder else timeout + 30))
                         if pending else {'runId': run, 'messages': [], 'count': 0,
                                          'deliveryId': None, 'timedOut': True})
             result.update(_metadata(received))
             batch = delivery(received, run)
+            if builder and ack_run and batch is None:
+                # The 1ms ack checkpoint is not the caller's timeout. Continue
+                # the same wait without replaying a successfully submitted ack.
+                result['ackCheck'] = {'ackRunRequested': ack_run, **_metadata(received)}
+                result['acknowledged'] = received.get('acknowledged')
+                ack_run = None
+                args = args[:-2]
+                remaining = wait_deadline - time.monotonic()
+                pending = remaining > 0 and _builder_pending(
+                    c, recovery, run, caller, remaining, selected, interval)
+                received = (request(c, *args, timeout=30) if pending else
+                            {'runId': run, 'messages': [], 'count': 0,
+                             'deliveryId': None, 'timedOut': True})
+                result.update(_metadata(received))
+                batch = delivery(received, run)
         except MailboxError as error:
             result.update(error.metadata)
             if 'received' in locals():
@@ -299,7 +322,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3)
                 if batch['nativeAutoAck']:
                     result['acknowledgmentStatus'] = 'already acknowledged natively'
         result.update(event='messages' if batch else 'timeout',
-                      acknowledged=received.get('acknowledged'))
+                      acknowledged=received.get('acknowledged', result.get('acknowledged')))
         if recovery.recovered:
             result['runtimeRecovered'] = True
     except MailboxError as e:
@@ -359,10 +382,99 @@ def save_result(path, result):
             os.unlink(temp)
 
 
-def summary(result):
-    """Compact triage only; the full saved batch remains authoritative."""
+@contextmanager
+def consumer(c, terminal=None):
+    """Serialize the entire CLI transaction, including output and ack receipts."""
+    run = c['coordinator']['run']
+    caller = os.environ.get('ORCA_TERMINAL_HANDLE') or terminal
+    if not caller:
+        raise MailboxError('caller_identity_required')
+    key = hashlib.sha256(json.dumps([run, caller]).encode()).hexdigest()
+    root = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'fleet/waits'
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = root / key
+    fd = os.open(str(path) + '.lock', os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, 'r+') as lock:
+        os.fchmod(lock.fileno(), 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pid = lock.read().strip() or 'unknown'
+            raise MailboxError(f'another fleet wait is active for run {run} (pid {pid})')
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(os.getpid()))
+        lock.flush()
+        yield _AckReceipt(path.with_suffix('.json'))
+
+
+class _AckReceipt:
+    def __init__(self, path):
+        self.path = path
+
+    def pending(self, explicit=None, auto=False):
+        pending = None
+        if self.path.exists():
+            pending = json.loads(self.path.read_text()).get('deliveryId')
+        return explicit or (pending if auto else None)
+
+    def consume(self):
+        # Journal intent only after validation/binding, immediately before check.
+        save_result(self.path, {'deliveryId': None})
+
+    def printed(self, result):
+        for batch in result.get('batches', []):
+            if batch.get('deliveryId') and not batch.get('nativeAutoAck'):
+                save_result(self.path, {'deliveryId': batch['deliveryId']})
+
+
+def run_wait(c, args):
+    """CLI lifecycle: lock -> save -> fully flush output -> arm the next ack."""
+    if args.save:
+        check_save_path(args.save)
+    bodies = args.bodies if args.bodies is not None else args.summary
+    if args.auto_ack and args.summary and not bodies:
+        raise ValueError('--auto-ack requires full output; remove --no-bodies')
+    with consumer(c, args.terminal) as receipt:
+        ack_run = receipt.pending(args.ack_run, args.auto_ack)
+        recoveries = []
+        while True:
+            result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on, args.interval,
+                          before_check=receipt.consume)
+            if recoveries:
+                result['rearmEvents'] = list(recoveries)
+            if args.save:
+                try:
+                    save_result(args.save, result)
+                except OSError as error:
+                    result['saveError'] = str(error)
+                    print(json.dumps(result), flush=True)
+                    return 2
+            if not args.loop or result['event'] not in ('timeout', 'rearm'):
+                break
+            ack_run = None
+            if result['event'] == 'rearm':
+                recoveries.append({key: value for key, value in result.items()
+                                   if key != 'rearmEvents'})
+        print(summary(result, bodies=bodies) if args.summary or bodies else json.dumps(result),
+              flush=True)
+        if args.auto_ack:
+            receipt.printed(result)
+        return {'messages': 0, 'timeout': 3, 'error': 2, 'rearm': 4,
+                'runtime_unavailable': 2}[result['event']]
+
+
+def summary(result, bodies=False):
+    """Present all messages in full when requested, including legacy diagnostics."""
     def field(value):
         return json.dumps(value, ensure_ascii=True)
+
+    def body_text(value):
+        # Mail is untrusted terminal input. Retain all content, but make control
+        # bytes and bidi/format overrides visible rather than executable.
+        return ''.join(json.dumps(ch, ensure_ascii=True)[1:-1]
+                       if ch not in '\n\t' and unicodedata.category(ch) in ('Cc', 'Cf')
+                       else ch for ch in value)
 
     lines = [f"FLEET-WAIT event={result['event']} counts={json.dumps(result['counts'])}"]
     if result.get('error'):
@@ -371,7 +483,7 @@ def summary(result):
         lines.append(f"DELIVERY {field(batch['deliveryId'])} source={batch['source']} "
                      f"n={len(batch['messages'])}")
         for row in batch['messages']:
-            if row['classification'] != 'supervisor_relay':
+            if bodies or row['classification'] != 'supervisor_relay':
                 sender = row.get('from_handle', row.get('from', ''))
                 lines.append(f"{field(row['id'])} {field(sender)} "
                              f"{row['classification']} {field(row.get('subject', ''))}")
@@ -385,4 +497,15 @@ def summary(result):
                 if isinstance(report, dict):
                     lines[-1] += (f" kind={field(report.get('kind'))}"
                                   f" PR={field(report.get('pr'))} head={field(report.get('head'))}")
+                if bodies:
+                    lines[-1] += f" type={field(row.get('type'))}"
+                    lines.extend(('--- BODY ---', body_text(row.get('body') or ''),
+                                  '--- END MESSAGE ---'))
+    if bodies:
+        legacy = result.get('legacyTerminalInbox', {})
+        if legacy.get('messages'):
+            lines.append('LEGACY TERMINAL INBOX (read-only history)')
+            lines.append(summary({'event': result['event'], 'counts': legacy.get('counts', {}),
+                                  'batches': [{'deliveryId': None, 'source': 'legacy',
+                                               'messages': legacy['messages']}]}, bodies=True))
     return '\n'.join(lines)

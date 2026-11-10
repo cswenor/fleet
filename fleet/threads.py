@@ -229,6 +229,10 @@ def report(c, ref, kind, pr, head, body):
         raise ValueError('report head must be a full commit SHA')
     if not isinstance(body, str) or not body.strip():
         raise ValueError('report text is required')
+    _, _, _, attempt = current(c, ref, identity(c))
+    actual_head = run(['git', 'rev-parse', 'HEAD'], attempt['slot']).strip()
+    if head.lower() != actual_head.lower():
+        raise ValueError('report head differs from current task slot HEAD')
     payload = {'fleet_report': {'ref': ref, 'kind': kind, 'pr': pr, 'head': head}}
     return question(c, ref, body, f'{ref}: {kind}', payload=payload)
 

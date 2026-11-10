@@ -5,17 +5,33 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import select
+import subprocess
+import sys
 from unittest.mock import patch
 
 from fleet import cli, mailbox
 
 
 class WaitOptionsTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        env = patch.dict(os.environ, XDG_STATE_HOME=temp.name, ORCA_TERMINAL_HANDLE='main')
+        env.start()
+        self.addCleanup(env.stop)
+        self.config = {'coordinator': {'run': 'test-run'}}
+
     def invoke(self, events, *options):
         output = io.StringIO()
+        events = iter(events)
+        def receive(*args, **kwargs):
+            if args[2]:
+                kwargs['before_check']()
+            return next(events)
         with patch('sys.argv', ['fleet', 'wait', *options]), \
-                patch.object(cli, 'load', return_value={}), \
-                patch.object(mailbox, 'wait', side_effect=events) as wait, \
+                patch.object(cli, 'load', return_value=self.config), \
+                patch.object(mailbox, 'wait', side_effect=receive) as wait, \
                 contextlib.redirect_stdout(output):
             code = cli.main()
         return code, output.getvalue(), wait
@@ -91,26 +107,141 @@ class WaitOptionsTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), result)
             self.assertEqual(list(Path(temp).iterdir()), [path])
 
-    def test_summary_includes_needs_next_lane_free_and_urgent_but_save_keeps_all(self):
-        rows = [
-            {'id': 'status', 'type': 'status', 'subject': 'report', 'body': 'keep full payload'},
-            {'id': 'ready', 'type': 'status', 'from_handle': 'builder', 'subject': 'TASK-87: FRESH-READY TASK-90', 'body': 'historical readiness'},
-            {'id': 'next', 'type': 'question', 'from_handle': 'builder', 'subject': 'NEEDS-NEXT-REF TASK-87'},
-            {'id': 'free', 'type': 'question', 'from_handle': 'main', 'subject': 'Lane free: TASK-87 needs next task', 'body': '[fleet x] free'},
-            {'id': 'urgent', 'type': 'question', 'from_handle': 'main', 'subject': '[urgent] stalled\nsecond line', 'body': '[fleet x] stalled'}]
-        classified, counts = mailbox.classify(rows, 'main')
-        result = {'event': 'messages', 'counts': counts, 'batches': [
-            {'deliveryId': 'delivery1', 'source': 'run', 'messages': classified}]}
+
+    def batch(self, body='full body', **extra):
+        rows, counts = mailbox.classify([
+            {'id': 'report', 'type': 'status', 'from_handle': 'main',
+             'subject': 'relay', 'body': '[fleet x] ' + body}], 'main')
+        return {'event': 'messages', 'counts': counts, 'batches': [
+            {'deliveryId': 'previous', 'source': 'run', 'messages': rows, **extra}]}
+
+    def test_bodies_include_complete_relay_and_legacy_messages(self):
+        body = 'first\n' + 'x' * 20000 + '\nlast'
+        result = self.batch(body)
+        result['legacyTerminalInbox'] = {'messages': result['batches'][0]['messages'],
+                                         'counts': result['counts']}
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'last.json'
-            code, text, _ = self.invoke([result], '--summary', '--save', str(path))
-            self.assertEqual(json.loads(path.read_text()), result)
+            code, text, _ = self.invoke([result], '--summary', '--save', temp + '/saved')
         self.assertEqual(code, 0)
-        lines = text.splitlines()
-        self.assertIn('DELIVERY "delivery1" source=run n=5', lines)
-        self.assertIn('"next" "builder" builder_decision_request "NEEDS-NEXT-REF TASK-87"', lines)
-        self.assertIn('"free" "main" builder_decision_request "Lane free: TASK-87 needs next task"', lines)
-        self.assertIn('"urgent" "main" supervisor_urgent "[urgent] stalled\\nsecond line"', lines)
-        self.assertIn('"ready" "builder" builder_report "TASK-87: FRESH-READY TASK-90"', lines)
-        self.assertIn('"status" "" builder_report "report"', lines)
-        self.assertNotIn('keep full payload', text)
+        self.assertEqual(text.count('[fleet x] ' + body), 2)
+        self.assertEqual(text.count('--- END MESSAGE ---'), 2)
+        self.assertIn('supervisor_relay', text)
+
+    def test_auto_ack_previous_once_and_explicit_override(self):
+        self.invoke([self.batch()], '--auto-ack')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack', '--ack-run', 'override')
+        self.assertEqual(wait.call_args.args[2], 'override')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertIsNone(wait.call_args.args[2])
+        self.invoke([self.batch()], '--auto-ack')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertEqual(wait.call_args.args[2], 'previous')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertIsNone(wait.call_args.args[2])
+        paths = list((Path(os.environ['XDG_STATE_HOME']) / 'fleet/waits').iterdir())
+        self.assertTrue(all(p.stat().st_mode & 0o777 == 0o600 for p in paths))
+
+    def test_crash_before_print_never_arms_ack(self):
+        with patch('builtins.print', side_effect=SystemExit('crash')):
+            with self.assertRaises(SystemExit):
+                self.invoke([self.batch()], '--auto-ack')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertIsNone(wait.call_args.args[2])
+
+    def test_save_failure_after_delivery_never_arms_ack(self):
+        save = mailbox.save_result
+        def fail_batch(path, result):
+            if result.get('batches'):
+                raise OSError('disk full')
+            save(path, result)
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(mailbox, 'save_result', side_effect=fail_batch):
+            code, text, wait = self.invoke([self.batch()], '--auto-ack', '--save', temp + '/saved')
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(text)['batches'], self.batch()['batches'])
+        self.assertEqual(wait.call_count, 1)
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertIsNone(wait.call_args.args[2])
+
+    def test_native_auto_handled_batch_is_not_acked_again(self):
+        self.invoke([self.batch(nativeAutoAck=True)], '--auto-ack')
+        _, _, wait = self.invoke([{'event': 'timeout'}], '--auto-ack')
+        self.assertIsNone(wait.call_args.args[2])
+
+    def test_concurrent_consumer_refuses_and_releases_on_exit(self):
+        with mailbox.consumer(self.config):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                code, _, wait = self.invoke([])
+            self.assertEqual(code, 2)
+            wait.assert_not_called()
+            self.assertIn(f'another fleet wait is active for run test-run (pid {os.getpid()})',
+                          errors.getvalue())
+        code, _, _ = self.invoke([{'event': 'timeout'}])
+        self.assertEqual(code, 3)
+
+    def test_preflight_failures_preserve_previous_ack_until_native_check(self):
+        self.invoke([self.batch()], '--auto-ack')
+        def native(c, verb, *args, **kwargs):
+            if verb == 'run-current':
+                return {'run': {'id': 'test-run', 'coordinator_handle': 'main'}}
+            if verb == 'inbox':
+                return {'messages': [], 'count': 0}
+            self.assertEqual(verb, 'check')
+            return {'runId': 'test-run', 'messages': [], 'count': 0,
+                    'deliveryId': None, 'timedOut': True}
+        with mailbox.consumer(self.config) as receipt, \
+                patch.object(mailbox, 'request', side_effect=native):
+            for options in ({'timeout': 0}, {'wake_on': 'invalid'},
+                            {'terminal': 'wrong'}, {'interval': 0}):
+                result = mailbox.wait(self.config, ack_run=receipt.pending(auto=True),
+                                      before_check=receipt.consume, **options)
+                self.assertEqual(result['event'], 'error')
+                self.assertEqual(receipt.pending(auto=True), 'previous')
+            with patch.object(mailbox, '_binding', side_effect=mailbox.MailboxError('wrong run')):
+                mailbox.wait(self.config, ack_run='previous', before_check=receipt.consume)
+            self.assertEqual(receipt.pending(auto=True), 'previous')
+            result = mailbox.wait(self.config, ack_run='previous', before_check=receipt.consume)
+            self.assertEqual(result['event'], 'timeout')
+            self.assertIsNone(receipt.pending(auto=True))
+
+    def test_full_body_escapes_terminal_controls_without_altering_saved_mail(self):
+        body = 'visible\n\x1b[2J\rhidden\x9b2K\u202ereversed\tend'
+        result = self.batch(body)
+        with tempfile.TemporaryDirectory() as temp:
+            path = temp + '/mail'
+            _, text, _ = self.invoke([result], '--summary', '--save', path)
+            self.assertEqual(json.loads(Path(path).read_text()), result)
+        self.assertIn('visible\n\\u001b[2J\\rhidden\\u009b2K\\u202ereversed\tend', text)
+        for control in ('\x1b', '\r', '\x9b', '\u202e'):
+            self.assertNotIn(control, text)
+
+    def test_second_cli_process_refuses_while_first_holds_consumer(self):
+        script = """import sys
+from unittest.mock import patch
+from fleet import cli, mailbox
+def wait(*args, **kwargs):
+    print('READY', file=sys.stderr, flush=True)
+    sys.stdin.readline()
+    return {'event':'timeout','batches':[],'counts':{}}
+with patch.object(cli,'load',return_value={'coordinator':{'run':'test-run'}}), patch.object(mailbox,'wait',side_effect=wait):
+    raise SystemExit(cli.main())
+"""
+        command = [sys.executable, '-c', script, 'wait']
+        first = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True)
+        try:
+            ready, _, _ = select.select([first.stderr], [], [], 10)
+            self.assertTrue(ready, 'first CLI did not reach locked wait')
+            self.assertEqual(first.stderr.readline(), 'READY\n')
+            second = subprocess.run(command, input='', capture_output=True, text=True, timeout=10)
+            self.assertEqual(second.returncode, 2)
+            self.assertIn(f'another fleet wait is active for run test-run (pid {first.pid})',
+                          second.stderr)
+            self.assertNotIn('READY', second.stderr)
+            out, err = first.communicate('\n', timeout=10)
+            self.assertEqual(first.returncode, 3)
+            self.assertEqual(json.loads(out)['event'], 'timeout')
+        finally:
+            if first.poll() is None:
+                first.kill()
+                first.communicate()

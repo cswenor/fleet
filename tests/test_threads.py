@@ -194,6 +194,9 @@ class ThreadTests(unittest.TestCase):
 
     def test_typed_report_roundtrip_summary_and_pending_guard(self):
         self.open()
+        git_head = patch.object(threads, 'run', return_value='a' * 40 + '\n')
+        git_head.start()
+        self.addCleanup(git_head.stop)
         argv = ['fleet', 'thread', 'report', 'TASK-1', '--kind', 'release_ready',
                 '--pr', '91', '--head', 'a' * 40, 'Please release this head']
         with patch.object(cli, 'load', return_value=self.c), patch('sys.argv', argv):
@@ -217,6 +220,15 @@ class ThreadTests(unittest.TestCase):
         self.messages = [self.answer(q)]
         self.assertEqual(threads.wait(self.c, 'TASK-1', 1)['reply']['body'], 'approved')
         self.assertEqual(len(self.sent), 1)
+
+    def test_report_rejects_wrong_head_before_sending_or_recording(self):
+        self.open()
+        before = state.read(self.c, 'threads-TASK-1')
+        with patch.object(threads, 'run', return_value='b' * 40 + '\n'):
+            with self.assertRaisesRegex(ValueError, 'differs from current task slot HEAD'):
+                threads.report(self.c, 'TASK-1', 'release_ready', 91, 'a' * 40, 'release')
+        self.assertEqual(self.sent, [])
+        self.assertEqual(state.read(self.c, 'threads-TASK-1'), before)
 
 
 class ReadyTests(unittest.TestCase):

@@ -1,9 +1,12 @@
+import contextlib
+import io
+import tempfile
 import json
 import os
 import unittest
 from unittest.mock import patch
 
-from fleet import mailbox
+from fleet import cli, mailbox
 
 
 class BuilderWakeTests(unittest.TestCase):
@@ -33,7 +36,8 @@ class BuilderWakeTests(unittest.TestCase):
         if '--peek' in args:
             return {'runId': 'run_test', 'messages': list(self.rows), 'count': len(self.rows)}
         return {'runId': 'run_test', 'messages': list(self.rows), 'count': len(self.rows),
-                'deliveryId': 'delivery', 'timedOut': False, 'deliveryAcknowledged': True}
+                'deliveryId': 'delivery' if self.rows else None,
+                'timedOut': not bool(self.rows), 'deliveryAcknowledged': True}
 
     def wait(self, **options):
         with patch.object(mailbox, 'request', side_effect=self.native), \
@@ -126,3 +130,26 @@ class BuilderWakeTests(unittest.TestCase):
                 result = self.wait(interval=interval)
                 self.assertEqual(result['error'], 'interval_must_be_1_to_30_seconds')
                 self.assertFalse(any(verb == 'check' for verb, _ in self.calls))
+
+    def test_explicit_and_auto_ack_empty_inbox_wait_full_requested_timeout(self):
+        self.rows = []
+        for options in (['--ack-run', 'previous'], ['--auto-ack']):
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as temp, \
+                    patch.dict(os.environ, XDG_STATE_HOME=temp):
+                self.now = 0
+                self.calls = []
+                with mailbox.consumer(self.c) as receipt:
+                    receipt.printed({'batches': [{'deliveryId': 'previous'}]})
+                argv = ['fleet', 'wait', '--timeout', '6', '--wake-on',
+                        'question,escalation,urgent,builder', *options]
+                with patch('sys.argv', argv), patch.object(cli, 'load', return_value=self.c), \
+                        patch.object(mailbox, 'request', side_effect=self.native), \
+                        patch.object(mailbox.time, 'monotonic', side_effect=lambda: self.now), \
+                        patch.object(mailbox.time, 'sleep', side_effect=self.sleep), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(cli.main(), 3)
+                self.assertEqual(self.now, 6)
+                self.assertEqual(json.loads(output.getvalue())['event'], 'timeout')
+                checks = [args for verb, args in self.calls if verb == 'check']
+                self.assertEqual(sum('--ack' in args for args in checks), 1)
+                self.assertTrue(all('--peek' in args for args in checks[1:]))

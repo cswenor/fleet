@@ -64,7 +64,11 @@ def main():
     p.add_argument('--interval', type=float, default=3, help='builder peek cadence, 1–30 seconds')
     p.add_argument('--loop', action='store_true', help='rearm internally on timeout/recovery; never repeat an ack')
     p.add_argument('--save', metavar='PATH', help='atomically save the full JSON result with mode 0600')
-    p.add_argument('--summary', action='store_true', help='print compact delivery, builder and urgent rows instead of JSON')
+    p.add_argument('--summary', action='store_true', help='print delivery blocks with full bodies by default instead of JSON')
+    p.add_argument('--bodies', action=argparse.BooleanOptionalAction, default=None,
+                   help='print every full message body (default on with --summary)')
+    p.add_argument('--auto-ack', action='store_true',
+                   help='ack the previous fully printed/saved delivery on the next invocation')
     p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')
     commands = p.add_subparsers(dest='thread_command', required=True)
     t = commands.add_parser('open')
@@ -186,35 +190,8 @@ def main():
             print(json.dumps(result))
             return 3 if result.get('event') == 'timeout' else 0
         if args.command == 'wait':
-            from .mailbox import wait, check_save_path, save_result, summary
-            if args.save:
-                check_save_path(args.save)
-            ack_run = args.ack_run
-            recoveries = []
-            while True:
-                result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on, args.interval)
-                if recoveries:
-                    result['rearmEvents'] = list(recoveries)
-                if args.save:
-                    try:
-                        save_result(args.save, result)
-                    except OSError as error:
-                        # Native mail may already be auto-acknowledged. Never
-                        # hide its payload/receipts behind a filesystem error.
-                        result['saveError'] = str(error)
-                        print(json.dumps(result))
-                        return 2
-                if not args.loop or result['event'] not in ('timeout', 'rearm'):
-                    break
-                # A timeout already submitted the ack; rearm has an unknown
-                # mutation outcome. Neither permits sending the same ack again.
-                ack_run = None
-                if result['event'] == 'rearm':
-                    recoveries.append({key: value for key, value in result.items()
-                                       if key != 'rearmEvents'})
-            print(summary(result) if args.summary else json.dumps(result))
-            return {'messages': 0, 'timeout': 3, 'error': 2, 'rearm': 4,
-                    'runtime_unavailable': 2}[result['event']]
+            from .mailbox import run_wait
+            return run_wait(c, args)
         if args.command == 'serve':
             from .supervisor import serve
             serve(c, not args.no_deliver, args.once)
