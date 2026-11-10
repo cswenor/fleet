@@ -58,7 +58,7 @@ def main():
                        description='Exit 0: messages; 3: timeout; 4: runtime recovered, rearm without replaying an ambiguous ack; 2: error/runtime_unavailable. Recovery is bounded to 30s; consuming checks are never retried.')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
     p.add_argument('--wake-on', default='all',
-                   help='comma-separated question,escalation,urgent,builder,status,all; builder defers relay-only backlog/replay until timeout or explicit ack; deliveries stay whole')
+                   help='comma-separated question,escalation,urgent,builder,status,all; builder holds relay-only deliveries until selected mail or timeout; deliveries stay whole')
     p.add_argument('--ack-run', help='acknowledge a processed Run delivery before waiting')
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
     p.add_argument('--interval', type=float, default=3, help='builder peek cadence, 1–30 seconds')
@@ -67,6 +67,8 @@ def main():
     p.add_argument('--summary', action='store_true', help='print delivery blocks with full bodies by default instead of JSON')
     p.add_argument('--bodies', action=argparse.BooleanOptionalAction, default=None,
                    help='print every full message body (default on with --summary)')
+    p.add_argument('--legacy-history', action='store_true',
+                   help='include read-only terminal history in body output (always retained in saved JSON)')
     p.add_argument('--auto-ack', action='store_true',
                    help='ack the previous fully printed/saved delivery on the next invocation')
     p = sub.add_parser('thread', help='Pad-backed terminal-builder task threads')

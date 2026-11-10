@@ -145,7 +145,8 @@ The save parent must exist. `--loop` absorbs timeout/rearm checkpoints; the
 single-shot default is unchanged. Use an explicit async-job deadline.
 `--save PATH` atomically replaces the full JSON (0600); `--summary` defaults to
 `--bodies`, printing every message's metadata, typed kind/PR/head and FULL body
-in delimited blocks, including relays and read-only legacy history.
+in delimited blocks, including relays. Legacy terminal history is hidden unless
+`--legacy-history` is supplied; the saved JSON retains it unchanged.
 Process all output before rearming; no separate saved-file read is needed.
 `--auto-ack` records only fully flushed/saved deliveries, acknowledging the
 previous one once at the next invocation; native auto-handled batches are skipped.
@@ -172,17 +173,18 @@ keep blocking waits. Stock Orca lacks sender/class wake predicates: builder
 selection classifies read-only peeks within one async process every 3 seconds
 (`--interval` 1–30), consuming one whole native batch only after a match.
 A 100-row peek without a match fails explicitly (`builder_peek_incomplete`);
-`all` and native-only selections bypass peeking. Explicit `--ack-run` retains immediate native
-check/ack precedence, including relay-only batches. Every returned Delivery
-stays whole with native replay/ack unchanged. Rows retain per-source/aggregate
+`all` and native-only selections bypass peeking. Explicit `--ack-run` submits
+one immediate check/ack, then holds unselected relay-only batches.
+Every Delivery stays whole with native replay/ack unchanged. Rows retain per-source/aggregate
 counts: decisions first, then `supervisor_urgent`, then other reports.
 
-Builder mode defers relay-only backlog/replay until a selected class, explicit
-ack or timeout checkpoint. A last pending peek then permits one whole native
-batch; empty peeks time out without consumption.
-An empty successful ack check continues peeking for the remaining requested
-timeout, including single-shot mode; its internal 1ms checkpoint is not an
-early caller timeout. The ack is never repeated.
+Builder mode defers relay-only backlog/replay until selected mail or timeout.
+Empty or relay-only ack results continue peeking for the remaining timeout;
+the internal 1ms checkpoint is not an early return and the ack is never repeated.
+Auto-handled runtimes combine held and selected batches; explicit-ack runtimes
+return held mail on selected arrival or timeout, leaving selected mail queued
+until the next invocation. Never ack held unprinted mail. Errors and loop
+checkpoints retain held deliveries.
 Stock read-only APIs cannot identify an active Delivery, so immediate relay-only replay cannot be preserved
 without unsafe speculative consumption. Builder report summary rows show why
 Main woke; saved payloads remain complete.

@@ -113,6 +113,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-94 — Quiet summaries and ack-time relay holding
+
+Legacy terminal history is opt-in via `--legacy-history`; saved JSON is unchanged.
+Builder-class waits hold relay-only ack results until selected mail or timeout,
+preserving consumed batches through errors and loop checkpoints. Auto-handled
+runtimes combine held and selected deliveries. Main approved the explicit-ack
+boundary (`msg_c9e215941402`): return held mail on selected arrival or timeout,
+leaving selected mail queued until the next invocation acknowledges printed mail.
+Never acknowledge held unprinted rows.
+
+All 59 focused mailbox/wait regressions pass, including CLI save/output/receipt
+coverage for both runtime modes. Main's real bound-Run capture confirms installed
+Linux Orca 1.4.242 uses explicit ack (`msg_88f6fa87075b`): new delivery
+`delivery_ef0008d36c89` has no auto-ack field; only the prior delivery is acked.
+Main-owned frozen-head acceptance, independent final-head review, green CI and
+exact-head GO remain publication gates. Shared deployment remains Main-owned.
+
 ### TASK-93 — One-step Main inbox
 
 `fleet wait --summary` now includes every full message body in delimited blocks,

@@ -509,7 +509,8 @@ until messages or a real error; omit it for existing single-shot exit behavior.
 Use a bounded async-job deadline. `--save PATH` atomically replaces the complete
 JSON result (0600) after each result, including errors. `--summary` defaults to
 `--bodies`: delimited blocks show every ID, sender, type/classification, subject,
-typed kind/PR/head and full body, including relays and read-only legacy history.
+typed kind/PR/head and full body, including relays. Read-only legacy terminal
+history is hidden unless `--legacy-history` is supplied; saved JSON retains it unchanged.
 Process all blocks before rearming; no separate saved-file read is needed.
 Unusable save destinations fail before consuming mail. A later save failure
 returns exit 2 with full JSON on stdout (even with `--summary`) and `saveError`;
@@ -540,13 +541,15 @@ read-only `check --peek` rows every 3 seconds (`--interval` 1–30) within the
 single async process, then consume one whole native batch when a class matches.
 A native 100-row peek without a match fails explicitly (`builder_peek_incomplete`),
 not silently ignoring an unseen tail. `all` and native-only selections use native blocking waits.
-Explicit `--ack-run` keeps immediate native check/ack precedence (including
-relay-only deliveries). An empty successful ack check continues classified peeking
-for the remaining requested timeout, even without `--loop`; it never repeats the
-ack or returns the internal 1ms checkpoint as the caller's timeout. Every returned Delivery
-stays whole, with native replay/ack and decision-first presentation unchanged.
-Builder mode defers relay-only backlog/replay until a selected class, explicit
-ack or timeout checkpoint; a last pending peek then permits one whole batch.
+An explicit `--ack-run` (or previous `--auto-ack` receipt) submits one immediate
+native check/ack. Empty or relay-only results continue class-gated peeking for
+the remaining timeout; no ack is repeated and no held unprinted mail is acked.
+Auto-handled runtimes combine held and selected deliveries in one output.
+Explicit-ack runtimes return the held whole batch on selected arrival or timeout,
+leaving selected mail queued for the next invocation after printing/saving.
+Held mail survives errors and loop checkpoints. Every returned Delivery stays whole.
+Builder mode defers relay-only backlog/replay until selected mail or timeout;
+a last pending peek then permits one whole batch.
 Empty peeks time out without consumption. Read-only APIs expose no active-Delivery
 metadata, so speculative early checks cannot safely preserve immediate replay.
 

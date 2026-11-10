@@ -513,10 +513,11 @@ batch lost during an interrupted native response.
 checkpoint/result. Unusable destinations fail before consuming mail. A later write
 failure returns exit 2 and the complete JSON on stdout even with `--summary`,
 including `saveError`; any prior saved file stays intact. Preserve that stdout.
-`--summary` defaults to `--bodies`: every message, including supervisor relays
-and read-only legacy history, prints ID, sender, type/classification, subject,
-typed report fields and its full body in delimited blocks. Process all blocks
-before running the command again; opening the saved JSON is unnecessary.
+`--summary` defaults to `--bodies`: current deliveries, including supervisor relays,
+print ID, sender, type/classification, subject, typed report fields and full bodies
+in delimited blocks. Read-only legacy terminal history is hidden unless
+`--legacy-history` is supplied; saved JSON retains it unchanged. Process all current
+delivery blocks before rearming; opening the saved JSON is unnecessary.
 `--summary` still requires `--save`. `--no-bodies` selects compact triage only
 and cannot be combined with `--auto-ack`.
 `--auto-ack` records only a fully flushed (and, when requested, saved) delivery,
@@ -550,14 +551,23 @@ process every 3 seconds (`--interval` 1–30), consuming exactly one whole nativ
 batch after a matching row appears. A 100-row peek without a match fails with
 `builder_peek_incomplete` (exit 2), never silently assuming the unseen tail is
 quiet. This adds native read traffic, not model-turn polling.
-`all` and native-only selections bypass class peeking. An explicit `--ack-run` keeps immediate
-native check/ack precedence and may return a relay-only batch. If empty, its
-internal short checkpoint continues peeking for the remaining requested timeout,
-in single-shot and loop modes alike. No ambiguous ack is retried.
+`all` and native-only selections bypass class peeking. `--ack-run` (including
+the previous `--auto-ack` receipt) submits one immediate native check/ack.
+An empty or unselected relay-only result continues peeking for the remaining
+timeout; the internal 1ms checkpoint is not an early return. Held deliveries
+are printed and saved on selected arrival, timeout or error, never discarded
+by `--loop`. No held unprinted delivery is acknowledged.
+On native auto-handled runtimes, selected arrivals are consumed and combined
+with the held batch in one output. On explicit-ack runtimes, the held whole
+batch returns on selected arrival or timeout; selected mail remains queued
+until the next invocation acknowledges the now printed/saved batch.
+Installed Linux Orca 1.4.242 uses explicit ack: Main's 2026-11-10 real bound-Run
+capture returned `delivery_ef0008d36c89` without `deliveryAcknowledged`;
+`ackCheck` confirmed only the prior `delivery_9398a5779ad1` was acknowledged
+(`msg_88f6fa87075b`). Thus the explicit-ack boundary above applies on this host.
 Every returned Delivery stays whole, including relay rows and native replay.
-Builder mode defers relay-only backlog, including an existing unacked Delivery,
-until a selected class arrives, explicit ack, or the timeout checkpoint. At the
-checkpoint a last peek with pending rows permits one whole-batch consuming check
+Builder mode defers relay-only backlog until selected mail or timeout.
+At the checkpoint a last peek with pending rows permits a consuming check
 and a saved `messages` result; empty peeks return timeout without consumption.
 Thus loop mode never strands relay-only mail indefinitely. Stock read-only APIs
 expose neither active-Delivery metadata nor a sender/class wake predicate; no

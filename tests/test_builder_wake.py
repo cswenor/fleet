@@ -35,9 +35,10 @@ class BuilderWakeTests(unittest.TestCase):
             return {'messages': [], 'count': 0}
         if '--peek' in args:
             return {'runId': 'run_test', 'messages': list(self.rows), 'count': len(self.rows)}
-        return {'runId': 'run_test', 'messages': list(self.rows), 'count': len(self.rows),
-                'deliveryId': 'delivery' if self.rows else None,
-                'timedOut': not bool(self.rows), 'deliveryAcknowledged': True}
+        rows, self.rows = self.rows, []
+        return {'runId': 'run_test', 'messages': rows, 'count': len(rows),
+                'deliveryId': f'delivery-{len(self.calls)}' if rows else None,
+                'timedOut': not bool(rows), 'deliveryAcknowledged': True}
 
     def wait(self, **options):
         with patch.object(mailbox, 'request', side_effect=self.native), \
@@ -101,13 +102,98 @@ class BuilderWakeTests(unittest.TestCase):
         self.assertEqual(result['error'], 'builder_peek_incomplete')
         self.assertTrue(all('--peek' in args for verb, args in self.calls if verb == 'check'))
 
-    def test_explicit_ack_retains_native_whole_batch_precedence(self):
+    def test_ack_time_relay_waits_until_checkpoint(self):
         result = self.wait(ack_run='previous')
-        self.assertEqual(result['batches'][0]['messages'][0]['id'], 'relay')
+        self.assertEqual(self.now, 6)
+        self.assertEqual(result['event'], 'messages')
+        self.assertEqual([r['id'] for b in result['batches'] for r in b['messages']], ['relay'])
         checks = [args for verb, args in self.calls if verb == 'check']
-        self.assertEqual(len(checks), 1)
-        self.assertIn('--ack', checks[0])
-        self.assertNotIn('--peek', checks[0])
+        self.assertEqual(sum('--ack' in args for args in checks), 1)
+        self.assertEqual(sum('--peek' not in args for args in checks), 1)
+
+    def test_ack_time_relay_combines_with_selected_arrival(self):
+        self.arrival = {'id': 'builder', 'from_handle': 'lane', 'type': 'status'}
+        result = self.wait(ack_run='previous')
+        self.assertEqual(self.now, 3)
+        self.assertEqual([r['id'] for b in result['batches'] for r in b['messages']],
+                         ['relay', 'builder'])
+        self.assertEqual(result['counts']['supervisor_relay'], 1)
+        self.assertEqual(result['counts']['builder_report'], 1)
+        self.assertTrue(all(b['nativeAutoAck'] for b in result['batches']))
+
+    def test_explicit_ack_runtime_keeps_selected_arrival_queued(self):
+        original = self.native
+        held = list(self.rows)
+        def explicit(c, verb, *args, **kwargs):
+            response = original(c, verb, *args, **kwargs)
+            if verb == 'check' and '--peek' not in args:
+                response.pop('deliveryAcknowledged')
+                self.rows = list(held)
+            return response
+        self.arrival = {'id': 'builder', 'from_handle': 'lane', 'type': 'status'}
+        with patch.object(self, 'native', side_effect=explicit):
+            result = self.wait(ack_run='previous')
+        self.assertEqual(self.now, 3)
+        self.assertEqual([r['id'] for b in result['batches'] for r in b['messages']], ['relay'])
+        self.assertEqual([r['id'] for r in self.rows], ['relay', 'builder'])
+        with tempfile.TemporaryDirectory() as temp:
+            receipt = mailbox._AckReceipt(mailbox.Path(temp) / 'ack.json')
+            receipt.printed(result)
+            self.assertEqual(receipt.pending(auto=True), result['batches'][0]['deliveryId'])
+
+    def test_held_delivery_survives_later_peek_failure(self):
+        original = self.native
+        def failed(c, verb, *args, **kwargs):
+            if '--peek' in args:
+                raise mailbox.MailboxError('invalid_builder_peek')
+            return original(c, verb, *args, **kwargs)
+        with patch.object(self, 'native', side_effect=failed):
+            result = self.wait(ack_run='previous')
+        self.assertEqual(result['event'], 'error')
+        self.assertEqual(result['batches'][0]['messages'][0]['id'], 'relay')
+
+    def test_cli_holds_saves_and_arms_only_explicit_ack_batches(self):
+        for native_auto_ack in (False, True):
+            for arrival in (False, True):
+                with self.subTest(native_auto_ack=native_auto_ack, arrival=arrival), \
+                        tempfile.TemporaryDirectory() as temp, \
+                        patch.dict(os.environ, XDG_STATE_HOME=temp):
+                    self.now, self.calls = 0, []
+                    self.rows = [{'id': 'relay', 'from_handle': 'main', 'type': 'status',
+                                  'body': '[fleet test] relay'}]
+                    self.arrival = ({'id': 'builder', 'from_handle': 'lane', 'type': 'status'}
+                                    if arrival else None)
+                    original = self.native
+                    held = list(self.rows)
+                    def transport(c, verb, *args, **kwargs):
+                        result = original(c, verb, *args, **kwargs)
+                        if not native_auto_ack and verb == 'check' and '--peek' not in args:
+                            result.pop('deliveryAcknowledged')
+                            self.rows = list(held)
+                        return result
+                    with mailbox.consumer(self.c) as receipt:
+                        receipt.printed({'batches': [{'deliveryId': 'previous'}]})
+                    path = temp + '/saved.json'
+                    with patch('sys.argv', ['fleet', 'wait', '--timeout', '6', '--loop',
+                                           '--wake-on', 'builder', '--auto-ack', '--summary',
+                                           '--save', path]), \
+                            patch.object(cli, 'load', return_value=self.c), \
+                            patch.object(mailbox, 'request', side_effect=transport), \
+                            patch.object(mailbox.time, 'monotonic', side_effect=lambda: self.now), \
+                            patch.object(mailbox.time, 'sleep', side_effect=self.sleep), \
+                            contextlib.redirect_stdout(io.StringIO()) as output:
+                        self.assertEqual(cli.main(), 0)
+                    self.assertEqual(self.now, 3 if arrival else 6)
+                    saved = json.loads(mailbox.Path(path).read_text())
+                    ids = [r['id'] for b in saved['batches'] for r in b['messages']]
+                    self.assertEqual(ids, ['relay', 'builder'] if arrival and native_auto_ack
+                                     else ['relay'])
+                    self.assertEqual(output.getvalue().count('[fleet test] relay'), 1)
+                    with mailbox.consumer(self.c) as receipt:
+                        self.assertEqual(receipt.pending(auto=True), None if native_auto_ack
+                                         else saved['batches'][0]['deliveryId'])
+                    checks = [args for verb, args in self.calls if verb == 'check']
+                    self.assertEqual(sum('--ack' in args for args in checks), 1)
 
     def test_consuming_outage_returns_rearm_without_second_consume(self):
         original = self.native

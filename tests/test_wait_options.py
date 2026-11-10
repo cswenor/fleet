@@ -115,17 +115,20 @@ class WaitOptionsTests(unittest.TestCase):
         return {'event': 'messages', 'counts': counts, 'batches': [
             {'deliveryId': 'previous', 'source': 'run', 'messages': rows, **extra}]}
 
-    def test_bodies_include_complete_relay_and_legacy_messages(self):
+    def test_legacy_history_is_opt_in_and_saved_unchanged(self):
         body = 'first\n' + 'x' * 20000 + '\nlast'
         result = self.batch(body)
         result['legacyTerminalInbox'] = {'messages': result['batches'][0]['messages'],
                                          'counts': result['counts']}
-        with tempfile.TemporaryDirectory() as temp:
-            code, text, _ = self.invoke([result], '--summary', '--save', temp + '/saved')
-        self.assertEqual(code, 0)
-        self.assertEqual(text.count('[fleet x] ' + body), 2)
-        self.assertEqual(text.count('--- END MESSAGE ---'), 2)
-        self.assertIn('supervisor_relay', text)
+        for flags, expected in (([], 1), (['--legacy-history'], 2)):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as temp:
+                code, text, _ = self.invoke(
+                    [result], '--summary', '--save', temp + '/saved', *flags)
+                self.assertEqual(json.loads(Path(temp + '/saved').read_text()), result)
+            self.assertEqual(code, 0)
+            self.assertEqual(text.count('[fleet x] ' + body), expected)
+            self.assertEqual(text.count('--- END MESSAGE ---'), expected)
+            self.assertEqual('LEGACY TERMINAL INBOX' in text, bool(flags))
 
     def test_auto_ack_previous_once_and_explicit_override(self):
         self.invoke([self.batch()], '--auto-ack')

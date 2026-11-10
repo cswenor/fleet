@@ -208,6 +208,11 @@ def wake_types(kinds):
                                  for kind in selected if kind != 'builder'))
 
 
+def _selected(rows, selected):
+    return any(row['classification'] in ('builder_report', 'builder_decision_request')
+               or row.get('type') in selected for row in rows)
+
+
 def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
     """Peek without consuming relay traffic; stock native waits cannot filter senders."""
     deadline = time.monotonic() + timeout
@@ -221,8 +226,7 @@ def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
                            for row in messages)):
             raise MailboxError('invalid_builder_peek')
         rows, _ = classify(messages, c['coordinator'].get('terminal'))
-        if any(row['classification'] in ('builder_report', 'builder_decision_request')
-               or row.get('type') in selected for row in rows):
+        if _selected(rows, selected):
             recovery.deadline = None
             return True
         if len(rows) >= 100:
@@ -266,8 +270,8 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         selected = types.split(',') if types else []
         pending = True
         if builder:
-            # An explicit ack retains native replay/ack precedence. Keep its
-            # checkpoint short; loop mode then rearms through read-only peeks.
+            # Submit the previous ack once, then hold unselected deliveries
+            # through the remaining class-gated wait.
             args[-1] = '1'
             if not ack_run:
                 pending = _builder_pending(
@@ -284,21 +288,30 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
                                          'deliveryId': None, 'timedOut': True})
             result.update(_metadata(received))
             batch = delivery(received, run)
-            if builder and ack_run and batch is None:
-                # The 1ms ack checkpoint is not the caller's timeout. Continue
-                # the same wait without replaying a successfully submitted ack.
+            if builder and ack_run:
                 result['ackCheck'] = {'ackRunRequested': ack_run, **_metadata(received)}
                 result['acknowledged'] = received.get('acknowledged')
                 ack_run = None
                 args = args[:-2]
-                remaining = wait_deadline - time.monotonic()
-                pending = remaining > 0 and _builder_pending(
-                    c, recovery, run, caller, remaining, selected, interval)
-                received = (request(c, *args, timeout=30) if pending else
-                            {'runId': run, 'messages': [], 'count': 0,
-                             'deliveryId': None, 'timedOut': True})
-                result.update(_metadata(received))
-                batch = delivery(received, run)
+                rows = classify(batch['messages'], c['coordinator'].get('terminal'))[0] if batch else []
+                if not _selected(rows, selected):
+                    if batch:
+                        batch['messages'], batch['counts'] = classify(
+                            batch['messages'], c['coordinator'].get('terminal'))
+                        result['batches'].append(batch)
+                        for kind in CLASSES:
+                            result['counts'][kind] += batch['counts'][kind]
+                    remaining = wait_deadline - time.monotonic()
+                    pending = remaining > 0 and _builder_pending(
+                        c, recovery, run, caller, remaining, selected, interval)
+                    # Old runtimes replay an explicit-ack delivery. Never ack
+                    # held, unprinted mail just to fetch the selected arrival.
+                    if pending and (batch is None or batch.get('nativeAutoAck')):
+                        received = request(c, *args, timeout=30)
+                        result.update(_metadata(received))
+                        batch = delivery(received, run)
+                    else:
+                        batch = None
         except MailboxError as error:
             result.update(error.metadata)
             if 'received' in locals():
@@ -317,11 +330,11 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
             for kind in CLASSES:
                 result['counts'][kind] += batch['counts'][kind]
             result['batches'].append(batch)
-            if 'nativeAutoAck' in batch:
-                result['nativeAutoAck'] = batch['nativeAutoAck']
-                if batch['nativeAutoAck']:
-                    result['acknowledgmentStatus'] = 'already acknowledged natively'
-        result.update(event='messages' if batch else 'timeout',
+        if result['batches'] and 'nativeAutoAck' in result['batches'][-1]:
+            result['nativeAutoAck'] = result['batches'][-1]['nativeAutoAck']
+            if result['nativeAutoAck']:
+                result['acknowledgmentStatus'] = 'already acknowledged natively'
+        result.update(event='messages' if result['batches'] else 'timeout',
                       acknowledged=received.get('acknowledged', result.get('acknowledged')))
         if recovery.recovered:
             result['runtimeRecovered'] = True
@@ -450,13 +463,14 @@ def run_wait(c, args):
                     result['saveError'] = str(error)
                     print(json.dumps(result), flush=True)
                     return 2
-            if not args.loop or result['event'] not in ('timeout', 'rearm'):
+            if result.get('batches') or not args.loop or result['event'] not in ('timeout', 'rearm'):
                 break
             ack_run = None
             if result['event'] == 'rearm':
                 recoveries.append({key: value for key, value in result.items()
                                    if key != 'rearmEvents'})
-        print(summary(result, bodies=bodies) if args.summary or bodies else json.dumps(result),
+        print(summary(result, bodies=bodies, legacy_history=args.legacy_history)
+              if args.summary or bodies else json.dumps(result),
               flush=True)
         if args.auto_ack:
             receipt.printed(result)
@@ -464,8 +478,8 @@ def run_wait(c, args):
                 'runtime_unavailable': 2}[result['event']]
 
 
-def summary(result, bodies=False):
-    """Present all messages in full when requested, including legacy diagnostics."""
+def summary(result, bodies=False, legacy_history=False):
+    """Present current deliveries; legacy diagnostics are explicitly opt-in."""
     def field(value):
         return json.dumps(value, ensure_ascii=True)
 
@@ -501,7 +515,7 @@ def summary(result, bodies=False):
                     lines[-1] += f" type={field(row.get('type'))}"
                     lines.extend(('--- BODY ---', body_text(row.get('body') or ''),
                                   '--- END MESSAGE ---'))
-    if bodies:
+    if bodies and legacy_history:
         legacy = result.get('legacyTerminalInbox', {})
         if legacy.get('messages'):
             lines.append('LEGACY TERMINAL INBOX (read-only history)')
