@@ -129,9 +129,7 @@ Fifteen option, 10 builder-wake, 30 mailbox and 34 thread regressions cover full
 ack, explicit override, output crash/save failure, private modes, concurrent
 refusal and report head mismatch. Independent review found premature receipt
 clearing on preflight failure; intent now clears only after validation/binding,
-immediately before native check, with a regression. Main-owned live sequential
-and concurrent Fleet-Run acceptance, final-head review, green CI and exact-head
-GO remain required. Shared deployment remains Main-owned.
+immediately before native check, with a regression.
 The next review found terminal-control injection in raw body output; controls
 and Unicode format overrides now render as visible escapes, without truncating
 printable text/newlines or changing saved mail. A regression covers ANSI/C1/bidi.
@@ -139,6 +137,18 @@ Main live acceptance found the inherited PR88 builder+ack path returned its
 internal 1ms checkpoint as an early timeout. Empty successful ack checks now
 continue peeking for the remaining timeout without repeating the ack. CLI
 regressions cover both explicit/automatic ack and two real competing processes.
+
+Delivered in [PR90](https://github.com/cswenor/fleet/pull/90), merged as
+`76594aaa8c6d2951ce20496ce0d05cc51e17f621`. Final reviewed head
+`6dbcd135c1ffae95a6d646d24bdbb33ca2a45e1a`: independent stock unadvised Sol
+medium session `01a1c63d-f1a7-72dd-b410-a77c86f0eba9` PASS; actual model,
+thinking and read-only tool events verified. Ubuntu/macOS
+[CI42852608761](https://github.com/cswenor/fleet/actions/runs/42852608761) green.
+Main live acceptance `msg_e3ced1504538` on that exact frozen head: explicit ack
+plus timeout 20 returned a full relay batch after 21 seconds; a competing wait
+refused immediately with exit 2 and owning PID while the first remained alive,
+auto-acked the prior delivery and completed its timeout 40. Main exact-head GO:
+`msg_8d9ac2a9123a`. Shared deployment remains Main-owned.
 
 ### TASK-92 — Exclude draft and parked PRs from stuck alerts
 
