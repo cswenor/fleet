@@ -10,9 +10,10 @@ from . import dispatcher, health, launcher, snapshot, state
 from .commands import CommandError, gh, json_run, orca
 from .process_identity import omp_executable
 
-# Exact omp 18.17.0 (type, customType) encodings; never allow arbitrary custom events.
+# Exact observed omp (type, customType) encodings; never allow arbitrary custom events.
 POST_TURN_METADATA = frozenset({
     ('credential_pin', None), ('title_change', None), ('custom', 'todo_hud_state'),
+    ('custom_message', 'eval-state-context'),
 })
 PROC = Path('/proc')
 
@@ -21,7 +22,10 @@ def _post_turn_metadata(events):
     index = 0
     while index < len(events):
         event = events[index]
-        if (event.get('type'), event.get('customType')) in POST_TURN_METADATA:
+        encoding = (event.get('type'), event.get('customType'))
+        if (encoding in POST_TURN_METADATA and
+                (encoding != ('custom_message', 'eval-state-context') or
+                 event.get('display') is False)):
             index += 1
         elif (event.get('type') == 'compaction' and index + 1 < len(events) and
               _compaction_summary(events[index + 1])):

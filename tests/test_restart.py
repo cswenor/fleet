@@ -598,6 +598,40 @@ class RetirementTests(unittest.TestCase):
         self.write_log()
         self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
 
+    @staticmethod
+    def eval_state_context():
+        # TASK-97: actual trailing event from project-gamma session 01a1c704,
+        # 2026-11-10T20:11:32.153Z; only the host reminder body is redacted.
+        return json.loads((Path(__file__).parent / 'fixtures' /
+                           'omp-18.18.6-eval-state-context.json').read_text())
+
+    def test_captured_post_turn_eval_state_context_allows_retirement(self):
+        self.events.append(self.eval_state_context())
+        self.write_log()
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+
+    def test_eval_state_context_requires_exact_encoding_and_hidden_display(self):
+        captured = self.eval_state_context()
+        missing_display = dict(captured)
+        del missing_display['display']
+        for event in (
+                {**captured, 'display': True},
+                {**captured, 'display': 0},
+                {**captured, 'display': None},
+                missing_display,
+                {**captured, 'customType': 'unknown'},
+                {**captured, 'type': 'custom'}):
+            with self.subTest(event=event):
+                self.events = self.events[:2] + [event]
+                self.write_log()
+                self.refused('later work')
+
+    def test_eval_state_context_does_not_hide_later_user_message(self):
+        self.events.extend([self.eval_state_context(),
+                            {'type': 'message', 'message': {'role': 'user'}}])
+        self.write_log()
+        self.refused('no final assistant stop')
+
     def test_real_shaped_post_turn_todo_snapshot_allows_retirement(self):
         # Sanitized omp 18.17.0 shapes from fleet sessions 01a1b1aa / 01a1b1ae.
         self.events += [

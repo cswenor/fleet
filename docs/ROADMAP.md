@@ -113,6 +113,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-97 — Hidden host eval-state metadata after final stop
+
+Retirement accepts the observed omp 18.18.6 encoding
+`type=custom_message`, `customType=eval-state-context` only when `display` is
+the boolean `false`. Unknown custom types, visible/missing/nonboolean display,
+and later user work still refuse. No other retirement proof changes.
+
+The fixture preserves the real event `e764e6c6` from project-gamma session
+`01a1c704-b25a-7764-806b-e7b5538af432` at
+`2026-11-10T20:11:32.153Z`, redacting only its host reminder body.
+A read-only source replay accepts that captured session through this event;
+the later `custom/session_exit` in the full capture still refuses.
+Main owns the next real lane retirement acceptance after deployment.
+Publication requires independent final-head Sol-medium review, green CI and
+Main exact-head GO; durable receipts belong on TASK-97/PR.
+Shared deployment remains Main-owned.
+
 ### TASK-96 — Steering checkpoints wait behind launcher contention
 
 `thread check` (including `--ack`) and `thread pending` retain exclusive

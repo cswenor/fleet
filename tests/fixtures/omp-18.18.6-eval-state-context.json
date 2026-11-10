@@ -1,0 +1,11 @@
+{
+  "type": "custom_message",
+  "customType": "eval-state-context",
+  "content": "[redacted host reminder body]",
+  "display": false,
+  "attribution": "agent",
+  "id": "e764e6c6",
+  "parentId": "6386a115",
+  "timestamp": "2026-11-10T20:11:32.153Z",
+  "runtime": {"version": "18.18.6"}
+}
