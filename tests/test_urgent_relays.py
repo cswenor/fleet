@@ -519,6 +519,159 @@ class MissingReadyReportTests(unittest.TestCase):
         self.assertEqual(len(self.fallback_calls()), 1)
 
 
+class LaneFreeReportTests(unittest.TestCase):
+    enqueue = UrgentRelayTests.enqueue
+    cycle = UrgentRelayTests.cycle
+    urgent_calls = UrgentRelayTests.urgent_calls
+    save_attempt = CompletedIdleTests.save_attempt
+    pad = CompletedIdleTests.pad
+
+    def setUp(self):
+        CompletedIdleTests.setUp(self)
+        self.s.pop('github')
+        self.builder['ui_state'] = 'idle'
+        from fleet import restart
+        self.finished_completion = restart._finished_completion
+        proof = patch.object(restart, '_finished_completion', return_value={'pr': 'merged'})
+        self.proof = proof.start()
+        self.addCleanup(proof.stop)
+
+    def lane_calls(self):
+        return [(event, recipient) for event, recipient in self.calls if event.get('lane_free')]
+
+    def queue(self):
+        with patch.object(supervisor.time, 'time', return_value=100):
+            supervisor.cycle(self.c, deliver=False)
+
+    def test_once_per_launch_independent_of_sent_expiry_and_no_generic_idle(self):
+        self.cycle(100)
+        self.cycle(8 * 86400)
+        self.cycle(9 * 86400)
+        self.assertEqual(len(self.calls), 1)
+        event, recipient = self.lane_calls()[0]
+        self.assertEqual(event['type'], 'question')
+        self.assertEqual(event['subject'], 'Lane free: /slot finished TASK-37; needs next task')
+        self.assertEqual(recipient, 'run:r')
+        from fleet.mailbox import classify
+        rows, counts = classify([{'type': 'question', 'subject': event['subject'],
+                                 'body': '[fleet owner/project] ' + event['body'],
+                                 'from_handle': 'main'}], 'main')
+        self.assertEqual(rows[0]['classification'], 'builder_decision_request')
+        self.assertEqual(counts['builder_decision_request'], 1)
+
+    def test_supported_shell_also_qualifies(self):
+        self.builder.update(ui_state='unknown', shell_ready=True, flags=[])
+        self.cycle(100)
+        self.assertEqual(len(self.lane_calls()), 1)
+
+    def test_unsettled_blocked_stalled_or_unknown_idle_never_qualify(self):
+        for change in ({'ui_state': 'unknown'}, {'connected': False},
+                       {'flags': ['idle', 'stalled']}, {'flags': ['idle', 'provider_stalled']},
+                       {'flags': ['idle', 'blocked']}):
+            with self.subTest(change=change):
+                builder = {**self.builder, **change}
+                self.assertIsNone(supervisor._lane_free_candidate(self.c, builder))
+        self.attempt['settled'] = False
+        self.save_attempt()
+        self.cycle(100)
+        self.assertEqual(self.lane_calls(), [])
+
+    def test_unknown_completion_retains_generic_idle_fallback(self):
+        self.item['fields']['status'] = 'in-progress'
+        self.proof.side_effect = CommandError('offline')
+        self.cycle(100)
+        self.assertEqual(self.lane_calls(), [])
+        self.assertEqual([event['subject'] for event, _ in self.urgent_calls()],
+                         ['[urgent] Builder idle: TASK-37'])
+
+    def test_ready_and_needs_next_receipts_suppress_before_and_after_queue(self):
+        for queued in (False, True):
+            for report in ('ready', 'needs_next', 'global'):
+                with self.subTest(queued=queued, report=report):
+                    state.write(self.c, 'supervisor', {'github': {}, 'pending': [],
+                                                     'sent': {}, 'active_alerts': []})
+                    state.write(self.c, 'needs-next', {})
+                    self.attempt.pop('ready', None)
+                    self.attempt.pop('needs_next', None)
+                    self.save_attempt()
+                    if queued:
+                        self.queue()
+                    if report == 'global':
+                        state.write(self.c, 'needs-next', {'attempt': {'sending': True}})
+                    else:
+                        self.attempt[report] = {'message_id': 'native'}
+                        self.save_attempt()
+                    self.cycle(101)
+                    self.assertEqual(self.lane_calls(), [])
+                    self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
+
+    def test_replacement_invalidates_pending_and_earns_own_report(self):
+        self.queue()
+        replacement = {**self.launch, 'id': 'replacement'}
+        state.write(self.c, 'launches', {'/slot': replacement})
+        self.cycle(101)
+        self.assertEqual(self.lane_calls(), [])
+        state.write(self.c, 'threads-TASK-37',
+                    {'TASK-37': {'id': 'thread', 'attempts': {'replacement': self.attempt}}})
+        self.cycle(102)
+        self.assertEqual(len(self.lane_calls()), 1)
+        self.assertEqual(self.lane_calls()[0][0]['lane_free']['id'], 'replacement')
+
+    def test_pending_does_not_deliver_while_stalled_and_resumes_same_event(self):
+        self.queue()
+        key = state.read(self.c, 'supervisor')['pending'][0]['key']
+        self.builder['flags'] = ['idle', 'stalled']
+        self.cycle(101)
+        self.assertEqual(self.lane_calls(), [])
+        self.builder['flags'] = ['idle']
+        self.cycle(102)
+        self.assertEqual([event['key'] for event, _ in self.lane_calls()], [key])
+
+    def test_deferred_lane_free_survives_reopened_attempt_until_settlement(self):
+        self.queue()
+        key = state.read(self.c, 'supervisor')['pending'][0]['key']
+        self.attempt.update(attempt_id='attempt/continuation', settled=False)
+        self.save_attempt()
+        self.cycle(101)
+        self.assertEqual(self.lane_calls(), [])
+        self.attempt.update(settled=True, result='continuation complete')
+        self.save_attempt()
+        self.cycle(102)
+        self.cycle(103)
+        self.assertEqual([e['key'] for e, _ in self.lane_calls()], [key])
+        self.assertEqual(self.lane_calls()[0][0]['lane_free']['attempt_id'], 'attempt/continuation')
+
+    def test_lane_free_replaces_old_missing_ready_fallback(self):
+        self.queue()
+        ledger = state.read(self.c, 'supervisor')
+        identity = ledger['pending'][0]['lane_free']
+        ledger['pending'].insert(0, {'key': 'missing_ready:old', 'type': 'status',
+                                     'subject': 'old fallback', 'body': 'old',
+                                     'missing_ready': identity, 'branch': None})
+        state.write(self.c, 'supervisor', ledger)
+        self.cycle(1000)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.lane_calls()), 1)
+
+    def test_explicit_successful_park_receipt_counts_without_merge(self):
+        self.c['builder'] = {'slots': ['/slot']}
+        self.launch['worktree'] = {'path': '/slot'}
+        state.write(self.c, 'launches', {'/slot': self.launch})
+        at = self.launch['at'] + 1
+        self.attempt.update(settled_at=at, result='PARKED pushed WIP', branch='task-37-wip')
+        self.save_attempt()
+        receipt = {'launch_id': 'attempt', 'ref': 'TASK-37', 'slot': '/slot',
+                   'terminal': 'builder', 'terminal_incarnation_id': 'incarnation',
+                   'head': 'a' * 40, 'branch': 'task-37-wip', 'resume_note': 'note',
+                   'at': at, 'message_id': 'park-message', 'recorded': True,
+                   'attempt': 'attempt', 'body': self.attempt['result']}
+        state.write(self.c, 'parks', {'attempt': receipt})
+        self.proof.side_effect = self.finished_completion
+        self.cycle(100)
+        self.assertEqual(len(self.lane_calls()), 1)
+        self.assertEqual(self.lane_calls()[0][0]['type'], 'question')
+
+
 class UrgentConfigAndDeliveryTests(unittest.TestCase):
     def test_native_type_is_question_only_for_explicit_urgent_events(self):
         c = {'coordinator': {'terminal': 'main', 'run': 'r'}, 'repo': 'owner/project'}

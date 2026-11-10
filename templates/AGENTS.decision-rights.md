@@ -104,14 +104,21 @@ waiting for the reply. No further tool calls or background jobs; never a job tha
 waits on its own terminal/idle state or sends input to its own terminal.
 Main (or the owner) retires the idle session via the documented retirement path.
 Existing sent `status` receipts remain valid and must never be resent on upgrade.
+If complete but no concrete next ref exists, settle with `thread result`, then
+make `fleet --config CONFIG thread needs-next REF` the last lane action and end
+the turn. It sends one decision request per launch after verifying a new merge
+or explicit park completion; never replace this with a status report.
 If Main authorizes continuing after `thread result`, record that ruling and run
 `fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
 before any new question; never fall back to direct Run questions. This continues
 only the latest settled attempt on the same launch-owned unbound terminal/live
 incarnation/worktree; it does not authorize a new launch or waive publication gates.
 
-On durable PARK, finish the current step, commit/push WIP, write the Pad handoff
-and report PARKED. Then end your turn with a final message and do nothing else:
+On durable PARK, finish the step, commit/push WIP, write a concrete Pad resume
+comment, then make `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID`
+the last lane action. Clean worktree and actual remote HEAD equality are required.
+The command settles pushed-WIP completion without a merge; Main can use guarded
+different-ref restart to reassign the slot. Then end the turn and do nothing else:
 no further tool calls, no background jobs, and never a job that waits on your own
 terminal/idle state or sends input to your own terminal. Main (or the owner)
 retires the idle session via the documented retirement path (`fleet restart` for

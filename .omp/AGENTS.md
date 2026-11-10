@@ -72,9 +72,15 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   comment containing it; retry a known-ID receipt only to finish recording.
   Ambiguous sends lacking an ID forbid duplicates and require reconciliation.
   Ready reports do not schedule launches; Main approves the fresh launch.
+- If complete without a concrete next ref, settle `thread result`, then make
+  `fleet --config CONFIG thread needs-next REF` the last lane action and end the
+  turn. It sends one next-ref decision request after new-merge/park proof; never
+  substitute an ordinary status report.
 - On a durable quota PARK request: finish the current step, commit and push WIP
-  to the task branch, write the Pad handoff, report PARKED with evidence to the
-  configured coordinator Run. After reporting PARKED, end your turn with a final
+  to the task branch, write a concrete Pad resume comment, then make
+  `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last
+  lane action. It verifies clean pushed WIP, records park completion and settles
+  the attempt for guarded different-ref reassignment. End the turn with a final
   message and do nothing else: no further tool calls, no background jobs, and
   never a job that waits on your own terminal/idle state or sends input to your
   own terminal. Main (or the owner) retires the idle session via the documented

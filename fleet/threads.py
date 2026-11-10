@@ -275,6 +275,17 @@ def result(c, ref, body):
                 'receipt': receipt, 'settled': True}
 
 
+def _launch_report(task, launch_id, kind):
+    """Reports belong to launches even when authorized continuation archives them."""
+    current_report = task.get('attempts', {}).get(launch_id, {}).get(kind)
+    if current_report:
+        return current_report
+    for key, attempt in task.get('history', {}).items():
+        if (key == launch_id or key.startswith(launch_id + '/')) and attempt.get(kind):
+            return attempt[kind]
+    return None
+
+
 def ready(c, next_ref, body=''):
     """Report a settled primary launch's next handoff, never resend an uncertain send."""
     _name(next_ref)
@@ -297,13 +308,15 @@ def ready(c, next_ref, body=''):
             if (not task.get('id') or attempt.get('settled') is not True
                     or attempt.get('terminal') != caller or attempt.get('slot') != slot):
                 raise ValueError('ready requires the current primary task attempt to be settled')
-            report = attempt.get('ready')
+            report = _launch_report(task, key, 'ready')
             if report:
                 if report['next_ref'] != next_ref:
                     raise ValueError('ready already targets a different next ref')
                 if not report.get('message_id'):
                     raise ValueError('ambiguous ready send; reconcile native inbox before retrying; never resend')
             else:
+                if state.read(c, 'needs-next', {}).get(key):
+                    raise ValueError('launch already requested a next ref; use its native thread')
                 from .restart import _completion
                 proof = _completion(c, next_ref, ref, launch, require_handoff=True)
                 _ownership(c, launch, slot, caller)
@@ -328,3 +341,59 @@ def ready(c, next_ref, body=''):
                 report['recorded'] = True
                 state.write(c, name, ledger)
             return {'ref': ref, 'attempt': attempt.get('attempt_id', key), **report}
+
+
+def needs_next(c, ref):
+    """Request assignment once for a completed launch without a next-ref handoff."""
+    name = _name(ref)
+    caller = identity(c)
+    with state.lock(c, 'launcher'):
+        matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
+                   if slot in c['builder']['slots'] and launch.get('terminal') == caller
+                   and launch.get('ref') == ref]
+        if len(matches) != 1:
+            raise ValueError('no unique authoritative primary launch for this task/terminal')
+        slot, launch = matches[0]
+        with state.lock(c, name):
+            ledger = state.read(c, name, {})
+            task = ledger.get(ref, {})
+            key = launch['id']
+            attempt = task.get('attempts', {}).get(key, {})
+            if (not task.get('id') or attempt.get('settled') is not True
+                    or attempt.get('terminal') != caller or attempt.get('slot') != slot):
+                raise ValueError('needs-next requires the current primary task attempt to be settled')
+            _ownership(c, launch, slot, caller)
+            reports = state.read(c, 'needs-next', {})
+            report = reports.get(key)
+            if report:
+                if not report.get('message_id'):
+                    raise ValueError('ambiguous needs-next send; reconcile native inbox; never resend')
+            else:
+                if _launch_report(task, key, 'ready'):
+                    raise ValueError('launch already has a ready report; use its native thread')
+                from .restart import _finished_completion
+                proof = _finished_completion(c, ref, launch)
+                report = {'ref': ref, 'slot': slot, 'status': 'sending',
+                          'completion': proof,
+                          'body': f'Pad-Ref: {ref}\nNEEDS-NEXT-REF\n'
+                                  f'{ref} complete in {slot}; needs next ref'}
+                reports[key] = report
+                state.write(c, 'needs-next', reports)
+                message = request(c, 'send', '--from', caller,
+                                  '--to', 'run:' + c['coordinator']['run'],
+                                  '--type', 'question',
+                                  '--thread-id', attempt.get('thread_id', task['id']),
+                                  '--subject', f'{ref}: NEEDS-NEXT-REF',
+                                  '--body', report['body'])['message']
+                report.update(message_id=message['id'], status='sent', at=time.time())
+                state.write(c, 'needs-next', reports)
+            attempt['needs_next'] = report
+            state.write(c, name, ledger)
+            if not report.get('recorded'):
+                pad(c, ref, f"Fleet task thread: {attempt.get('thread_id', task['id'])}\n"
+                            f"Attempt: {attempt.get('attempt_id', key)}\n"
+                            f"Needs-next report: {report['message_id']}\n{report['body']}")
+                report['recorded'] = True
+                state.write(c, 'needs-next', reports)
+                state.write(c, name, ledger)
+            return {'attempt': key, **report}

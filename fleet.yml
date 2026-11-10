@@ -44,8 +44,12 @@ builder:
     worktrees, stash, or spend saved resets without owner approval.
     Ready sends a native question for Main's launch ruling; Main replies in-thread.
     Stop after sending without waiting for that reply; never resend an existing receipt.
-    On PARK finish the current step, commit and push WIP, write a Pad handoff,
-    report PARKED to the configured Run; resume requires a Main-confirmed fresh session.
+    If complete without a concrete next ref, settle thread result, then make
+    fleet --config CONFIG thread needs-next REF the last lane action and end the turn.
+    On PARK finish the step, commit/push WIP, write a Pad resume comment, then make
+    fleet --config CONFIG thread parked REF --resume-note COMMENT_ID the last lane action.
+    This verifies clean pushed WIP and settles park completion for Main's guarded
+    different-ref reassignment. Resume requires a Main-confirmed fresh session.
     After reporting PARKED or successfully sending thread ready, end your turn with
     a final message and do nothing else: no further tool calls, no background jobs,
     and never a job that waits on your own terminal/idle state or sends input to
