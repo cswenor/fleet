@@ -240,13 +240,23 @@ Open the durable thread immediately; read the item and **all** comments:
 ```sh
 fleet --config /private/project/fleet.yml thread open TASK-N --slot /path/to/lane
 fleet --config /private/project/fleet.yml thread question TASK-N --body 'Proposal, risk, decision needed'
-fleet --config /private/project/fleet.yml thread wait TASK-N --timeout 900
+fleet --config /private/project/fleet.yml thread wait TASK-N --timeout 600
 ```
 
 Run anything that can exceed a few minutes (test suites, evals, profilers,
 CI waits) as an async background job with an explicit timeout sized to the
 expected runtime plus margin, and process its completion when it wakes you.
-Never block your turn in a single foreground wait longer than ~10 minutes.
+Bound EVERY wait segment to at most 600 seconds, including background inbox,
+CI/watch-pr and wait-tool calls; long jobs may have longer execution deadlines.
+Between waits run `fleet --config CONFIG thread check TASK-N`, act on each
+Fleet-managed steering message, then `thread check TASK-N --ack TOKEN`.
+Do not re-wait before acting. Reading does not acknowledge. Main uses
+`thread send TASK-N --body TEXT` and `thread pending` to see unacknowledged or
+ambiguous sends per current lane with age. Normal sends never input to terminals;
+`--priority` refuses before side effects because the installed stock interrupt
+injects text into the child PTY, not safe structured steering. These commands
+do not replace native decision waits or all-type inbox checks; sender IDs remain
+advisory, not authentication. Use the same project config throughout.
 On a background timeout or no progress, inspect (output size, stack/py-spy,
 logs) before re-running; a timeout is evidence, not a retry signal.
 Background jobs are exempt from the `stalled` alert, so the explicit timeout

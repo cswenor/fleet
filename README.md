@@ -642,10 +642,23 @@ Use the same project `--config` on every command:
 ```sh
 fleet --config CONFIG thread open TASK-123 --slot /path/to/slot-a
 fleet --config CONFIG thread question TASK-123 --body 'Proposal, risk, decision needed'
-fleet --config CONFIG thread wait TASK-123 --timeout 900  # async background shell
+fleet --config CONFIG thread wait TASK-123 --timeout 600  # async background shell
 fleet --config CONFIG thread result TASK-123 --body 'Published PR, review/CI receipts, outcome'
 fleet --config CONFIG thread ready NEXT --body 'Concrete next-piece handoff'
 ```
+
+Main sends steering with `fleet --config CONFIG thread send TASK-123 --body TEXT`.
+Between every wait segment (at most 600 seconds, including background waits),
+builders run `fleet --config CONFIG thread check TASK-123`. Each pending
+Fleet-managed message is one JSON line. Act before re-waiting, then acknowledge
+with `thread check TASK-123 --ack TOKEN`. Reading alone does not clear it.
+Main's `thread pending` lists unacknowledged or ambiguous sends per current lane
+with age in seconds. These commands do not consume native mail or replace
+decision replies / all-type native inbox checks. Sender IDs are advisory.
+`thread send --priority` refuses before side effects: the installed stock
+interrupt path injects text into a child PTY and sends Ctrl-C, not safe steering.
+Normal sends never type into a terminal. Ambiguous sends remain journaled and
+block further sends on that attempt until manually reconciled; never resend.
 
 `open` requires the caller's authoritative launch receipt and records Pad ref,
 canonical task thread ID, attempt, actual Git branch and reusable slot together.

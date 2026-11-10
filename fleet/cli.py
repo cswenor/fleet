@@ -88,6 +88,14 @@ def main():
     t = commands.add_parser('parked', help='settle pushed WIP with a durable Pad resume note')
     t.add_argument('ref')
     t.add_argument('--resume-note', required=True, help='Pad resume comment ID on this task')
+    t = commands.add_parser('send', help='Main sends durable steering without terminal input')
+    t.add_argument('ref')
+    t.add_argument('--body', required=True)
+    t.add_argument('--priority', action='store_true', help='refused until safe stock steering is available')
+    t = commands.add_parser('check', help='show unacknowledged task steering, one JSON line per message')
+    t.add_argument('ref')
+    t.add_argument('--ack', help='acknowledge a steering token only after processing it')
+    commands.add_parser('pending', help='Main lists unacknowledged and ambiguous steering per lane')
     p = sub.add_parser('install-service')
     p.add_argument('--deliver', action='store_true', help='enable durable inbox messages')
     p.add_argument('--environment-file', help='private service token file (macOS: literal KEY=value)')
@@ -118,6 +126,19 @@ def main():
             c['_drill_usage_file'] = args.drill_usage_file
         if args.command == 'thread':
             from . import threads
+            if args.thread_command in ('send', 'check', 'pending'):
+                from . import steering
+                if args.thread_command == 'send':
+                    result = steering.send(c, args.ref, args.body, args.priority)
+                elif args.thread_command == 'pending':
+                    result = steering.pending(c)
+                else:
+                    result = steering.check(c, args.ref, args.ack)
+                    for message in result['messages']:
+                        print(json.dumps(message))
+                    return 0
+                print(json.dumps(result))
+                return 0
             if args.thread_command == 'open':
                 result = threads.open_thread(c, args.ref, args.slot)
             elif args.thread_command == 'reopen':
