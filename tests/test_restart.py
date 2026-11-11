@@ -299,6 +299,15 @@ class RetirementTests(unittest.TestCase):
                 restart.relaunch(self.c, 'TASK-1', self.slot, 'replace')
         self.assertEqual(self.sent, [])
         self.assertEqual(state.read(self.c, 'retirements', {}), {})
+    def test_relaunch_deleted_preserved_rules_refuses_before_retirement(self):
+        self.relaunch_repo()
+        (Path(self.slot) / 'RULES.md').unlink()
+        with self.assertRaisesRegex(ValueError, 'rules_file is absent in preserved worktree.*old session untouched'):
+            self.run_relaunch(keep_uncommitted=True)
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
+        self.assertEqual(state.read(self.c, 'retirements', {}), {})
+
 
     def test_tracked_work_refuses_before_exit(self):
         def git(*args):

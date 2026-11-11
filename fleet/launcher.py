@@ -140,7 +140,11 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False
         raise ValueError('launch withheld: slot has uncommitted tracked work')
     if same_ref or re.match(re.escape(ref.lower()) + r'(?:-|$)', current.lower()):
         if dry_run and c.get('builder', {}).get('rules_file'):
-            _rules_after_checkout(c, slot, 'HEAD')
+            if keep_uncommitted:
+                if not (Path(slot) / c['builder']['rules_file']).is_file():
+                    raise ValueError('configured project rules_file is absent in preserved worktree')
+            else:
+                _rules_after_checkout(c, slot, 'HEAD')
         return current
     run(['git', 'fetch', '--prune', 'origin'], slot)
     # Untracked user files are allowed, unless the target checkout would overwrite them.

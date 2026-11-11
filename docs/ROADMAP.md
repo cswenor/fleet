@@ -136,6 +136,12 @@ drill on fleet-phase1 (`msg_146c22fe002b`); live stop/relaunch proof is pending.
 Publication remains held for independent final-head Sol-medium review, green CI
 and Main exact-head GO. CI billing is already reported blocked; shared deployment
 is Main-owned.
+Independent review of initial head 71b0ad9 found a P2: preserved deletion of the
+rules file passed committed-tree preflight but prevented replacement after exit.
+Preservation now checks the actual worktree rules path before retirement; both
+the deleted-rules refusal and staged/unstaged-preservation checks pass (2 tests).
+Fresh final-head review remains required. PR110 CI run 43120137096 did not start
+jobs: GitHub's annotation explicitly reports billing/payment/spending-limit failure.
 
 
 ### TASK-117 — Startup health relays and partial restart diagnostics
