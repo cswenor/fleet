@@ -113,6 +113,31 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-122 — Replace an unfinished same-task session
+
+Candidate `fleet relaunch REF --slot S --reason TEXT [--keep-uncommitted]` is
+Main-only and same-ref-only. It reuses guarded retirement/preflight/slot leasing,
+without publication proof: Main's explicit reason is recorded on Pad before exit
+and in the receipt with old launch/session/actual model/thinking and new project
+default model/thinking/source. A running session refuses with the `thread stop`
+hint; a completed stop journal can authorize an otherwise unfinished log only
+with matching session/process and fresh positive idle/empty-composer proof.
+Verified retirement settles the old task attempt without marking the task done.
+
+Tracked/staged WIP refuses and lists files unless explicitly preserved; preservation
+retains branch/index/worktree and adds a fixed previous-session WIP prompt notice.
+Untracked user files remain untouched. Partial failures retain restart's one-exit
+journal and explicit recovery diagnostics. TASK-121 is not merged, so per-launch
+model flags are intentionally absent under Main's dependency ruling.
+
+All 166 focused retirement/launcher/stop regressions pass (3.078s); real candidate
+CLI rejects a non-Main caller before mutation. Main approved the TASK-123 scratch
+drill on fleet-phase1 (`msg_146c22fe002b`); live stop/relaunch proof is pending.
+Publication remains held for independent final-head Sol-medium review, green CI
+and Main exact-head GO. CI billing is already reported blocked; shared deployment
+is Main-owned.
+
+
 ### TASK-117 — Startup health relays and partial restart diagnostics
 
 Project Beta Main corrected the incident account (`msg_697f8a115d9f`, relayed

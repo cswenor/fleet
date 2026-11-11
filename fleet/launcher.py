@@ -119,15 +119,26 @@ def _rules_after_checkout(c, slot, destination):
     raise ValueError('configured project rules_file would be absent after checkout')
 
 
-def _prepare_branch(c, ref, item, slot, *, dry_run=False):
+def _tracked(slot):
+    paths = set()
+    for args in ([], ['--cached']):
+        data = run(['git', 'diff', *args, '--name-only', '-z'], slot, text=False)
+        paths.update(os.fsdecode(path) for path in data.split(b'\0') if path)
+    return sorted(paths)
+
+
+def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False):
     """Check preparation without switching a live session's branch during preflight."""
     current = run(['git', 'branch', '--show-current'], slot).strip()
     if not current:
         raise ValueError('launch withheld: slot has detached HEAD')
-    if run(['git', 'status', '--porcelain', '--untracked-files=no'], slot).strip():
-        raise ValueError('launch withheld: slot has uncommitted tracked work')
     previous = state.read(c, 'launches', {}).get(slot, {})
-    if previous.get('ref') == ref or re.match(re.escape(ref.lower()) + r'(?:-|$)', current.lower()):
+    same_ref = previous.get('ref') == ref
+    if keep_uncommitted and not same_ref:
+        raise ValueError('uncommitted work can only be kept for the current launch ref')
+    if not keep_uncommitted and run(['git', 'status', '--porcelain', '--untracked-files=no'], slot).strip():
+        raise ValueError('launch withheld: slot has uncommitted tracked work')
+    if same_ref or re.match(re.escape(ref.lower()) + r'(?:-|$)', current.lower()):
         if dry_run and c.get('builder', {}).get('rules_file'):
             _rules_after_checkout(c, slot, 'HEAD')
         return current
@@ -184,9 +195,11 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False):
     return branch
 
 
-def launch(c, ref, slot=None, *, _locked=False):
+def launch(c, ref, slot=None, *, _locked=False, _keep_uncommitted=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
+    if _keep_uncommitted and not _locked:
+        raise ValueError('keeping uncommitted work requires guarded same-task relaunch')
     with nullcontext() if _locked else state.lock(c, 'launcher', operation='launch'), ExitStack() as lease, _preparation_receipt(c, ref) as preparation:
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
@@ -255,7 +268,9 @@ def launch(c, ref, slot=None, *, _locked=False):
         preparation.update(slot=w['path'], worktree=w, stage='prepared')
         preparation.update(stage='preparation-attempted', action='task-branch')
         untracked_files, untracked_count = _untracked(w['path'])
-        branch = _prepare_branch(c, ref, item, w['path'])
+        branch = _prepare_branch(c, ref, item, w['path'], **(
+            {'keep_uncommitted': True} if _keep_uncommitted else {}))
+        tracked_files = _tracked(w['path']) if _keep_uncommitted else []
         w = dict(w, branch=branch)
         preparation.update(worktree=w, branch=branch, stage='prepared')
         fresh = snapshot.collect(c)
@@ -280,6 +295,10 @@ def launch(c, ref, slot=None, *, _locked=False):
                             'never stage, commit, move or delete them: ' +
                             json.dumps(untracked_files, ensure_ascii=True) +
                             f' ({untracked_count} total; listing {len(untracked_files)})')
+        preserved_notice = (
+            'Uncommitted work from the previous session is preserved on this task branch: ' +
+            json.dumps(tracked_files, ensure_ascii=True) + '. Continue it without discarding changes.\n'
+            if tracked_files else '')
         thread_command = shlex.join(['fleet', '--config',
                                      str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
                                      'thread', 'open', ref, '--slot', w['path']])
@@ -299,7 +318,7 @@ def launch(c, ref, slot=None, *, _locked=False):
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
 Prepared task branch: {branch}. Publish this task from this branch.
 {untracked_notice}
-Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
+{preserved_notice}Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
 Never create extra git worktrees. Self-publish according to project rules.
 Open the durable task thread before working: {thread_command}
 Never bind this builder terminal to an orchestration Run. Keep terminal identity for thread replies and inbox delivery.
@@ -379,6 +398,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                    'argv': argv, 'resolved_model': b['resolved_model'], 'thinking': b['thinking'],
                    'orca_status_extension': b.get('orca_status_extension'),
                    'untracked_files': untracked_files, 'untracked_count': untracked_count,
+                   'preserved_tracked_files': tracked_files,
                    'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
         state.write(c, 'last-launch', receipt)
         # No native I/O in this commit section: acknowledgments serialize only

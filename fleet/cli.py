@@ -35,6 +35,12 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
     p.add_argument('--finished-ref', required=True)
+    p = sub.add_parser('relaunch', help='Main replaces an idle unfinished session of the same task')
+    p.add_argument('ref')
+    p.add_argument('--slot', required=True)
+    p.add_argument('--reason', required=True)
+    p.add_argument('--keep-uncommitted', action='store_true',
+                   help='preserve tracked/staged WIP and identify it in the fresh builder prompt')
     p = sub.add_parser('reconcile', help='Main records positive exit evidence for an exact launch')
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
@@ -231,6 +237,11 @@ def main():
         if args.command == 'restart':
             from .restart import restart
             print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref), indent=2))
+            return 0
+        if args.command == 'relaunch':
+            from .restart import relaunch
+            print(json.dumps(relaunch(c, args.ref, args.slot, args.reason,
+                                      keep_uncommitted=args.keep_uncommitted), indent=2))
             return 0
         if args.command == 'watch-pr':
             if args.timeout < 1 or args.interval < 1 or args.number < 1:

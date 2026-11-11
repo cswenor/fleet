@@ -7,7 +7,7 @@ import re
 import shlex
 import sys
 import time
-from . import dispatcher, health, launcher, snapshot, state
+from . import dispatcher, health, launcher, snapshot, state, steering, threads
 from .commands import CommandError, gh, json_run, orca
 from .process_identity import omp_executable
 
@@ -290,7 +290,7 @@ def _target(c, slot):
     return trees[0], target
 
 
-def _session(record, slot, previous=None):
+def _session(record, slot, previous=None, *, stopped=None):
     directory = record.get('session_dir')
     if not directory:
         raise ValueError('launch record has no session directory; manual reconciliation required')
@@ -305,9 +305,17 @@ def _session(record, slot, previous=None):
     headers = [e for e in events if e.get('type') == 'session']
     if len(headers) != 1 or headers[0].get('cwd') != slot:
         raise ValueError('session log does not belong to this slot')
-    _final_stop(events)
+    if stopped is None:
+        _final_stop(events)
+    elif stopped.get('session') != headers[0].get('id'):
+        raise ValueError('stop journal belongs to a different session')
     proof = {'path': str(logs[0]), 'id': headers[0]['id'],
              'digest': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+    for event in events:
+        if event.get('type') == 'model_change':
+            proof['model'] = event.get('model')
+        elif event.get('type') == 'thinking_level_change':
+            proof['thinking'] = event.get('thinkingLevel')
     if previous is not None:
         size = previous['size']
         if (proof['path'] != previous['path'] or proof['id'] != previous['id'] or
@@ -353,7 +361,7 @@ def _terminal_predates_runtime(c, record, tree, handle):
         return False
 
 
-def _idle(c, record, tree, handle, previous=None):
+def _idle(c, record, tree, handle, previous=None, *, stopped=None):
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
             terminal.get('worktreeId') != tree['id'] or terminal.get('agentIdentity') != 'omp' or
@@ -385,11 +393,13 @@ def _idle(c, record, tree, handle, previous=None):
              (not isinstance(agents[0]['programStatus'], dict) or
               agents[0]['programStatus'].get('state') not in ('done', 'idle')))):
         raise ValueError('exact-pane agent is running, interrupted, or unknown')
-    proof = _session(record, tree['path'], previous)
+    proof = _session(record, tree['path'], previous, stopped=stopped)
     lease = json_run(['omp', 'session', 'lease', '--json', '--', proof['id']], c['root'])
     if lease.get('held') != [proof['id']] or lease.get('unknown') != []:
         raise ValueError('recorded session is no longer positively owned by a live omp process')
     proof['process'] = _foreground(c, record, tree['path'], handle)
+    if stopped is not None and stopped.get('process') != proof['process']:
+        raise ValueError('stop journal belongs to a different process')
     return proof
 
 def _exited_shell(process, handle):
@@ -425,7 +435,21 @@ def _exited_shell(process, handle):
 
 
 
+def relaunch(c, ref, slot, reason, *, keep_uncommitted=False):
+    """Main explicitly replaces an unfinished same-task session, never interrupts."""
+    if (not isinstance(reason, str) or not reason.strip() or len(reason) > 2000
+            or any(not char.isprintable() for char in reason)):
+        raise ValueError('relaunch reason must be a non-empty printable single line (at most 2000 characters)')
+    steering._main(c)
+    return _replace(c, ref, slot, ref, reason=reason, keep_uncommitted=keep_uncommitted)
+
+
 def restart(c, ref, slot, finished_ref):
+    return _replace(c, ref, slot, finished_ref)
+
+
+def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False):
+    operation = 'relaunch' if reason is not None else 'restart'
     if not sys.platform.startswith('linux'):
         raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
     if not all(re.fullmatch(r'[A-Z]+-\d+', x) for x in (ref, finished_ref)):
@@ -433,7 +457,7 @@ def restart(c, ref, slot, finished_ref):
     slot = str(Path(slot).expanduser().resolve())
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
-    with state.lock(c, 'launcher', operation='restart'), state.slot_lock(c, slot):
+    with state.lock(c, 'launcher', operation=operation), state.slot_lock(c, slot):
         tree, target = _target(c, slot)
         record = state.read(c, 'launches', {}).get(slot, {})
         if (not record.get('id') or record.get('ref') != finished_ref or
@@ -444,8 +468,26 @@ def restart(c, ref, slot, finished_ref):
         previous = retirements.get(slot, {})
         if previous.get('launch_id') == record['id']:
             raise ValueError('retirement already attempted for this launch; inspect retirement and launch receipts, never retry blindly')
-        proof = _idle(c, record, tree, target['terminal'])
-        completion = _completion(c, ref, finished_ref, record)
+        stopped = None
+        if reason is not None:
+            stop = state.read(c, 'stops', {}).get(record['id'], {})
+            if stop.get('ref'):
+                ledger = state.read(c, threads._name(stop['ref']), {})
+                attempt = ledger.get(stop['ref'], {}).get('attempts', {}).get(record['id'], {})
+                row = attempt.get('steering', {}).get(stop.get('token'), {})
+                steps = row.get('steps', [])
+                if any(step.get('step') == 'submitted' for step in steps):
+                    stopped = next((step.get('proof') for step in steps
+                                    if step.get('step') == 'identity-proven'), None)
+        try:
+            proof = _idle(c, record, tree, target['terminal'], **(
+                {'stopped': stopped} if stopped is not None else {}))
+        except ValueError as exc:
+            if reason is not None:
+                raise ValueError(f"{exc}; run `fleet thread stop {ref}` first") from exc
+            raise
+        completion = ({'kind': 'relaunch', 'reason': reason} if reason is not None else
+                      _completion(c, ref, finished_ref, record))
         # Validate next task and gates before retiring, then again inside normal launch.
         try:
             s = snapshot.collect(c)
@@ -457,11 +499,17 @@ def restart(c, ref, slot, finished_ref):
                 raise ValueError('; '.join(admission['reasons']))
             launcher.orca(c, 'terminal', 'show', '--terminal', c['coordinator']['terminal'])
             launcher.orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
-            launcher._prepare_branch(c, ref, item, slot, dry_run=True)
+            tracked_files = launcher._tracked(slot) if reason is not None else []
+            if tracked_files and not keep_uncommitted:
+                raise ValueError('uncommitted tracked/staged work: ' + json.dumps(tracked_files) +
+                                 '; use --keep-uncommitted to preserve it')
+            branch = launcher._prepare_branch(c, ref, item, slot, dry_run=True, **(
+                {'keep_uncommitted': True} if keep_uncommitted else {}))
         except (ValueError, CommandError) as exc:
-            raise ValueError(f'restart preflight withheld: {exc}; old session untouched') from exc
+            raise ValueError(f'{operation} preflight withheld: {exc}; old session untouched') from exc
         fresh_tree, fresh_target = _target(c, slot)
-        fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof)
+        fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof, **(
+            {'stopped': stopped} if stopped is not None else {}))
         if (fresh_tree != tree or fresh_target['terminal'] != target['terminal'] or
                 fresh_proof['process'] != proof['process']):
             raise ValueError('retirement evidence changed; input withheld')
@@ -470,6 +518,26 @@ def restart(c, ref, slot, finished_ref):
                    'finished_ref': finished_ref, 'terminal': target['terminal'],
                    'terminal_incarnation_id': record['terminal_incarnation_id'],
                    'session': proof, 'completion': completion, 'stage': 'exit-attempted'}
+        if reason is not None:
+            receipt['relaunch'] = {
+                'reason': reason, 'at': receipt['at'], 'actor': c['coordinator']['terminal'],
+                'old_launch_id': record['id'], 'old_session_id': proof['id'],
+                'old_model': proof.get('model'), 'old_thinking': proof.get('thinking'),
+                'old_model_source': 'session_events',
+                'new_model': c['builder']['resolved_model'],
+                'new_thinking': c['builder']['thinking'], 'new_model_source': 'project_default',
+                'branch': branch, 'keep_uncommitted': keep_uncommitted,
+                'tracked_files': tracked_files}
+            # Pad failure refuses before retirement; the user keeps their live session.
+            threads.pad(c, ref, 'Pad-Ref: ' + ref + '\nMain authorized same-task relaunch:\n' +
+                        json.dumps(receipt['relaunch'], ensure_ascii=True, sort_keys=True))
+            latest = _idle(c, record, tree, target['terminal'], previous=proof, **(
+                {'stopped': stopped} if stopped is not None else {}))
+            latest_tree, latest_target = _target(c, slot)
+            if (latest_tree != tree or latest_target['terminal'] != target['terminal'] or
+                    latest['process'] != proof['process']):
+                raise ValueError('retirement evidence changed after Pad recording; input withheld')
+            receipt['session'] = proof = latest
         retirements[slot] = receipt
         state.write(c, 'retirements', retirements)
         # Journal BEFORE input: transport failure or crash can never authorize a second /exit.
@@ -529,9 +597,20 @@ def restart(c, ref, slot, finished_ref):
             receipt['retired'] = True
             receipt['stage'] = 'shell-verified'
             state.write(c, 'retirements', retirements)
+            if reason is not None:
+                name = threads._name(ref)
+                with state.lock(c, name):
+                    ledger = state.read(c, name, {})
+                    attempt = ledger.get(ref, {}).get('attempts', {}).get(record['id'])
+                    if attempt is not None:
+                        attempt.update(settled=True, settled_at=time.time(),
+                                       result='Main authorized same-task relaunch: ' + reason,
+                                       relaunch=receipt['relaunch'])
+                        state.write(c, name, ledger)
             receipt['stage'] = 'launch-attempted'
             state.write(c, 'retirements', retirements)
-            launched = launcher.launch(c, ref, slot, _locked=True)
+            launched = launcher.launch(c, ref, slot, _locked=True, **(
+                {'_keep_uncommitted': True} if keep_uncommitted else {}))
             receipt['next_launch_id'] = launched['id']
             receipt['stage'] = 'launched'
             state.write(c, 'retirements', retirements)
@@ -556,6 +635,10 @@ def restart(c, ref, slot, finished_ref):
                     'fleet', '--config',
                     str(c.get('_path') or Path(c['root']) / 'fleet.yml'),
                     'launch', ref, '--slot', slot])
+                if keep_uncommitted:
+                    receipt['retry_guidance'] += (
+                        '; preserved tracked work still requires a coordinated relaunch recovery; '
+                        'normal launch refuses it, never discard or stash it')
                 receipt['recovery_command'] = recovery
                 published = state.read(c, 'last-launch', {})
                 replacement = (published.get('id') != record['id'] and published.get('ref') == ref and
