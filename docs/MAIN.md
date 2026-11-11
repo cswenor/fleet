@@ -306,22 +306,33 @@ the idle session. A job waiting for its owning turn to become idle deadlocks.
 
 For eligible finished work, use guarded `fleet restart` below. An explicit
 `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` also makes
-pushed WIP eligible for **different-ref** reassignment without a fake merge:
-the builder must have a clean worktree, local HEAD equal to the actual origin
-branch head, and a concrete Pad resume comment newer than launch. The command
-records the completion and settles the canonical attempt, then the builder ends
-its turn. Same-ref restart and ready still require a new merge and later handoff.
+pushed WIP eligible for same-ref resume or different-ref reassignment without a
+fake merge. Tracked changes must be committed and pushed. Non-ignored untracked
+files are preserved regardless of age; up to 50 relative paths and their total
+count appear in the receipt and PARKED report. Never delete or commit unrelated
+files. Local HEAD must equal the actual origin branch head, and the
+concrete Pad resume comment must be newer than launch. The command records the
+completion and settles the canonical attempt, then the builder ends its turn.
+Main confirms a fresh resume with
+`fleet --config CONFIG restart REF --slot PATH --finished-ref REF`, preserving
+the parked branch. PARKED never qualifies for FRESH-READY.
 Legacy PARK reports without this receipt still require positive manual exit and
 reconciliation; unknown liveness never permits input. Resume is always fresh
 and Main-confirmed.
 
+For candidate/source drills, run `python3 -m fleet.cli` from the candidate
+checkout (or a neutral directory with its `PYTHONPATH`), never another Fleet
+checkout: Python places the current directory before `PYTHONPATH`. Git/ownership
+checks still use the authoritative launch slot, not the invocation directory.
+
 For OLD != NEXT, `restart` requires an explicit park completion receipt, or a
 merged PR carrying OLD and Pad OLD done or a post-publication handoff on NEXT.
-For OLD == NEXT, require a PR carrying that
-ref merged strictly after the retiring launch timestamp, then a handoff on the
-same ref strictly after the merge with a non-empty next-piece description after
-the ref; Pad done alone never suffices. Its launch must have a canonical
-`launches.json` binding, dedicated session log and live lease. Local Linux `/proc` must bind
+For OLD == NEXT, a fully recorded valid park for the current launch also qualifies.
+Otherwise require a PR carrying that ref merged strictly after the retiring
+launch timestamp, then a handoff on the same ref strictly after the merge with a
+non-empty next-piece description after the ref; Pad done alone never suffices.
+Its launch must have a canonical `launches.json` binding, dedicated session log
+and live lease. Local Linux `/proc` must bind
 that exact argv/session directory to the terminal's live foreground OMP process.
 One optional leading `--extension PATH` is allowed only for the configured
 `builder.orca_status_extension` (default: Fleet's own `ORCA_OMP_STATUS_EXTENSION`);

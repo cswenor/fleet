@@ -479,7 +479,9 @@ For finished work, Main can use
 `fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD`.
 For OLD != NEXT, an explicit `thread parked` completion receipt qualifies, or
 require a merged PR carrying OLD and Pad OLD done or a post-publication handoff
-on NEXT. For OLD == NEXT, require a PR carrying that ref merged strictly
+on NEXT. For OLD == NEXT, a valid recorded park for the current launch qualifies
+without a merge; Main running restart confirms the fresh resume on the same
+branch. Otherwise require a PR carrying that ref merged strictly
 after the retiring launch timestamp and a handoff on that ref strictly after the
 merge, with a non-empty next-piece description after the ref; Pad done alone
 never suffices. Both paths retain exact launch/session/foreground ownership,
@@ -508,10 +510,13 @@ Known reserve may cooperatively request PARK of one lowest-priority lane; Fleet
 never injects exit/interrupt/kill. On durable PARK, finish the current step,
 commit/push WIP, write a concrete Pad resume comment, then make
 `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last lane
-action. It verifies a clean worktree and HEAD equal to the actual origin branch
-head, records park completion and settles the attempt without a merged PR.
-Main may use guarded different-ref restart to reassign the slot; same-ref
-restart/ready keep their newer-merge/later-handoff requirements.
+action. It verifies clean tracked files and HEAD equal to the actual origin branch
+head. Non-ignored untracked files are preserved regardless of age and listed
+(up to 50 relative paths plus total count); different-ref launch still refuses dirt.
+It records park completion and settles the attempt without a merged PR.
+Main may use guarded different-ref restart to reassign the slot, or same-ref
+restart to confirm a fresh resume on the parked branch. PARKED attempts cannot
+send FRESH-READY.
 Then end the turn with a final message and do nothing else: no further tool calls,
 no background jobs, and never a job that waits on your own terminal/idle state or
 sends input to your own terminal. Main (or the owner) retires the idle session via

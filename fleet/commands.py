@@ -60,16 +60,16 @@ class GhError(CommandError):
         super().__init__(f'GitHub {self.endpoint}: {detail}' + (f': {reason}' if reason else ''),
                          code='github_request_failed')
 
-def _execute(argv, cwd=None, timeout=60):
+def _execute(argv, cwd=None, timeout=60, *, text=True):
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise CommandError(f'{argv[0].split("/")[-1]} unavailable or timed out') from e
     return p
 
 
-def run(argv, cwd=None, timeout=60):
-    p = _execute(argv, cwd, timeout)
+def run(argv, cwd=None, timeout=60, *, text=True):
+    p = _execute(argv, cwd, timeout, text=text)
     if p.returncode:
         raise CommandError(f'{argv[0].split("/")[-1]} exited {p.returncode}')
     return p.stdout

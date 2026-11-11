@@ -200,11 +200,13 @@ def _finished_completion(c, ref, record):
 def _completion(c, ref, finished, record, *, require_handoff=False):
     launched = _launch_time(record)
     same_ref = ref == finished
-    if not same_ref and not require_handoff:
-        from .parking import completion
-        parked = completion(c, finished, record)
-        if parked:
-            return parked
+    from .parking import completion
+    parked = completion(c, finished, record)
+    if parked:
+        if require_handoff:
+            raise ValueError('parked attempts cannot send FRESH-READY; Main must confirm a fresh '
+                             'resume with same-ref fleet restart REF --slot SLOT --finished-ref REF')
+        return parked
     item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show', finished, '--format', 'json'], c['root'])
     boundary = (launched - timedelta(days=1)).date().isoformat()
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')

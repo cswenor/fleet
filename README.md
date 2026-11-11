@@ -841,13 +841,17 @@ On a durable PARK/reassign request, commit and push WIP and write a concrete
 resume-note comment on the current task. Run
 `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` as the last
 lane action, then end the turn. It requires the current opened primary attempt,
-unchanged live terminal ownership, no pending decisions, a clean actual worktree,
+unchanged live terminal ownership, no pending decisions, a clean tracked worktree,
 and local HEAD equal to the actual origin branch head (not a tracking cache).
+Non-ignored untracked files are preserved regardless of age. Receipts/report
+bodies list up to 50 relative paths and the total count (`untracked_files`,
+`untracked_count` in the receipt). Different-ref launch still refuses dirty slots.
 The exact Pad comment must exist on REF and be newer than the launch.
 The command reports PARKED, records the park receipt and settles the attempt;
 no merged PR or fake done status is required. Main can use guarded different-ref
-restart to reassign the slot; same-ref restart and ready retain their newer-merge
-and later-handoff requirements. All exact retirement and admission proofs remain.
+restart to reassign the slot, or same-ref restart to confirm a fresh resume on
+the parked branch without a merge. PARKED attempts cannot send FRESH-READY.
+All exact retirement and admission proofs remain.
 
 The supervisor requests a next task once per launch for a positively idle OMP
 or supported shell with canonical settlement and verified merge/park completion,
@@ -1024,7 +1028,8 @@ Other terminals, slots and receipts still block.
 When OLD differs from NEXT, an explicit `thread parked` completion receipt
 qualifies without a merge; otherwise OLD must have a merged PR carrying its exact
 Pad ref and either Pad status `done` or a post-publication handoff on NEXT.
-When OLD equals NEXT, Pad `done` is insufficient: require a PR merged strictly
+When OLD equals NEXT, a fully recorded valid park receipt for the current launch
+also qualifies without a merge. Otherwise Pad `done` is insufficient: require a PR merged strictly
 after the retiring launch receipt's timestamp, and a handoff comment on that
 same ref strictly after the merge, with a non-empty next-piece description after
 the ref (not just a bare handoff marker). Publication/handoff ordering uses

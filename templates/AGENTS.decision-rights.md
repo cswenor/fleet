@@ -90,9 +90,10 @@ Pick the next piece by plan priority, usually the same feature; the same ref is
 allowed. Never switch to an unrelated task just to get a different ref.
 FRESH-READY requires this session's NEXT piece published in a merged PR carrying
 its ref after its launch, then a concrete next-piece handoff written after that
-merge. An inherited publication/handoff is not readiness. Same-ref `restart`
-requires that new merge and later handoff on the same ref, with a non-empty
-next-piece description after the ref; Pad done alone does not satisfy this guard.
+merge. An inherited publication/handoff is not readiness. Except for a fully
+recorded valid park on the current launch, same-ref `restart` requires that new
+merge and later handoff on the same ref, with a non-empty next-piece description
+after the ref; Pad done alone does not satisfy this guard.
 After primary `thread result` settlement, make
 `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action and
 stop, using the same config as `thread open`. Never raw `orca send` for
@@ -121,9 +122,12 @@ incarnation/worktree; it does not authorize a new launch or waive publication ga
 
 On durable PARK, finish the step, commit/push WIP, write a concrete Pad resume
 comment, then make `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID`
-the last lane action. Clean worktree and actual remote HEAD equality are required.
+the last lane action. Clean tracked files and actual remote HEAD equality are
+required. Non-ignored untracked files are preserved regardless of age and
+listed (up to 50 relative paths and total count); never stage/move/delete them.
 The command settles pushed-WIP completion without a merge; Main can use guarded
-different-ref restart to reassign the slot. Then end the turn and do nothing else:
+different-ref restart to reassign the slot or same-ref restart to confirm a fresh
+resume on the parked branch. Then end the turn and do nothing else:
 no further tool calls, no background jobs, and never a job that waits on your own
 terminal/idle state or sends input to your own terminal. Main (or the owner)
 retires the idle session via the documented retirement path (`fleet restart` for

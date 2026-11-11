@@ -1,4 +1,6 @@
 """Durable pushed-WIP completion; never resend an uncertain native report."""
+import json
+import os
 import re
 import time
 from pathlib import Path
@@ -50,8 +52,17 @@ def _evidence(c, ref, launch, slot, resume_note, attempt):
     actual = str(Path(run(['git', 'rev-parse', '--show-toplevel'], slot).strip()).resolve())
     if actual != str(Path(slot).resolve()):
         raise ValueError('park requires the actual launched git worktree')
-    if run(['git', 'status', '--porcelain', '--untracked-files=all'], slot).strip():
-        raise ValueError('park requires a clean worktree; commit and push WIP first')
+    if run(['git', 'status', '--porcelain', '--untracked-files=no'], slot).strip():
+        raise ValueError('park requires a clean tracked worktree; commit and push WIP first')
+    untracked = run(['git', 'ls-files', '--others', '--exclude-standard', '-z'], slot, text=False)
+    tolerated = []
+    untracked_count = 0
+    for relative in untracked.split(b'\0'):
+        if not relative:
+            continue
+        untracked_count += 1
+        if len(tolerated) < 50:
+            tolerated.append(os.fsdecode(relative))
     branch = run(['git', 'branch', '--show-current'], slot).strip()
     if not branch or branch != attempt.get('branch'):
         raise ValueError('park requires the local current task branch opened by this attempt')
@@ -68,7 +79,7 @@ def _evidence(c, ref, launch, slot, resume_note, attempt):
             or not re.search(r'\w', notes[0]['body'])
             or _timestamp(notes[0].get('created_at')) <= launched):
         raise ValueError('park requires the exact meaningful resume-note comment created after launch')
-    return branch, head
+    return branch, head, tolerated, untracked_count
 
 
 def parked(c, ref, resume_note):
@@ -104,14 +115,20 @@ def parked(c, ref, resume_note):
             else:
                 if attempt.get('settled') is not False:
                     raise ValueError('park requires an unsettled canonical attempt')
-                branch, head = _evidence(c, ref, launch, slot, resume_note, attempt)
+                branch, head, tolerated, untracked_count = _evidence(
+                    c, ref, launch, slot, resume_note, attempt)
                 body = (f'Pad-Ref: {ref}\nPARKED\nLaunch: {launch["id"]}\nAttempt: {attempt_id}\n'
                         f'Branch: {branch}\nHEAD: {head}\nResume note: {resume_note}\n'
                         'Committed WIP is pushed; fresh session required for resume.')
+                if untracked_count:
+                    body += (f'\nUntracked files preserved ({untracked_count} total; '
+                             f'listing {len(tolerated)}):\n' +
+                             '\n'.join(json.dumps(path, ensure_ascii=True) for path in tolerated))
                 receipt = {'launch_id': launch['id'], 'ref': ref, 'slot': slot, 'terminal': caller,
                            'terminal_incarnation_id': launch['terminal_incarnation_id'],
                            'attempt': attempt_id, 'branch': branch, 'head': head,
                            'resume_note': resume_note, 'at': time.time(), 'body': body,
+                           'untracked_files': tolerated, 'untracked_count': untracked_count,
                            'status': 'sending'}
                 parks[launch['id']] = receipt
                 state.write(c, 'parks', parks)

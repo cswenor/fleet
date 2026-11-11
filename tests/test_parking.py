@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -26,6 +27,7 @@ class ParkingTests(unittest.TestCase):
         self.head = 'a' * 40
         self.branch = 'task-1-wip'
         self.dirty = ''
+        self.untracked = ''
         self.remote_head = self.head
         self.sent = []
         self.pads = []
@@ -52,13 +54,15 @@ class ParkingTests(unittest.TestCase):
         self.sent.append(args)
         return {'message': {'id': 'park-message'}}
 
-    def git(self, argv, cwd):
+    def git(self, argv, cwd, *, text=True):
         self.assertEqual(cwd, self.slot)
         self.commands.append(argv)
         if argv[1:] == ['rev-parse', '--show-toplevel']:
             return self.slot
         if argv[1:3] == ['status', '--porcelain']:
             return self.dirty
+        if argv[1:] == ['ls-files', '--others', '--exclude-standard', '-z']:
+            return os.fsencode(self.untracked)
         if argv[1:] == ['branch', '--show-current']:
             return self.branch
         if argv[1:] == ['rev-parse', 'HEAD']:
@@ -86,7 +90,8 @@ class ParkingTests(unittest.TestCase):
         self.assertEqual(restart._finished_completion(self.c, 'TASK-1', self.launch)['park'], receipt)
 
     def test_dirty_and_unpushed_refuse_before_reporting(self):
-        for dirty, remote, error in [('?? file', self.head, 'clean worktree'),
+        for dirty, remote, error in [(' M file', self.head, 'clean tracked worktree'),
+                                     ('M  file', self.head, 'clean tracked worktree'),
                                      ('', 'b' * 40, 'actual origin branch')]:
             self.dirty, self.remote_head = dirty, remote
             with self.assertRaisesRegex(ValueError, error):
@@ -159,12 +164,87 @@ class ParkingTests(unittest.TestCase):
                 patch.object(restart, 'json_run', side_effect=AssertionError('no handoff required')):
             proof = restart._completion(self.c, 'TASK-2', 'TASK-1', self.launch)
         self.assertEqual(proof['park'], receipt)
+        self.assertEqual(restart._completion(self.c, 'TASK-1', 'TASK-1', self.launch)['park'], receipt)
+        for next_ref in ('TASK-1', 'TASK-2'):
+            with self.assertRaisesRegex(ValueError, 'parked attempts cannot send FRESH-READY'):
+                threads.ready(self.c, next_ref)
+
+    def test_same_ref_without_park_or_merge_refuses(self):
         with patch.object(restart, '_merged_prs', return_value=[]), \
                 patch.object(restart, 'json_run', return_value={'fields': {'status': 'done'}}):
             with self.assertRaisesRegex(ValueError, 'no merged PR'):
                 restart._completion(self.c, 'TASK-1', 'TASK-1', self.launch)
-            with self.assertRaisesRegex(ValueError, 'no merged PR'):
-                restart._completion(self.c, 'TASK-2', 'TASK-1', self.launch, require_handoff=True)
+
+    def untracked_file(self, name, mtime):
+        from pathlib import Path
+        path = Path(self.slot) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('user work')
+        os.utime(path, (mtime, mtime))
+        return path
+
+    def test_untracked_is_preserved_and_reported(self):
+        name = 'notes/space and\nnewline.txt'
+        path = self.untracked_file(name, self.launch['at'] + 1)
+        self.untracked = name + '\0'
+        receipt = self.park()
+        self.assertEqual(receipt['untracked_files'], [name])
+        self.assertEqual(receipt['untracked_count'], 1)
+        self.assertIn('notes/space and\\nnewline.txt', receipt['body'])
+        self.assertEqual(path.read_text(), 'user work')
+        self.assertIn(receipt['body'], self.sent[0])
+
+    def test_untracked_listing_is_bounded_with_total_count(self):
+        names = [f'old-{i:02}' for i in range(51)]
+        for name in names:
+            self.untracked_file(name, self.launch['at'] - 1)
+        self.untracked = '\0'.join(names) + '\0'
+        receipt = self.park()
+        self.assertEqual(receipt['untracked_files'], names[:50])
+        self.assertEqual(receipt['untracked_count'], 51)
+        self.assertIn('51 total; listing 50', receipt['body'])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX byte filenames')
+    def test_real_git_preserves_byte_and_carriage_return_filenames(self):
+        from pathlib import Path
+        from fleet.commands import run
+        root = Path(self.temp.name)
+        repo, remote = root / 'repo', root / 'origin.git'
+        repo.mkdir()
+        run(['git', 'init', '--bare', str(remote)])
+        run(['git', 'init', '-b', self.branch], repo)
+        (repo / '.gitignore').write_text('ignored\n')
+        run(['git', 'add', '.gitignore'], repo)
+        run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+             '-c', 'commit.gpgsign=false', 'commit', '-m', 'Tracked WIP'], repo)
+        run(['git', 'remote', 'add', 'origin', str(remote)], repo)
+        run(['git', 'push', '-u', 'origin', self.branch], repo)
+        names = [b'carriage\rreturn']
+        # macOS filesystems reject invalid UTF-8 names with EILSEQ.
+        if sys.platform.startswith('linux'):
+            names.append(b'invalid-\xff')
+        for name in names:
+            with open(os.fsencode(repo) + b'/' + name, 'wb') as stream:
+                stream.write(b'user work')
+        (repo / 'ignored').write_text('ignored work')
+        self.slot = str(repo)
+        self.c.update(root=self.slot, builder={'slots': [self.slot]})
+        self.launch['worktree']['path'] = self.slot
+        self.attempt['slot'] = self.slot
+        self.save_attempt()
+        state.write(self.c, 'launches', {self.slot: self.launch})
+        with patch.object(parking, 'run', side_effect=run):
+            receipt = self.park()
+        self.assertEqual({os.fsencode(name) for name in receipt['untracked_files']}, set(names))
+        self.assertEqual(receipt['untracked_count'], len(names))
+        self.assertIn('carriage\\rreturn', receipt['body'])
+        if sys.platform.startswith('linux'):
+            self.assertIn('invalid-\\udcff', receipt['body'])
+        saved = state.read(self.c, 'parks')['launch']
+        self.assertEqual(saved['untracked_files'], receipt['untracked_files'])
+        for name in names:
+            with open(os.fsencode(repo) + b'/' + name, 'rb') as stream:
+                self.assertEqual(stream.read(), b'user work')
 
     def test_reopened_or_replaced_attempt_invalidates_park(self):
         self.park()

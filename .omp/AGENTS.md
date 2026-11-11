@@ -61,8 +61,9 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   the same feature; the same ref is allowed. Never switch to an unrelated task
   just to get a different ref. FRESH-READY requires this session's NEXT piece
   merged after its launch and a concrete next-piece handoff written after that
-  merge, never the inherited boundary. Same-ref restart requires both on that
-  ref; Pad done alone is insufficient.
+  merge, never the inherited boundary. Except for a valid fully recorded park
+  on the current launch, same-ref restart requires both on that ref; Pad done
+  alone is insufficient. PARKED never qualifies for FRESH-READY.
   Settle the primary `thread result`, then make
   `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action
   and end your turn with a final message: no further tool calls or background jobs,
@@ -79,8 +80,11 @@ apply here. Record approvals in the assigned fleet Pad task comments.
 - On a durable quota PARK request: finish the current step, commit and push WIP
   to the task branch, write a concrete Pad resume comment, then make
   `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last
-  lane action. It verifies clean pushed WIP, records park completion and settles
-  the attempt for guarded different-ref reassignment. End the turn with a final
+  lane action. It verifies clean tracked pushed WIP; all non-ignored untracked
+  files are preserved regardless of age and listed (up to 50 paths plus total).
+  Never stage/move/delete them. It records park completion and settles
+  the attempt for guarded different-ref reassignment or Main-confirmed same-ref
+  fresh resume on the parked branch. End the turn with a final
   message and do nothing else: no further tool calls, no background jobs, and
   never a job that waits on your own terminal/idle state or sends input to your
   own terminal. Main (or the owner) retires the idle session via the documented

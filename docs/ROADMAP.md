@@ -113,6 +113,37 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-104 — Resume PARKED attempts on the same ref
+
+Main-confirmed same-ref `restart REF --slot PATH --finished-ref REF` accepts a
+fully recorded valid PARKED receipt for the current canonical launch without a
+new merge or handoff. Normal exact ownership, idle/session retirement and launch
+admission still apply; the fresh launch preserves the parked branch. Different-ref
+park reassignment is unchanged. PARKED never qualifies for FRESH-READY; refusal
+points to Main's same-ref restart instead.
+
+Parking requires clean tracked files and HEAD equal to the actual origin branch.
+All non-ignored untracked files are preserved regardless of age, never staged,
+moved or deleted. Receipts and PARKED reports list up to 50 relative paths and
+the total count. Different-ref launch still refuses dirty slots. Main revised the
+original mtime contract in `msg_f3f555dfeee8`: user files may arrive after launch.
+
+All 137 focused parking/restart/thread/command regressions pass, including a
+real-Git regression for invalid-UTF-8 and carriage-return filenames. Untracked
+listing uses binary capture and lossless filesystem decoding; receipt/report
+JSON escapes preserve exact names.
+
+Main's real lane2 TASK-105 drill on candidate `36cf900` parked launch
+`1794366971325729448` with one user file dropped after launch. Recorded report
+`msg_bf22233d2a23` lists that file. Main's same-ref restart reached `launched`
+using that park, without a merge, preserving branch and pushed WIP `685e4142`.
+Fresh launch `1794367231543468557`, session `01a1c89f`, recorded Sol/medium with
+no fallback; the user file hash was unchanged. Private source-bound restart
+receipt and detailed Main acceptance `msg_c460c4b72c46` are retained on TASK-104.
+The independent review's filename-decoding P2 is covered by the real-Git fix.
+Publication requires fresh final-head Sol-medium review, green CI and Main
+exact-head GO. Shared deployment remains Main-owned.
+
 ### TASK-103 — Debounce collection-unavailable relays and retain safe causes
 
 Snapshot `errors` retains immediate stable collection-failure labels; the adjacent
