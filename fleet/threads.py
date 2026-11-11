@@ -16,13 +16,22 @@ _INBOX_FIELDS = ('id', 'type', 'from_handle', 'to_handle', 'run_id', 'thread_id'
                  'created_at', 'read', 'read_at', 'acknowledged', 'acknowledged_at')
 
 
-def compact_ledger(ledger):
+def compact_ledger(c, ledger):
     """Bound disposable mailbox indexes; canonical decisions/receipts remain intact."""
     for task in ledger.values():
         for group in ('attempts', 'history'):
             for attempt in task.get(group, {}).values():
                 if 'inbox' not in attempt:
                     continue
+                # Rescue inbox-only legacy replies before stripping bodies or capping.
+                # Use the same sender/recipient/subthread boundary as thread wait.
+                for q in attempt.get('questions', {}).values():
+                    if q.get('status') != 'pending' or q.get('reply') or q.get('reply_recorded'):
+                        continue
+                    reply = next((m for m in attempt['inbox'].values()
+                                  if _matches_reply(c, attempt, q, m) and 'body' in m), None)
+                    if reply is not None:
+                        q['reply'] = reply
                 tokens = {task.get('id'), attempt.get('thread_id')}
                 tokens.update(q.get('thread_id') for q in attempt.get('questions', {}).values())
                 tokens.discard(None)
@@ -39,6 +48,13 @@ def compact_ledger(ledger):
                 attempt['inbox'] = {
                     m['id']: {field: m[field] for field in _INBOX_FIELDS if field in m}
                     for m in relevant[-INBOX_LIMIT:]}
+
+
+def _matches_reply(c, attempt, question, message):
+    return (message.get('thread_id') == question['thread_id']
+            and message.get('from_handle') == c['coordinator']['terminal']
+            and message.get('to_handle') == attempt['terminal']
+            and message.get('type') == 'status')
 
 
 def _name(ref):
@@ -291,9 +307,7 @@ def wait(c, ref, timeout=900):
                         raise MailboxError('invalid_terminal_inbox')
                     # Return this observation intact; retain only a bounded task index.
                     attempt.setdefault('inbox', {}).update({m['id']: m for m in messages})
-                    replies = [m for m in messages if m.get('thread_id') == q['thread_id']
-                               and m.get('from_handle') == c['coordinator']['terminal']
-                               and m.get('to_handle') == caller and m.get('type') == 'status']
+                    replies = [m for m in messages if _matches_reply(c, attempt, q, m)]
                     if replies:
                         q['reply'] = replies[0]
                 state.write(c, name, ledger)

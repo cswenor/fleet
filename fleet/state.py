@@ -30,7 +30,7 @@ def read(c, name, default=None):
 def write(c, name, value):
     if name.startswith('threads-') and not name.endswith('-holder'):
         from .threads import compact_ledger
-        compact_ledger(value)
+        compact_ledger(c, value)
     path = directory(c)
     fd, temp = tempfile.mkstemp(dir=path, prefix='.')
     try:
