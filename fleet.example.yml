@@ -72,7 +72,7 @@ builder:
     back to direct Run questions. Use the same config as thread open.
     Never bind a builder terminal to any Run.
 quota:
-  provider: openai-codex
+  # Provider is derived from builder.resolved_model, not the reviewer's model.
   reserve_percent: 10
   max_age_seconds: 900
   unknown_alert_cycles: 3 # Consecutive unknown cycles before alerting; starts remain withheld.

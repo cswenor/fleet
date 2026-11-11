@@ -113,6 +113,35 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+
+### TASK-111 — Provider-independent builder identity and quota
+
+Builder health reads latest model/thinking/fallback metadata from the exact
+launch's slot/incarnation-bound session JSONL, not the terminal's human label or
+provider projection. New launch receipts pin resolved model/thinking and exact
+argv. Legacy expected models come from the launch overlay's single compaction
+model key; ambiguous expectations remain flagged, never reinterpreted through
+current config. Only recorded thinking is compared.
+
+Retirement matches OLD receipt argv while the NEW launch uses current config.
+Main's legacy ruling `msg_a5d938a0b15f` permits exact nonce-scoped session-dir and
+overlay argv identity with all existing foreground/routing/idle proofs; absent
+or ambiguous launch artifacts refuse with verified-idle `/exit` + reconcile +
+launch recovery. No other retirement or publication proof is relaxed.
+
+Admission derives the quota provider from `builder.resolved_model`; a legacy
+`quota.provider` cannot select the reviewer's pool. Unknown builder usage fails
+closed and names that provider. Reviewer publication remains an independent gate.
+
+Read-only candidate evaluation of real project-gamma TASK-33 launch
+`1794371506079746465` reports `anthropic/claude-fable-5-2`, `xhigh`, fallback false
+and no health flags. The real legacy process matches both launch artifacts.
+Real `omp usage` for Anthropic is readable: shared 5h 100%, shared 7d 90.5%,
+reserve 2%, known and admission allowed. No service/state/delivery changes or
+shared deployment occurred. Publication requires independent final-head
+Sol-medium review, green CI and Main exact-head GO; receipts belong on TASK-111.
+Shared deployment remains Main-owned.
+
 ### TASK-106 — Preflight restart admission and preserve user files
 
 Restart checks tracked cleanliness, task branch checkout feasibility without

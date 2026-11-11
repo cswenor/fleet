@@ -81,7 +81,7 @@ def load(path):
         raise ValueError('builder.slots must be paths')
     b['slots'] = [str(Path(s).expanduser().resolve()) for s in b['slots']]
     q = c.setdefault('quota', {})
-    q.setdefault('provider', b['resolved_model'].split('/')[0])
+    q['provider'] = b['resolved_model'].split('/')[0]
     q.setdefault('reserve_percent', 10)
     q.setdefault('max_age_seconds', 900)
     q.setdefault('park_timeout_seconds', 1800)

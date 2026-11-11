@@ -6,8 +6,8 @@ from fleet.commands import CommandError
 
 class CollectionTests(unittest.TestCase):
     def setUp(self):
-        self.c = {'root': '/unused', 'quota': {
-            'provider': 'p', 'reserve_percent': 10, 'max_age_seconds': 900}}
+        self.c = {'root': '/unused', 'builder': {'resolved_model': 'p/model'}, 'quota': {
+            'provider': 'reviewer', 'reserve_percent': 10, 'max_age_seconds': 900}}
 
     def report(self, at, remaining=.5, **extra):
         return {'reports': [{'provider': 'p', 'fetchedAt': at * 1000,
@@ -48,3 +48,25 @@ class CollectionTests(unittest.TestCase):
             result = quota.collect(self.c)
             self.assertTrue(result['known'])
             self.assertFalse(result['may_start'])
+
+    def test_builder_provider_blocks_even_when_reviewer_has_capacity(self):
+        self.c['builder']['resolved_model'] = 'anthropic/claude-fable-5-2'
+        reviewer_only = self.report(1001)
+        with patch.object(quota, 'json_run', return_value=reviewer_only), \
+                patch.object(quota, 'run'), patch.object(quota.time, 'time', return_value=1002):
+            result = quota.collect(self.c)
+        self.assertEqual(result['provider'], 'anthropic')
+        self.assertFalse(result['known'])
+        self.assertFalse(result['may_start'])
+        self.assertIn('anthropic', result['reason'])
+
+    def test_builder_capacity_not_reviewer_reserve_controls_admission(self):
+        self.c['builder']['resolved_model'] = 'anthropic/claude-fable-5-2'
+        data = self.report(1001, 0)
+        data['reports'] += [{'provider': 'anthropic', 'fetchedAt': 1001000,
+                            'limits': [{'id': '7d', 'amount': {'remainingFraction': .81}}]}]
+        with patch.object(quota, 'json_run', return_value=data), \
+                patch.object(quota.time, 'time', return_value=1002):
+            result = quota.collect(self.c)
+        self.assertTrue(result['may_start'])
+        self.assertEqual(result['windows'], [{'window': '7d', 'accounts': 1, 'remaining_percent': 81}])

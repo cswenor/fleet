@@ -336,10 +336,12 @@ launch timestamp, then a handoff on the same ref strictly after the merge with a
 non-empty next-piece description after the ref; Pad done alone never suffices.
 Its launch must have a canonical `launches.json` binding, dedicated session log
 and live lease. Local Linux `/proc` must bind
-that exact argv/session directory to the terminal's live foreground OMP process.
-One optional leading `--extension PATH` is allowed only for the configured
-`builder.orca_status_extension` (default: Fleet's own `ORCA_OMP_STATUS_EXTENSION`);
-all remaining argv must match, and target environment cannot authorize a path.
+the OLD receipt argv/session directory to the terminal's live foreground OMP process.
+Current model/thinking changes affect only the NEW launch. Legacy receipts bind
+nonce-scoped `--session-dir` and `--config` artifacts, not current model/thinking.
+One optional leading `--extension PATH` must match the recorded extension (legacy:
+configured `builder.orca_status_extension`, default Fleet's own
+`ORCA_OMP_STATUS_EXTENSION`); target environment cannot authorize a path.
 Unsupported/unreadable evidence refuses. Exact-pane idle/done and a current empty
 idle composer are required; only top-level credential/title metadata and exact
 `custom/todo_hud_state` UI snapshots may follow the final assistant stop. It checks

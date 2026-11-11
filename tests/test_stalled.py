@@ -21,7 +21,7 @@ class StalledTests(unittest.TestCase):
                          'connected': True, 'lastOutputAt': 200_000}
         self.record = {'id': 'launch', 'ref': 'TASK-61', 'terminal': 'lane',
                        'terminal_incarnation_id': 'inc', 'worktree': {'path': '/slot'},
-                       'session_dir': str(self.logs)}
+                       'session_dir': str(self.logs), 'resolved_model': 'provider/model'}
         state.write(self.c, 'launches', {'/slot': self.record})
         self.ui = 'working'
         self.log(100)
@@ -29,8 +29,10 @@ class StalledTests(unittest.TestCase):
     def log(self, second):
         from datetime import datetime, timezone
         stamp = datetime.fromtimestamp(second, timezone.utc).isoformat()
-        (self.logs / 'session.jsonl').write_text(json.dumps(
-            {'type': 'session', 'id': 's', 'cwd': '/slot', 'timestamp': stamp}) + '\n')
+        events = [{'type': 'session', 'id': 's', 'cwd': '/slot', 'timestamp': stamp},
+                  {'type': 'model_change', 'model': 'provider/model',
+                   'resolvedModelIsFallback': False, 'timestamp': stamp}]
+        (self.logs / 'session.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
 
     def native(self, c, *args):
         if args[:2] == ('worktree', 'list'):

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import time
+import yaml
 from .commands import orca
 from . import state
 
@@ -16,18 +17,6 @@ def branch(value):
     return (value or '').removeprefix('refs/heads/')
 
 
-def footer_model(text):
-    text = ANSI.sub('', text)
-    matches = re.findall(r'[◑◒]\s*([^>\n]+)>', text)
-    return matches[-1].strip() if matches else None
-
-
-def model_matches(actual, expected):
-    if actual == expected:
-        return True
-    # OMP human footer labels: GPT-6.1 Sol vs gpt-6.1-sol.
-    normalize = lambda s: re.sub(r'[^a-z0-9]', '', s.lower())
-    return normalize(actual) == normalize(expected.split('/')[-1])
 
 
 def shell_ready(text):
@@ -268,14 +257,15 @@ def _screen_evidence(line):
 
 
 
-def classify(terminal, text, expected, idle_seconds, now):
+def classify(terminal, text, session, idle_seconds, now):
     text = ANSI.sub('', text)
     live = '\n'.join(text.splitlines()[-12:])
-    projection = terminal.get('projection', {}) or {}
-    provider = projection.get('provider', {}) or {}
-    model = provider.get('model') or footer_model(text)
+    session = session or {}
+    model = session.get('model')
     flags = []
-    if model and not model_matches(model, expected):
+    if model and (model != session.get('expected_model') or session.get('fallback')
+                  or (session.get('expected_thinking') and
+                      session.get('thinking') != session['expected_thinking'])):
         flags.append('wrong_model')
     if not model:
         flags.append('model_unknown')
@@ -332,6 +322,7 @@ def _progress(c, terminal, slot, now):
             raise ValueError('session log absent or ambiguous')
         newest = None
         headers = 0
+        model, thinking, fallback = None, None, False
         with logs[0].open() as stream:
             for line in stream:
                 event = json.loads(line)
@@ -342,6 +333,11 @@ def _progress(c, terminal, slot, now):
                     headers += 1
                     if event.get('cwd') != slot:
                         raise ValueError('session slot mismatch')
+                if event.get('type') == 'model_change':
+                    model = event.get('model')
+                    fallback = event.get('resolvedModelIsFallback', False)
+                elif event.get('type') == 'thinking_level_change':
+                    thinking = event.get('thinkingLevel')
                 stamp = _event_time(event['timestamp'])
                 newest = stamp if newest is None else max(newest, stamp)
         if headers != 1 or newest is None:
@@ -350,8 +346,19 @@ def _progress(c, terminal, slot, now):
         # appended during those reads are healthy, not future-dated corruption.
         if newest > max(now, time.time()):
             raise ValueError('future event timestamp')
+        expected_model = record.get('resolved_model')
+        if not expected_model and record.get('overlay'):
+            try:
+                overlay = yaml.safe_load(Path(record['overlay']).read_text())
+                models = overlay['compaction']['modelThresholds']
+                if isinstance(models, dict) and len(models) == 1:
+                    expected_model = next(iter(models))
+            except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
+                pass
         return {'last_event_at': newest, 'event_age_seconds': max(0, int(now - newest)),
-                'launch_id': record['id'], 'task': record.get('ref')}
+                'launch_id': record['id'], 'task': record.get('ref'),
+                'model': model, 'thinking': thinking, 'fallback': fallback,
+                'expected_model': expected_model, 'expected_thinking': record.get('thinking')}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
@@ -414,9 +421,9 @@ def collect(c, now=None):
             errors.append('terminal read unavailable: ' + t['handle'])
         ready = (t.get('connected', False) and not t.get('orphaned') and
                  t.get('writable', False) and shell_ready(detail))
-        model, flags, idle = classify(t, text, c['builder']['resolved_model'], c['builder']['idle_seconds'], now)
         ui = omp_ui(text)
         progress = None if ready else _progress(c, t, w['path'], now)
+        model, flags, idle = classify(t, text, progress, c['builder']['idle_seconds'], now)
         if not ready:
             if progress is None:
                 flags.append('progress_unknown')
@@ -435,6 +442,8 @@ def collect(c, now=None):
         builders.append({'terminal': t['handle'], 'worktree': w['id'], 'path': w['path'],
                          'branch': branch(w.get('branch')), 'task': ref[1].upper() if ref else None,
                          'title': t.get('title'), 'model': model, 'flags': flags,
+                         'thinking': progress.get('thinking') if progress else None,
+                         'fallback': progress.get('fallback') if progress else None,
                          'idle_seconds': idle, 'state': flags[0] if flags else ('shell' if ready else state),
                          'shell_ready': ready, 'binding': terminal_binding,
                          'incarnation_id': t.get('incarnationId'),

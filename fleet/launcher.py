@@ -321,7 +321,9 @@ On a durable PARK request: finish your current step, commit and push WIP to this
         overlay.chmod(0o600)
         session_dir = path / ('sessions-' + nonce)
         session_dir.mkdir(mode=0o700)
-        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay), '--session-dir', str(session_dir), '@' + str(prompt_path)])
+        argv = ['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay),
+                '--session-dir', str(session_dir), '@' + str(prompt_path)]
+        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(argv)
         handle = None
         terminal = None
         reason = 'no_ready_shell'
@@ -356,6 +358,8 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                    'terminal_selection': {'action': 'reuse' if handle is not None else 'create',
                                           'reason': reason, 'skipped_terminals': skipped},
                    'session_dir': str(session_dir),
+                   'argv': argv, 'resolved_model': b['resolved_model'], 'thinking': b['thinking'],
+                   'orca_status_extension': b.get('orca_status_extension'),
                    'untracked_files': untracked_files, 'untracked_count': untracked_count,
                    'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
         state.write(c, 'last-launch', receipt)

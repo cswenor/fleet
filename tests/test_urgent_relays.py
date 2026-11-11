@@ -861,7 +861,7 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
         terminal = {'connected': True, 'lastOutputAt': 1000,
                     'projection': {'provider': {'model': 'provider/model'}}}
         for now, idle in [(2701, False), (2702, True)]:
-            _, flags, _ = health.classify(terminal, '', 'provider/model', 2700, now)
+            _, flags, _ = health.classify(terminal, '', None, 2700, now)
             self.assertEqual('idle' in flags, idle)
 
     def test_config_defaults_overrides_and_validation(self):

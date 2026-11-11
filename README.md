@@ -89,15 +89,21 @@ have owners. Ambiguous mappings never select the first terminal.
 
 Status contains last-24h PR timestamps/time-to-merge, default-branch commits,
 merge queue/recent merge-group failures, builder models/state, quota, and disk.
-Unknown collectors are explicit errors, not zero activity. Model detection uses
-Orca provider projection when present, otherwise the OMP footer from the current
-rendered screen, not capped output history. Unreadable current evidence stays
-unknown; launch configuration or last-restart history never proves the current
-model, thinking level, or model pinning after a restart.
+Unknown collectors are explicit errors, not zero activity. Builder model/thinking
+come only from the authoritative launch's slot/incarnation-bound session JSONL,
+never a footer or provider projection. Latest model/thinking events are compared
+with the launch receipt's resolved model/thinking; mismatch or model fallback
+raises `wrong_model`. Missing/unreadable model events raise `model_unknown`.
+Legacy receipts use the launch overlay's single `compaction.modelThresholds` key
+as the expected model, never current config; ambiguous/missing expectation is
+flagged `wrong_model`. Thinking is compared only when recorded in the receipt.
 
-Quota aggregates selected-provider account capacity by shared window, excluding
-tier-specific limits. Each window must remain above the reserve percentage.
-Missing/stale usage fails closed. Account identities, provider metadata and
+Quota aggregates the **builder provider**, derived from `builder.resolved_model`,
+by shared window, excluding tier-specific limits. A legacy `quota.provider` value
+is ignored; it cannot redirect admission to the reviewer pool. Review publication
+retains its independent review gate; no reviewer quota preflight is performed.
+Each window must remain above the reserve percentage. Missing/stale usage fails
+closed with the builder provider named in the reason. Account identities, provider metadata and
 credentials are never persisted in the snapshot. `may-start` exits 1 when quota,
 disk, builder cap, or incomplete collection prevents a launch.
 Usage is evaluated against the clock **after** `omp usage` completes, not the
@@ -113,6 +119,13 @@ Ties park the most recently launched lane; missing matching timestamps withhold
 only unresolved ties and alert Main. `launches.json`, keyed by absolute slot,
 records launch ID/time/ref/worktree/handle/incarnation and a unique private
 `session_dir`; this is launch evidence, not proof of model resolution or exit.
+New receipts also record exact argv, resolved model, thinking and permitted Orca
+status extension. Retirement checks OLD receipt argv even after configuration
+changes; the NEW launch uses current config. Legacy identity requires the exact
+nonce-scoped `sessions-ID` and `omp-ID.yml` arguments, terminal routing and all
+existing foreground/idle proofs, without matching current model/thinking.
+Absent/ambiguous artifacts refuse; recovery is positively verified idle `/exit`,
+then `reconcile` and `launch`, never blind input.
 Unknown/stale usage withholds starts immediately but **never parks**. Main is
 alerted after `quota.unknown_alert_cycles` consecutive unknown supervisor cycles
 (positive integer, default 3); known usage resets the persisted streak. Quota
@@ -1059,13 +1072,14 @@ directory, overlay and prompt), slot cwd and matching terminal routing key.
 PID/start identity is rechecked before input. Only `ORCA_TERMINAL_HANDLE`
 equality is inspected in memory; no environment contents are logged or retained.
 One optional **leading** `--extension PATH` pair is accepted only when PATH
-exactly equals `builder.orca_status_extension` (absolute path or `null`).
-If omitted, that setting defaults to `ORCA_OMP_STATUS_EXTENSION` from Fleet's
-own environment, never the target process environment. Unset/null allows only
-the plain launch form; arbitrary, repeated or reordered extra arguments refuse.
+exactly equals the old receipt's `orca_status_extension`. Legacy receipts use
+`builder.orca_status_extension` (default Fleet's own `ORCA_OMP_STATUS_EXTENSION`,
+never the target environment). Unset/null allows only the plain launch form;
+arbitrary, repeated or reordered extra arguments refuse. Legacy model/thinking
+values may differ from current config, but nonce-scoped launch artifacts must match.
 Native exact-pane idle/done evidence is required in either form; missing or
 unknown projection refuses rather than inferring status from the extension.
-Missing/inaccessible `/proc`, non-Linux hosts, changed argv/config, absent routing
+Missing/inaccessible `/proc`, non-Linux hosts, changed launch identity, absent routing
 keys and ambiguous process ownership refuse. Restart is unavailable there;
 manual retirement requires independent reconciliation, never a force bypass.
 

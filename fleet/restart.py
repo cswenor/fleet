@@ -65,18 +65,41 @@ def _foreground(c, record, slot, handle):
                          'exact foreground argv/cwd/terminal-routing ownership proof; retirement withheld')
     if not all(record.get(key) for key in ('overlay', 'session_dir', 'prompt')):
         raise ValueError('launch lacks foreground process binding')
-    expected = ['--model', c['builder']['model'], '--thinking', c['builder']['thinking'],
-                '--config', record['overlay'], '--session-dir', record['session_dir'],
-                '@' + record['prompt']]
-    extension = c['builder'].get('orca_status_extension')
+    argv = record.get('argv')
+    if argv is None:
+        nonce = record.get('id')
+        if (not isinstance(nonce, str) or not nonce.isdecimal()
+                or Path(record['session_dir']).name != 'sessions-' + nonce
+                or Path(record['overlay']).name != 'omp-' + nonce + '.yml'):
+            raise ValueError('old launch receipt lacks recorded argv and unique launch artifacts; '
+                             'config model/thinking changes cannot be verified safely. Use positively '
+                             'verified idle /exit + reconcile + launch; retirement withheld')
+        expected = None
+        extension = c['builder'].get('orca_status_extension')
+    elif (not isinstance(argv, list) or len(argv) < 2 or argv[0] != 'omp'
+          or not all(isinstance(arg, str) and arg for arg in argv)):
+        raise ValueError('old launch receipt has invalid recorded argv; retirement withheld')
+    else:
+        expected = argv[1:]
+        extension = record.get('orca_status_extension')
     permitted = [expected]
-    if extension:
+    if extension and expected is not None:
         permitted.append(['--extension', extension, *expected])
     owners = []
     for proc in PROC.glob('[0-9]*'):
         try:
             argv = [part.decode() for part in (proc / 'cmdline').read_bytes().split(b'\0') if part]
-            if not argv or Path(argv[0]).name != 'omp' or argv[1:] not in permitted:
+            if not argv or Path(argv[0]).name != 'omp':
+                continue
+            if expected is None:
+                args = argv[1:]
+                if extension and args[:2] == ['--extension', extension]:
+                    args = args[2:]
+                if (len(args) != 9 or args[0] != '--model' or args[2] != '--thinking'
+                        or args[4:] != ['--config', record['overlay'], '--session-dir',
+                                        record['session_dir'], '@' + record['prompt']]):
+                    continue
+            elif argv[1:] not in permitted:
                 continue
             before = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
             # Only the launched process, not a stopped old process or a shell's
@@ -97,7 +120,7 @@ def _foreground(c, record, slot, handle):
             continue
     if len(owners) != 1:
         raise ValueError('recorded session has no unique matching foreground OMP process; '
-                         'argv must match launch exactly, with only the configured Orca status extension permitted; retirement withheld')
+                         'argv must match the old launch receipt exactly, with only its recorded Orca status extension permitted; retirement withheld')
     return owners[0]
 
 

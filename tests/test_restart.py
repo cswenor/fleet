@@ -47,6 +47,8 @@ class RetirementTests(unittest.TestCase):
         self.process.mkdir(parents=True)
         self.argv = ['omp', '--model', 'provider/model', '--thinking', 'medium', '--config', self.record['overlay'],
                      '--session-dir', self.slot, '@' + self.record['prompt']]
+        self.record['argv'] = list(self.argv)
+        state.write(self.c, 'launches', {self.slot: self.record})
         (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in self.argv) + b'\0')
         (self.process / 'environ').write_bytes(b'ORCA_TERMINAL_HANDLE=target\0')
         (self.process / 'cwd').symlink_to(root)
@@ -976,15 +978,45 @@ class RetirementTests(unittest.TestCase):
         (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in replacement))
         self.refused('no unique matching foreground')
 
+    def test_changed_config_retires_old_recorded_argv(self):
+        self.c['builder'].update(model='anthropic/claude-fable-5-2', thinking='xhigh')
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_legacy_artifacts_bind_old_model_after_config_change(self):
+        self.record.pop('argv')
+        self.record.update(id='1234', session_dir=str(Path(self.slot) / 'sessions-1234'),
+                           overlay=str(Path(self.slot) / 'omp-1234.yml'))
+        argv = list(self.argv)
+        argv[argv.index('--session-dir') + 1] = self.record['session_dir']
+        argv[argv.index('--config') + 1] = self.record['overlay']
+        self.c['builder'].update(model='anthropic/claude-fable-5-2', thinking='xhigh')
+        (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
+        with patch.object(restart, 'PROC', self.proc):
+            self.assertEqual(restart._foreground(self.c, self.record, self.slot, 'target')['pid'], 123)
+            for flag in ('--config', '--session-dir'):
+                changed = list(argv)
+                changed[changed.index(flag) + 1] += '-other'
+                (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in changed) + b'\0')
+                with self.assertRaisesRegex(ValueError, 'no unique matching foreground'):
+                    restart._foreground(self.c, self.record, self.slot, 'target')
+
+    def test_legacy_without_nonce_artifacts_withholds_with_recovery(self):
+        self.record.pop('argv')
+        state.write(self.c, 'launches', {self.slot: self.record})
+        self.refused('/exit \\+ reconcile \\+ launch')
+
     def test_configured_leading_orca_extension_allows_exact_retirement(self):
-        self.c['builder']['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        self.record['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        state.write(self.c, 'launches', {self.slot: self.record})
         argv = [self.argv[0], '--extension', '/trusted/orca-agent-status.ts', *self.argv[1:]]
         (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
         self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
         self.assertEqual(len(self.sent), 1)
 
     def test_other_extra_or_unconfigured_extensions_never_receive_exit(self):
-        self.c['builder']['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        self.record['orca_status_extension'] = '/trusted/orca-agent-status.ts'
+        state.write(self.c, 'launches', {self.slot: self.record})
         for extra in (
                 ['--extension', '/other/status.ts'],
                 ['--extension', '/trusted/orca-agent-status.ts', '--extension', '/trusted/orca-agent-status.ts'],
@@ -994,7 +1026,8 @@ class RetirementTests(unittest.TestCase):
                 argv = [self.argv[0], *extra, *self.argv[1:]]
                 (self.process / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
                 self.refused('no unique matching foreground')
-        self.c['builder'].pop('orca_status_extension')
+        self.record.pop('orca_status_extension')
+        state.write(self.c, 'launches', {self.slot: self.record})
         (self.process / 'environ').write_bytes(
             b'ORCA_TERMINAL_HANDLE=target\0ORCA_OMP_STATUS_EXTENSION=/trusted/orca-agent-status.ts\0')
         argv = [self.argv[0], '--extension', '/trusted/orca-agent-status.ts', *self.argv[1:]]

@@ -6,14 +6,15 @@ from .commands import json_run, run
 
 def collect(c):
     """Refresh unknown cached usage once; never reuse an older passing result."""
-    command = ['omp', 'usage', '--json', '--provider', c['quota']['provider']]
+    config = {**c['quota'], 'provider': c['builder']['resolved_model'].split('/')[0]}
+    command = ['omp', 'usage', '--json', '--provider', config['provider']]
     data = json_run(command, c['root'])
-    result = evaluate(data, c['quota'], time.time())
+    result = evaluate(data, config, time.time())
     if not result['known']:
         # This invalidates reports, not saved resets or credentials.
-        run(['omp', 'usage', 'invalidate', '--provider', c['quota']['provider']], c['root'])
+        run(['omp', 'usage', 'invalidate', '--provider', config['provider']], c['root'])
         data = json_run(command, c['root'])
-        result = evaluate(data, c['quota'], time.time())
+        result = evaluate(data, config, time.time())
     return result
 
 
@@ -47,4 +48,4 @@ def evaluate(data, config, now):
     allowed = not unknown and all(w['remaining_percent'] > reserve for w in windows)
     return {'provider': provider, 'reserve_percent': reserve, 'windows': windows,
             'known': not unknown, 'may_start': allowed,
-            'reason': 'usage unavailable or stale' if unknown else ('capacity available' if allowed else 'quota reserve reached')}
+            'reason': f'{provider} usage unavailable or stale' if unknown else ('capacity available' if allowed else 'quota reserve reached')}

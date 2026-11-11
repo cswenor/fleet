@@ -66,7 +66,6 @@ builder:
     back to direct Run questions. Use the same config as thread open.
     Never bind a builder terminal to any Run.
 quota:
-  provider: openai-codex
   reserve_percent: 10
   max_age_seconds: 900
   park_timeout_seconds: 1800
