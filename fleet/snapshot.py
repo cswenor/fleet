@@ -117,7 +117,8 @@ def render(s):
     for b in s.get('inventory', {}).get('builders', []):
         lines.append(f"  {b['task'] or '-'} {b['terminal']} {b['model'] or 'UNKNOWN MODEL'} {','.join(b['flags']) or b['state']}")
     for path in s.get('inventory', {}).get('stray_worktrees', []):
-        lines.append('Stray worktree: ' + path)
+        label = 'Expected scratch worktree: ' if path in s['inventory'].get('expected_worktrees', []) else 'Stray worktree: '
+        lines.append(label + path)
     q = s.get('quota', {})
     lines.append(f"Quota: {q.get('provider', '?')} {q.get('reason', 'unknown')} {q.get('windows', [])}")
     d = s.get('disk', {})

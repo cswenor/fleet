@@ -1,5 +1,6 @@
 """Read-only Orca inventory and conservative ownership mapping."""
 from datetime import datetime
+from fnmatch import fnmatchcase
 import hashlib
 import json
 from pathlib import Path
@@ -451,8 +452,11 @@ def collect(c, now=None):
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]
+    expected = [path for path in stray if any(
+        fnmatchcase(path, pattern)
+        for pattern in c['coordinator'].get('expected_worktree_globs', []))]
     return {'builders': builders, 'worktrees': [{'id': w['id'], 'path': w['path'], 'branch': branch(w.get('branch')), 'comment': w.get('comment')} for w in trees],
-            'stray_worktrees': stray, 'errors': errors}
+            'stray_worktrees': stray, 'expected_worktrees': expected, 'errors': errors}
 
 
 def owner(inventory, head):

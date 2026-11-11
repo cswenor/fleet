@@ -10,6 +10,22 @@ from fleet.github import events
 
 
 class HealthTests(unittest.TestCase):
+    def test_expected_scratch_matching_excludes_lanes_root_and_other_projects(self):
+        paths = ['/root', '/scratch/slot', '/scratch/TASK-1/wt',
+                 '/scratch/TASK-1/wt2', '/other/wt']
+        c = {'root': '/root', 'orca_repo_id': 'repo',
+             'coordinator': {'terminal': 'main', 'expected_worktree_globs': ['/scratch/*']},
+             'builder': {'slots': ['/scratch/slot']}}
+        trees = [{'id': path, 'repoId': 'repo', 'path': path} for path in paths]
+        trees += [{'id': 'foreign', 'repoId': 'other', 'path': '/scratch/foreign'},
+                  {'id': 'archived', 'repoId': 'repo', 'path': '/scratch/archived', 'isArchived': True},
+                  {'id': 'main', 'repoId': 'repo', 'path': '/scratch/main', 'isMainWorktree': True}]
+        with patch.object(health, 'orca', side_effect=[
+                {'worktrees': trees}, {'terminals': []}]):
+            inventory = health.collect(c)
+        self.assertEqual(inventory['stray_worktrees'], paths[2:])
+        self.assertEqual(inventory['expected_worktrees'], paths[2:4])
+
     def test_model_requires_session_evidence_not_projection_or_footer(self):
         t = {'connected': True, 'lastOutputAt': 100_000,
              'projection': {'provider': {'model': 'openai-codex/gpt-6.1-sol'}}}

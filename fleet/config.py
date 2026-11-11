@@ -128,6 +128,12 @@ def load(path):
         if not c['coordinator'].get(key):
             raise ValueError(f'missing coordinator.{key}')
     coordinator = c['coordinator']
+    coordinator.setdefault('expected_worktree_globs', [])
+    patterns = coordinator['expected_worktree_globs']
+    if (not isinstance(patterns, list) or
+            any(not isinstance(pattern, str) or not pattern.strip() or
+                not Path(pattern).is_absolute() for pattern in patterns)):
+        raise ValueError('coordinator.expected_worktree_globs must be a list of nonempty absolute path globs')
     coordinator.setdefault('liveness_minutes', 5)
     coordinator.setdefault('unknown_alert_cycles', 3)
     coordinator.setdefault('wake', True)

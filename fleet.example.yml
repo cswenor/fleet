@@ -83,6 +83,9 @@ disk:
 coordinator:
   terminal: term_replace
   run: run_replace
+  # Main-owned scratch paths only; absolute fnmatch globs, [] by default.
+  # Matches remain visible and relay once as status, never urgent.
+  expected_worktree_globs: []
   # Positive finite minutes of observed shell/crash before main_down.
   liveness_minutes: 5
   # Consecutive unknown observations before nonurgent main_unknown.

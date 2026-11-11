@@ -114,6 +114,24 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 ## Remaining work and concrete acceptance
 
 
+### TASK-112 — Declare Main-owned scratch worktrees
+
+Optional `coordinator.expected_worktree_globs` accepts only nonempty absolute
+path globs (default `[]`, case-sensitive `fnmatch`). Matching non-lane project
+worktrees remain visible in status, marked expected, and relay once per continuous
+observation as plain status, never urgent. Nonmatching strays retain urgency;
+new declarations discard undelivered old urgent retries. Builder no-extra-worktrees
+policy and configured lanes are unchanged.
+All 78 focused parser/status/urgency regressions pass. Read-only candidate
+evaluation against a private copy of real Project Alpha config with
+`['/var/tmp/project-alpha-scratch/TASK-*/wt*']` classified TASK-2875 `wt` and `wt2`
+as expected/status; the actual source `status` CLI marked both expected (exit 0).
+No other stray was present; unmatched urgency and queued-urgent cutover are
+covered by regressions. No live config, state, delivery or service was changed.
+Publication requires independent final-head Sol-medium review, green CI and
+Main exact-head GO. Shared deployment remains Main-owned; receipts belong on TASK-112/PR.
+
+
 ### TASK-111 — Provider-independent builder identity and quota
 
 Builder health reads latest model/thinking/fallback metadata from the exact

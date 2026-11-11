@@ -269,7 +269,10 @@ def alerts(s, c, lane_free=None):
                                            progress.get('launch_id'), progress.get('last_event_at'),
                                            prs]
     for path in s.get('inventory', {}).get('stray_worktrees', []):
-        add('stray:' + path, 'Stray project worktree', path)
+        if path in s['inventory'].get('expected_worktrees', []):
+            add('expected:' + path, 'expected scratch worktree: ' + path, path)
+        else:
+            add('stray:' + path, 'Stray project worktree', path)
     if not s.get('quota', {}).get('may_start', False):
         q = s.get('quota', {})
         add('quota:' + q.get('reason', 'unavailable'), 'Fleet quota reserve: new builders withheld',
@@ -837,6 +840,10 @@ def cycle(c, deliver=True):
             reclassified.append(updated)
         pending = reclassified
     for event in pending:
+        if (event['key'].startswith('stray:') and inventory is not None
+                and event['body'] in inventory.get('expected_worktrees', [])):
+            # A newly declared scratch path must not replay an old urgent retry.
+            continue
         if event['key'].startswith('pr_stuck:') and event.get('pr') in paused_prs:
             # A newly observed pause also invalidates undelivered old occurrences.
             continue

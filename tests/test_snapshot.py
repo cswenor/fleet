@@ -5,6 +5,15 @@ from fleet import snapshot
 
 
 class MainStatusTests(unittest.TestCase):
+    def test_expected_scratch_and_unmatched_stray_are_distinct(self):
+        result = snapshot.render({
+            'repo': 'owner/project', 'errors': [],
+            'inventory': {'stray_worktrees': ['/scratch/wt', '/other'],
+                          'expected_worktrees': ['/scratch/wt']}})
+        self.assertIn('Expected scratch worktree: /scratch/wt', result.splitlines())
+        self.assertIn('Stray worktree: /other', result.splitlines())
+        self.assertNotIn('Stray worktree: /scratch/wt', result.splitlines())
+
     def test_coordinator_observation_is_visible(self):
         for state, reason, expected in (
                 ('up', 'live omp UI', 'Main: up (live omp UI)'),

@@ -48,6 +48,27 @@ class UrgentRelayTests(unittest.TestCase):
     def urgent_calls(self):
         return [(event, recipient) for event, recipient in self.calls if event.get('type') == 'question']
 
+    def test_expected_scratch_is_status_once_and_unmatched_stray_stays_urgent(self):
+        self.s['inventory'].update(stray_worktrees=['/scratch/wt', '/other'],
+                                   expected_worktrees=['/scratch/wt'])
+        self.cycle(0)
+        self.cycle(1)
+        self.assertEqual([(e.get('type', 'status'), e['subject']) for e, _ in self.calls],
+                         [('status', 'expected scratch worktree: /scratch/wt'),
+                          ('question', '[urgent] Stray project worktree')])
+        self.assertEqual(self.urgent_calls()[0][0]['body'], '/other')
+
+    def test_declaring_scratch_discards_pending_urgent_retry(self):
+        self.s['inventory']['stray_worktrees'] = ['/scratch/wt']
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(0)
+        self.s['inventory']['expected_worktrees'] = ['/scratch/wt']
+        self.cycle(1)
+        self.cycle(2)
+        self.assertEqual([(e.get('type', 'status'), e['subject']) for e, _ in self.calls],
+                         [('status', 'expected scratch worktree: /scratch/wt')])
+        self.assertEqual(state.read(self.c, 'supervisor')['pending'], [])
+
     def test_default_health_and_stray_events_are_urgent_and_other_alerts_ordinary(self):
         self.s['inventory']['builders'][0]['flags'] = [
             'provider_stalled', 'idle', 'wrong_model', 'waiting_dialog']
@@ -900,6 +921,16 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'urgent'):
                         config.load(path)
             c.pop('urgent')
+            for patterns in (None, '', '/scratch/*', [''], [' '], ['relative/*'], [None], [1]):
+                c['coordinator']['expected_worktree_globs'] = patterns
+                path.write_text(yaml.safe_dump(c))
+                with self.subTest(patterns=patterns), self.assertRaisesRegex(
+                        ValueError, 'coordinator.expected_worktree_globs'):
+                    config.load(path)
+            for patterns in ([], ['/scratch/TASK-*/wt*']):
+                c['coordinator']['expected_worktree_globs'] = patterns
+                path.write_text(yaml.safe_dump(c))
+                self.assertEqual(config.load(path)['coordinator']['expected_worktree_globs'], patterns)
             for key in ('ready_report_minutes', 'stall_minutes', 'stall_after_ci_minutes'):
                 for minutes in (0.5, 15):
                     c['builder'][key] = minutes

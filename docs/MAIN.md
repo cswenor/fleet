@@ -181,6 +181,20 @@ settlement. For legacy attempts without a settlement timestamp, the timer starts
 at the first verified handoff observation and persists in supervisor state.
 This fallback does not write Pad or authorize/schedule a launch.
 
+Main may declare intentional scratch paths with
+`coordinator.expected_worktree_globs: ['/var/tmp/project-scratch/TASK-*/wt*']`.
+The optional list defaults to empty; every pattern must be a nonempty absolute
+path glob. Matching uses case-sensitive Python `fnmatch` semantics (`*` also
+matches path separators), without filesystem expansion or symlink resolution.
+Configured lanes and the project root are excluded before matching.
+Matches stay in `status --json` inventory `stray_worktrees`, additionally listed
+in `expected_worktrees`; text status marks them `Expected scratch worktree`.
+The supervisor emits one plain `expected scratch worktree: <path>` status per
+continuous observation, never urgent; undelivered old urgent retries for a newly
+declared path are discarded. Nonmatching strays retain normal urgency.
+This does not permit builders to create extra worktrees or remove any worktree.
+
+
 `stalled` is urgent by default: working UI without a new canonical session JSONL
 event for `builder.stall_minutes` (60), or an owned open PR's terminal failed/
 cancelled CI older than `builder.stall_after_ci_minutes` (20) with no later event
