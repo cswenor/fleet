@@ -68,7 +68,7 @@ def send(c, ref, body, priority=False):
 def check(c, ref, acknowledge=None):
     caller = threads.identity(c)
     name = threads._name(ref)
-    with state.lock(c, name):
+    with state.lock(c, name, operation='thread check'):
         ledger, task, key, attempt = threads.current(c, ref, caller)
         launch = state.read(c, 'launches', {}).get(attempt['slot'], {})
         if (launch.get('terminal') != caller or launch.get('id') not in task['attempts']
@@ -79,7 +79,7 @@ def check(c, ref, acknowledge=None):
     if acknowledge is not None:
         # Ownership proof stays outside the short publication commit section.
         with state.lock(c, 'launch-publication', wait_seconds=5,
-                        operation='thread check --ack'), state.lock(c, name):
+                        operation='thread check --ack'), state.lock(c, name, operation='thread check --ack'):
             latest = state.read(c, 'launches', {}).get(attempt['slot'], {})
             if any(latest.get(field) != launch.get(field)
                    for field in ('id', 'terminal', 'terminal_incarnation_id')):

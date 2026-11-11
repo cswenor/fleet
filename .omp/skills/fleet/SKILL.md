@@ -355,8 +355,13 @@ native message ID and subthread: no separate direct send is needed. A pending
 question refuses with its ID/subthread; resume the wait, never resend. Follow-ups
 use reply/status in that same pending native subthread, not a new direct question.
 Reports are `status`. Main replies to the original message ID.
-Thread wait privately caches all observed
-mail types and copies the matching decision to Pad; after timeout/Pad failure,
+Thread wait returns the current native observation intact but privately indexes
+only the newest 64 task/subthread-related metadata rows per attempt, without bodies.
+Canonical question records retain decision bodies for Pad retries; every ledger
+write lazily compacts old indexes. Inspect unrelated native mail separately.
+Task locks wait at most 15s, then exit 4 with `thread busy` and holder metadata;
+supervisor wake uses nonblocking file-only task sections, outside native I/O.
+Thread wait copies the matching decision to Pad; after timeout/Pad failure,
 retry the same wait, not a duplicate question. Retain terminal until unseen
 replies are copied; terminal history is capped and expires on closure. Ambiguous
 question sends require reconciliation, not resend. No fake Task/Dispatch IDs.

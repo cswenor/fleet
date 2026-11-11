@@ -1,5 +1,6 @@
 import copy
 from datetime import datetime, timezone
+import fcntl
 import json
 from pathlib import Path
 import tempfile
@@ -55,10 +56,18 @@ class BuilderWakeTests(unittest.TestCase):
             'TASK-1': {'id': 'fleet-task', 'attempts': {'launch': self.attempt}}})
 
     def native(self, c, *args):
-        # Real flock probe on every native operation: a supervisor cycle must not
-        # keep unrelated launches/checkpoints blocked while waiting on Orca.
-        with state.lock(c, 'launcher', operation='test native checkpoint'):
+        # Probe actual flocks, not mocked lock calls, at every native boundary.
+        with state.lock(c, 'launcher', wait_seconds=0, operation='test native checkpoint'):
             pass
+        for path in Path(c['_state']).glob('threads-*.lock'):
+            with path.open('a') as lock_file:
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    self.fail('native I/O holds task lock: ' + path.name)
+        with self.assertRaises(ValueError):
+            with state.slot_lock(c, '/lane'):
+                self.fail('native I/O lost the slot lease')
         if args[0] == 'inbox':
             self.assertEqual(args, ('inbox', '--terminal', 'builder', '--limit', '1000'))
             return {'messages': copy.deepcopy(self.messages), 'count': len(self.messages)}
@@ -273,6 +282,35 @@ class BuilderWakeTests(unittest.TestCase):
                 with patch.object(health, 'orca', side_effect=replacing):
                     self.wake(1000)
                 self.assertEqual(self.sends, [])
+
+    def test_question_or_settlement_changed_after_proof_withholds_input(self):
+        original = health.builder_wake_proof
+        for change in ('settled', 'recorded', 'question', 'latest_question'):
+            with self.subTest(change=change):
+                self.ledger = {}
+                self.attempt.update(settled=False, latest_question=self.token)
+                self.q.pop('reply_recorded', None)
+                self.q['subject'] = 'TASK-1: decision'
+                self.save_attempt()
+
+                def changing(c, launch, slot):
+                    proof = original(c, launch, slot)
+                    with state.lock(c, 'threads-TASK-1', wait_seconds=0):
+                        if change == 'settled':
+                            self.attempt['settled'] = True
+                        elif change == 'recorded':
+                            self.q['reply_recorded'] = True
+                        elif change == 'question':
+                            self.q['subject'] = 'TASK-1: changed decision'
+                        else:
+                            self.attempt['latest_question'] = self.token + '/replacement'
+                        self.save_attempt()
+                    return proof
+
+                with patch.object(health, 'builder_wake_proof', side_effect=changing):
+                    self.wake(1000)
+                self.assertEqual(self.sends, [])
+                self.assertEqual(self.ledger['builder_wakes']['/lane']['attempts'], {})
 
     def test_unproven_config_path_never_inputs(self):
         for path in (None, '', 'relative.yml', '/private/fleet\nmalicious.yml'):

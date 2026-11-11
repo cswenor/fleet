@@ -113,6 +113,33 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-120 — Bound task inbox indexes and shorten wake task locks
+
+Task-ledger writes lazily compact inbox indexes in active and archived attempts.
+Only task/subthread-related metadata survives, capped at the newest 64 rows per
+attempt; bodies remain only in canonical question/decision records where needed
+for durable Pad retry. Fresh native observations are returned intact, not persisted
+as unrelated terminal history. Native mail is never consumed or acknowledged.
+
+Per-task locks default to a bounded 15-second acquisition, with retryable exit 4
+and holder PID/operation/UTC-start diagnostics. Supervisor wake explicitly uses
+nonblocking task locks for file-only snapshots and final authority revalidation/
+journaling. Its slot lease still spans native mailbox/proof/send, excluding
+retirement; no native I/O holds the task lock.
+
+Read-only migration of a private copy of real Project Alpha TASK-2843 reduced
+4,345,577 bytes to 16,555 bytes. Median JSON load over 30 runs fell from 21.229ms
+to 0.073ms; migration/write took 4.670ms. The live source hash was unchanged.
+Candidate `thread check TASK-120` against copied Fleet state exited 0 in 571.248ms
+with real native ownership reads; no live receipts or services were changed.
+All 186 focused thread, lock, builder-wake, steering, supervisor, governor, stop
+and parking regressions pass across the scoped runs. Coverage includes real
+15-second contention/holder diagnostics, release/acquisition, archived-cache
+migration, decision retry, and actual flock availability at every wake native
+boundary. Stop timeout fixtures now isolate their fake clock from shared locks.
+Independent final-head review, green CI and Main's exact-head GO remain required.
+Merge does not authorize shared installation.
+
 ### TASK-117 — Startup health relays and partial restart diagnostics
 
 Project Beta Main corrected the incident account (`msg_697f8a115d9f`, relayed

@@ -685,13 +685,24 @@ def wake_builders(c, ledger, now, deliver):
         if not launch.get('id') or not launch.get('terminal'):
             continue
         try:
-            candidates = list(threads.pending_questions(c, slot, launch))
-            for ref, question in candidates:
-                with state.slot_lock(c, slot), state.lock(c, 'threads-' + ref):
-                    # Settlement/reply recording may have raced the first read.
-                    if not any(r == ref and q == question
-                               for r, q in threads.pending_questions(c, slot, launch)):
-                        continue
+            refs = [launch.get('ref')]
+            refs.extend(state.read(c, 'carries', {}).get(launch['id'], {}))
+            for ref in dict.fromkeys(refs):
+                if not isinstance(ref, str) or not re.fullmatch(r'[A-Z]+-\d+', ref):
+                    continue
+                with state.slot_lock(c, slot):
+                    with state.lock(c, 'threads-' + ref, wait_seconds=0):
+                        # Snapshot only file-backed state under the task lock.
+                        latest = state.read(c, 'launches', {}).get(slot, {})
+                        if any(latest.get(field) != launch.get(field)
+                               for field in ('id', 'terminal', 'terminal_incarnation_id')):
+                            continue
+                        question = next((q for r, q in threads.pending_questions(c, slot, latest)
+                                         if r == ref), None)
+                        if question is None:
+                            continue
+                    # The slot lease excludes restart throughout native observation,
+                    # revalidation and send; task writers remain free to settle.
                     reply = threads.decision_reply(c, launch, question)
                     if reply is None:
                         continue
@@ -734,19 +745,20 @@ def wake_builders(c, ledger, now, deliver):
                             and now - lane['last_at'] < c['coordinator'].get(
                                 'wake_cooldown_seconds', 600))):
                         continue
-                    # Native proof is outside the launcher lock. Re-read authority
-                    # under this task lock immediately before journaling/send.
-                    latest = state.read(c, 'launches', {}).get(slot, {})
-                    if (any(latest.get(field) != launch.get(field)
-                            for field in ('id', 'terminal', 'terminal_incarnation_id'))
-                            or not any(r == ref and q == question
-                                       for r, q in threads.pending_questions(c, slot, latest))):
-                        continue
-                    attempt = {'at': now, 'ref': ref, 'question_id': question['message_id'],
-                               'reply_id': reply['id'], 'proof': proof, 'status': 'attempted'}
-                    lane['attempts'][signature] = attempt
-                    lane['last_at'] = now
-                    state.write(c, 'supervisor', ledger)
+                    with state.lock(c, 'threads-' + ref, wait_seconds=0):
+                        # Native observation may race settlement or a new decision.
+                        # Revalidate exact authority before journaling permission.
+                        latest = state.read(c, 'launches', {}).get(slot, {})
+                        if (any(latest.get(field) != launch.get(field)
+                                for field in ('id', 'terminal', 'terminal_incarnation_id'))
+                                or not any(r == ref and q == question
+                                           for r, q in threads.pending_questions(c, slot, latest))):
+                            continue
+                        attempt = {'at': now, 'ref': ref, 'question_id': question['message_id'],
+                                   'reply_id': reply['id'], 'proof': proof, 'status': 'attempted'}
+                        lane['attempts'][signature] = attempt
+                        lane['last_at'] = now
+                        state.write(c, 'supervisor', ledger)
                     try:
                         attempt['receipt'] = orca(
                             c, 'terminal', 'send', '--terminal', launch['terminal'], '--text',
