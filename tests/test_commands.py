@@ -65,5 +65,32 @@ class CapabilityMutationTests(unittest.TestCase):
                                           'orchestration', verb)
 
 
+class GitDiagnosticTests(unittest.TestCase):
+    def test_git_failure_retains_bounded_redacted_command_and_stderr(self):
+        process = subprocess.CompletedProcess([], 128, '', (
+            'fatal: cannot checkout task-2\nAuthorization: Bearer hidden-header\n'
+            'private-secret https://user:pass@example.test/repo?token=hidden ' + 'x' * 400))
+        with patch.dict('os.environ', {'PRIVATE_TOKEN': 'private-secret'}), \
+                patch.object(commands.subprocess, 'run', return_value=process):
+            with self.assertRaises(commands.CommandError) as caught:
+                commands.run(['git', '-c', 'http.extraHeader=hidden-config',
+                              'checkout', 'task-2'], '/repo')
+        error = caught.exception
+        self.assertIn('checkout task-2', error.command)
+        self.assertIn('cannot checkout task-2', error.stderr)
+        for secret in ('hidden-config', 'hidden-header', 'private-secret', 'user:pass', 'token=hidden'):
+            self.assertNotIn(secret, error.command + error.stderr)
+        self.assertLessEqual(len(error.command), 300)
+        self.assertLessEqual(len(error.stderr), 300)
+
+    def test_other_command_failure_keeps_private_output_unexposed(self):
+        process = subprocess.CompletedProcess([], 1, '', 'private non-git output')
+        with patch.object(commands.subprocess, 'run', return_value=process):
+            with self.assertRaises(commands.CommandError) as caught:
+                commands.run(['tool', 'secret'])
+        self.assertFalse(hasattr(caught.exception, 'stderr'))
+        self.assertNotIn('private', str(caught.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

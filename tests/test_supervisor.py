@@ -273,6 +273,56 @@ class DeliveryTests(unittest.TestCase):
                     supervisor.cycle(c)
             self.assertEqual(calls, ['run:r', 'run:r'])
 
+class StartupAlertTests(unittest.TestCase):
+    def test_receipt_grace_expires_without_hiding_other_health_failures(self):
+        s = sample(pr())
+        b = s['inventory']['builders'][0]
+        b.update(path='/lane', model=None, task='TASK-1', title='builder',
+                 incarnation_id='inc', launch_at=1000,
+                 flags=['model_unknown', 'progress_unknown', 'disconnected'])
+        for observed, expected in ((1000, ['disconnected']),
+                                   (1119.9, ['disconnected']),
+                                   (1120, ['model_unknown', 'progress_unknown', 'disconnected'])):
+            with self.subTest(observed=observed):
+                s['generated_at'] = observed
+                events = supervisor.alerts(s, {})
+                self.assertEqual([e['subject'].split(':')[0] for e in events],
+                                 ['Builder ' + flag for flag in expected])
+        self.assertEqual(b['flags'], ['model_unknown', 'progress_unknown', 'disconnected'])
+
+    def test_missing_invalid_or_future_receipt_never_grants_grace(self):
+        s = sample(pr())
+        b = s['inventory']['builders'][0]
+        b.update(path='/lane', model=None, task='TASK-1', title='builder',
+                 flags=['model_unknown', 'progress_unknown'])
+        s['generated_at'] = 1000
+        for launched in (None, True, '1000', 0, float('nan'), float('inf'), 1001):
+            with self.subTest(launched=launched):
+                b['launch_at'] = launched
+                events = supervisor.alerts(s, {})
+                self.assertEqual([e['subject'] for e in events],
+                                 ['Builder model_unknown: TASK-1',
+                                  'Builder progress_unknown: TASK-1'])
+
+    def test_delayed_unknown_relay_retains_observation_time_without_realerting(self):
+        s = sample(pr())
+        b = s['inventory']['builders'][0]
+        b.update(path='/lane', model=None, task='TASK-1', title='builder',
+                 launch_id='launch', flags=['model_unknown', 'progress_unknown'])
+        s['generated_at'] = 1000
+        first = supervisor.alerts(s, {})
+        s['generated_at'] = 2201
+        later = supervisor.alerts(s, {})
+        for old, new in zip(first, later):
+            self.assertIn('observed at 1970-01-01T00:16:40+00:00', old['body'])
+            self.assertIn('observed at 1970-01-01T00:36:41+00:00', new['body'])
+            self.assertEqual(supervisor.event_signature(old), supervisor.event_signature(new))
+        b['launch_id'] = 'replacement'
+        replacement = supervisor.alerts(s, {})
+        for old, new in zip(later, replacement):
+            self.assertNotEqual(supervisor.event_signature(old), supervisor.event_signature(new))
+
+
 class CollectionAlertTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()

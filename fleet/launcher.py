@@ -27,14 +27,26 @@ def _preparation_receipt(c, ref):
                     'for this ref and slot after admission recovers')
         preparation['safe_state'] = 'inspect-session' if attempted else 'no-builder-input-sent'
         preparation.update(at=time.time(), ref=ref, failure=type(exc).__name__,
-                           retry_guidance=guidance)
+                           failure_reason=snapshot._collection_reason(exc), retry_guidance=guidance)
+        for key in ('command', 'stderr'):
+            detail = getattr(exc, key, None)
+            if detail:
+                preparation[key] = detail
         preparations = state.read(c, 'launch-preparations', {})
         preparations[preparation['slot']] = preparation
         state.write(c, 'launch-preparations', preparations)
+        message = f"{preparation['failure_reason']}; {guidance} (launch-preparations receipt)"
+        for key in ('command', 'stderr'):
+            if key in preparation:
+                message += f"; {key}: {preparation[key]}"
         if isinstance(exc, ValueError):
-            raise ValueError(f'{exc}; {guidance} (launch-preparations receipt)') from exc
+            raise ValueError(message) from exc
         if isinstance(exc, CommandError):
-            raise CommandError(f'{exc}; {guidance} (launch-preparations receipt)', code=exc.code) from exc
+            error = CommandError(message, code=exc.code)
+            for key in ('command', 'stderr'):
+                if key in preparation:
+                    setattr(error, key, preparation[key])
+            raise error from exc
         exc.add_note(guidance + ' (launch-preparations receipt)')
         raise
 

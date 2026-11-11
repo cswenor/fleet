@@ -1,8 +1,9 @@
-"""Bounded subprocess calls; only gh emits credential-sanitized diagnostics."""
+"""Bounded subprocess calls with credential-sanitized Git/GitHub diagnostics."""
 import json
 import os
 import re
 import subprocess
+import shlex
 import time
 from urllib.parse import urlsplit
 
@@ -68,10 +69,31 @@ def _execute(argv, cwd=None, timeout=60, *, text=True):
     return p
 
 
+def _git_diagnostic(text):
+    if isinstance(text, bytes):
+        text = text.decode('utf-8', errors='replace')
+    for name, value in os.environ.items():
+        if value and (len(value) >= 8 or re.search(
+                r'(?i)token|secret|password|credential|auth|api_?key', name)):
+            text = text.replace(value, '[redacted]')
+    text = re.sub(r'(?i)(?:\b[\w.-]*(?:token|secret|password|credential|'
+                  r'extraheader|sshcommand)[\w.-]*\s*[=:]\s*)(?:\'[^\']*\'|"[^"]*"|\S+)',
+                  '[redacted assignment]', text)
+    text = re.sub(r'(?i)(--?(?:token|password|secret|credential|api-key))\s+\S+',
+                  r'\1 [redacted]', text)
+    text = re.sub(r'\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/]*@[^\s]*',
+                  '[redacted URL]', text)
+    return _gh_reason(text)
+
+
 def run(argv, cwd=None, timeout=60, *, text=True):
     p = _execute(argv, cwd, timeout, text=text)
     if p.returncode:
-        raise CommandError(f'{argv[0].split("/")[-1]} exited {p.returncode}')
+        error = CommandError(f'{argv[0].split("/")[-1]} exited {p.returncode}')
+        if argv[0].split('/')[-1] == 'git':
+            error.command = _git_diagnostic(shlex.join(argv))
+            error.stderr = _git_diagnostic(p.stderr or '')
+        raise error
     return p.stdout
 
 

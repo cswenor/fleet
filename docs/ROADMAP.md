@@ -113,6 +113,45 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-117 — Startup health relays and partial restart diagnostics
+
+Project Beta Main corrected the incident account (`msg_697f8a115d9f`, relayed
+by Fleet Main in `msg_af0e48d5a73b`): unknown health did not persist for 20 minutes.
+The TASK-282 startup relays were enqueued at 16:03:22Z, about eight seconds after
+launch receipt `1794412993297190020`; the looping Main wait returned them roughly
+1201 seconds later. TASK-274 had the same delayed-delivery symptom. No stale
+session cache or persistent unknown snapshot was found.
+
+Main approved a fixed 120-second grace from the exact terminal/incarnation/slot
+launch receipt (`msg_6841528bbccd`), only for `model_unknown`/`progress_unknown`
+relays. Raw snapshot flags and admission remain fail-closed; all other health
+flags are unchanged. Unknown relays carry their snapshot's UTC observation time,
+excluded from occurrence dedupe, so delayed delivery cannot look like a fresh
+observation. Health rereads the current launch each cycle, including slot reuse.
+
+The TASK-277 partial restart occurred at 12:10:54Z, not approximately 12:20Z:
+the branch-preparation receipt records `CommandError` and no builder input.
+A repeated restart at 12:11:04Z found no non-shell session; explicit launch
+succeeded at 12:11:30Z. Email Main's stdout-only filter omitted stderr, and the
+old receipt retained only the exception class. The exact historical Git error
+cannot be recovered. Existing branch dry-run preflight remains mandatory;
+post-retirement failures now persist an explicit recovery diagnostic, with
+bounded/redacted Git command and stderr in preparation/restart receipts.
+Ambiguous or already-started replacements forbid blind retry.
+
+Main made a fresh-launch live drill optional (`msg_39f48d448d47`): acceptance
+uses focused regressions plus a replay of the real TASK-282 ledger. Read-only
+candidate collection resolves both current Project Beta launches as Sol/medium
+without health flags. The source-bound TASK-282 startup replay emits no unknown
+relays at launch+8s, and emits timestamped unknowns at the 120-second boundary.
+No services, live configuration, receipts or delivery were changed by the replay.
+All 183 focused command, health/stall, supervisor, retirement and launch
+regressions pass. A real read-only Git failure (`rev-parse --verify` on an absent
+ref) retained its sanitized command and `fatal: Needed a single revision` stderr
+in an isolated preparation receipt and surfaced both in the failure diagnostic.
+Publication still requires final-head independent Sol-medium review, green CI
+and Main's exact-head GO; merge is not shared deployment permission.
+
 ### TASK-118 — Reduce duplicate relay and watcher noise
 
 PR/branch transitions now target only the coordinator Run; builders use

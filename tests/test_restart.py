@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import shlex
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -788,6 +789,138 @@ class RetirementTests(unittest.TestCase):
         self.sent.clear()
         self.launch.reset_mock()
         self.refused('already attempted')
+
+    def test_branch_preflight_command_failure_never_retires(self):
+        with patch.object(restart.launcher, '_prepare_branch',
+                          side_effect=CommandError('git checkout preflight refused')):
+            self.refused('restart preflight withheld.*git checkout preflight refused.*old session untouched')
+        self.assertFalse(self.exited)
+        self.assertEqual(state.read(self.c, 'retirements', {}), {})
+
+    def test_cli_reports_all_post_retirement_launch_failures_and_persists_recovery(self):
+        from fleet import cli
+        config = str(Path(self.slot) / 'private config.yml')
+        self.c['_path'] = config
+        recovery = shlex.join(['fleet', '--config', config, 'launch', 'TASK-2', '--slot', self.slot])
+        for error in (ValueError('quota changed'), CommandError('git checkout refused'),
+                      RuntimeError('transport lost'), OSError('disk unavailable'), KeyError('id')):
+            with self.subTest(error=type(error).__name__):
+                state.write(self.c, 'retirements', {})
+                self.exited = False
+                self.sent.clear()
+                self.launch.reset_mock()
+                self.launch.side_effect = error
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(cli, 'load', return_value=self.c), \
+                        patch.object(cli.sys, 'argv', ['fleet', '--config', config, 'restart',
+                            'TASK-2', '--slot', self.slot, '--finished-ref', 'TASK-1']), \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    code = cli.main()
+                self.assertNotEqual(code, 0)
+                self.assertEqual(stdout.getvalue(), '')
+                receipt = state.read(self.c, 'retirements')[self.slot]
+                self.assertEqual(receipt['stage'], 'launch-attempted')
+                self.assertEqual(receipt['failure'], type(error).__name__)
+                self.assertEqual(receipt['failure_reason'], restart.snapshot._collection_reason(error))
+                self.assertEqual(receipt['recovery_command'], recovery)
+                self.assertIn('restart retired old but did not launch TASK-2:', receipt['error'])
+                self.assertIn(receipt['error'], stderr.getvalue())
+                self.assertIn('recover with: ' + recovery, stderr.getvalue())
+                self.assertEqual(len(self.sent), 1)
+                self.launch.assert_called_once_with(self.c, 'TASK-2', self.slot, _locked=True)
+                self.sent.clear()
+                self.launch.reset_mock()
+                self.refused('already attempted')
+
+    def test_incomplete_launch_result_is_a_consumer_visible_partial_restart(self):
+        from fleet import cli
+        self.launch.return_value = {}
+        stderr = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stderr(stderr):
+            self.assertNotEqual(cli.main(), 0)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertEqual(receipt['stage'], 'launch-attempted')
+        self.assertEqual(receipt['failure'], 'KeyError')
+        self.assertIn(receipt['error'], stderr.getvalue())
+        self.assertIn('confirming no replacement session started', stderr.getvalue())
+        self.assertEqual(len(self.sent), 1)
+
+    def test_post_retirement_failure_reason_is_sanitized_in_receipt_and_cli(self):
+        from fleet import cli
+        self.launch.side_effect = RuntimeError(
+            '\x1b[31mcheckout refused TOKEN=do-not-persist\x1b[0m\nprivate second line')
+        stderr = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stderr(stderr):
+            self.assertNotEqual(cli.main(), 0)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        serialized = json.dumps(receipt) + stderr.getvalue()
+        self.assertIn('checkout refused', serialized)
+        for private in ('do-not-persist', 'private second line', '\\u001b'):
+            self.assertNotIn(private, serialized)
+
+    def test_withheld_residue_launch_reports_retirement_and_recovery_to_cli(self):
+        from fleet import cli
+        self.residue = '16;8t'
+        self.cleanup_works = False
+        stderr = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stderr(stderr):
+            self.assertNotEqual(cli.main(), 0)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertEqual(receipt['stage'], 'shell-verified-with-residue')
+        self.assertIn('restart retired old but did not launch TASK-2:', stderr.getvalue())
+        self.assertIn('manually verify and clear', stderr.getvalue())
+        self.assertIn(receipt['recovery_command'], stderr.getvalue())
+        self.launch.assert_not_called()
+
+    def test_residue_without_exit_proof_does_not_claim_retirement(self):
+        self.residue = '16;8t'
+        self.keep_omp = True
+        with self.assertRaises(ValueError) as raised:
+            self.run_restart()
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertFalse(receipt.get('retired', False))
+        self.assertNotIn('restart retired', str(raised.exception))
+        self.launch.assert_not_called()
+
+    def test_post_launch_hook_failure_preserves_replacement_outcome_warning(self):
+        from fleet import cli
+        def fail_after_publication(*args, **kwargs):
+            state.write(self.c, 'last-launch', {
+                'id': 'replacement', 'ref': 'TASK-2', 'worktree': {'path': self.slot}})
+            raise CommandError('after-launch hook failed')
+        self.launch.side_effect = fail_after_publication
+        stderr = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stderr(stderr):
+            self.assertNotEqual(cli.main(), 0)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertEqual(receipt['launch_outcome'], 'replacement-receipt-present')
+        self.assertIn('replacement may already be running', stderr.getvalue())
+        self.assertIn('do not retry launch without reconciliation', stderr.getvalue())
+        self.assertNotIn('did not launch TASK-2', stderr.getvalue())
+
+    def test_git_diagnostics_survive_retirement_receipt_and_cli(self):
+        from fleet import cli
+        error = CommandError('git exited 128')
+        error.command = 'git switch --no-track -c task-2-test origin/main'
+        error.stderr = 'fatal: invalid reference: origin/main'
+        self.launch.side_effect = error
+        stderr = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stderr(stderr):
+            self.assertNotEqual(cli.main(), 0)
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        for key in ('command', 'stderr'):
+            self.assertEqual(receipt[key], getattr(error, key))
+            self.assertIn(getattr(error, key), stderr.getvalue())
 
     def test_already_retired_shell_refuses_restart_with_launch_recovery(self):
         self.builder['shell_ready'] = True

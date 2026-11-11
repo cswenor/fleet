@@ -248,6 +248,24 @@ class RestartTests(unittest.TestCase):
         self.assertEqual((self.sent, self.created), ([], 0))
         self.assertIsNone(state.read(self.c, 'launches'))
 
+    def test_git_preparation_failure_retains_safe_diagnostics_without_builder_input(self):
+        error = CommandError('git exited 128')
+        error.command = 'git switch --no-track -c task-123-test origin/main'
+        error.stderr = 'fatal: invalid reference: origin/main'
+        with self.assertRaises(CommandError) as raised:
+            self.launch(preparation=error)
+        receipt = state.read(self.c, 'launch-preparations')[self.slot]
+        self.assertEqual(receipt['failure_reason'], 'CommandError: git exited 128')
+        self.assertEqual(receipt['command'], error.command)
+        self.assertEqual(receipt['stderr'], error.stderr)
+        self.assertEqual(raised.exception.command, error.command)
+        self.assertEqual(raised.exception.stderr, error.stderr)
+        self.assertIn(error.command, str(raised.exception))
+        self.assertIn(error.stderr, str(raised.exception))
+        self.assertEqual(receipt['safe_state'], 'no-builder-input-sent')
+        self.assertEqual((self.sent, self.created), ([], 0))
+        self.assertIsNone(state.read(self.c, 'launches'))
+
     def test_created_worktree_is_retained_on_post_preparation_refusal(self):
         missing = str(Path(self.directory.name).resolve() / 'new-slot')
         self.c['builder']['slots'] = [missing]

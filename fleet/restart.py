@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import sys
 import time
 from . import dispatcher, health, launcher, snapshot, state
@@ -501,6 +502,7 @@ def restart(c, ref, slot, finished_ref):
                                 '\n'.join(latest_screen.get('tail', [])) != text or
                                 _exited_shell(proof['process'], target['terminal']) != shell):
                             raise ValueError('residue cleanup evidence changed')
+                        receipt['retired'] = True
                         receipt['residue_cleanup'] = {'stage': 'input-attempted', 'shell': shell, 'reply': residue}
                         state.write(c, 'retirements', retirements)
                         orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '\x15')
@@ -524,22 +526,62 @@ def restart(c, ref, slot, finished_ref):
                 time.sleep(0.25)
             else:
                 raise ValueError('exit timed out without verified shell; inspect retirement receipt, no retry')
+            receipt['retired'] = True
             receipt['stage'] = 'shell-verified'
             state.write(c, 'retirements', retirements)
             receipt['stage'] = 'launch-attempted'
             state.write(c, 'retirements', retirements)
             launched = launcher.launch(c, ref, slot, _locked=True)
+            receipt['next_launch_id'] = launched['id']
+            receipt['stage'] = 'launched'
+            state.write(c, 'retirements', retirements)
         except Exception as exc:
             receipt['failure'] = type(exc).__name__
+            receipt['failure_reason'] = snapshot._collection_reason(exc)
+            for key in ('command', 'stderr'):
+                detail = getattr(exc, key, None)
+                if detail:
+                    receipt[key] = detail
             receipt['retry_guidance'] = (
                 'old session retired; inspect retirement, launch-preparations and launch receipts; '
                 'after confirming no replacement session started and admission recovers, retry fleet launch '
                 'for next_ref and this slot, not fleet restart'
-                if receipt['stage'] == 'launch-attempted' else
+                if receipt['stage'] in ('launch-attempted', 'launched') else
                 'launch withheld; manually verify and clear the shell line before fleet launch; '
                 'never retry cleanup or restart'
                 if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
+            if receipt.get('retired'):
+                recovery = shlex.join([
+                    'fleet', '--config',
+                    str(c.get('_path') or Path(c['root']) / 'fleet.yml'),
+                    'launch', ref, '--slot', slot])
+                receipt['recovery_command'] = recovery
+                published = state.read(c, 'last-launch', {})
+                replacement = (published.get('id') != record['id'] and published.get('ref') == ref and
+                               published.get('worktree', {}).get('path') == slot)
+                if receipt['stage'] == 'launched' or replacement:
+                    receipt['launch_outcome'] = 'replacement-receipt-present'
+                    receipt['error'] = (
+                        f"restart retired {record['id']} but launch {ref} completion failed: "
+                        f"{receipt['failure_reason']}; replacement may already be running; "
+                        f"do not retry launch without reconciliation; recover with: {recovery}")
+                else:
+                    receipt['error'] = (
+                        f"restart retired {record['id']} but did not launch {ref}: "
+                        f"{receipt['failure_reason']}; recover with: {recovery}")
+                    if receipt['stage'] == 'launch-attempted':
+                        receipt['launch_outcome'] = 'unconfirmed'
+                        receipt['error'] += (
+                            '; replacement may already be running; do not retry launch without reconciliation')
+                for key in ('command', 'stderr'):
+                    if key in receipt:
+                        receipt['error'] += f"; {key}: {receipt[key]}"
+                state.write(c, 'retirements', retirements)
+                message = f"{receipt['error']}; {receipt['retry_guidance']}"
+                if isinstance(exc, CommandError):
+                    raise CommandError(message, code=exc.code) from exc
+                raise ValueError(message) from exc
             state.write(c, 'retirements', retirements)
             if isinstance(exc, ValueError):
                 raise ValueError(f"{exc}; {receipt['retry_guidance']}") from exc
@@ -547,7 +589,4 @@ def restart(c, ref, slot, finished_ref):
                 raise CommandError(f"{exc}; {receipt['retry_guidance']}", code=exc.code) from exc
             exc.add_note(receipt['retry_guidance'])
             raise
-        receipt['stage'] = 'launched'
-        receipt['next_launch_id'] = launched['id']
-        state.write(c, 'retirements', retirements)
         return {'retirement': receipt, 'launch': launched}

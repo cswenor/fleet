@@ -3,6 +3,7 @@ from datetime import datetime
 from fnmatch import fnmatchcase
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import time
@@ -308,15 +309,25 @@ def _event_time(value):
     return stamp.timestamp()
 
 
-def _progress(c, terminal, slot, now):
-    """Require the authoritative launch and one complete, slot-bound session."""
+def _launch(c, terminal, slot):
+    """Read the current receipt, never retain a reused lane's previous launch."""
     try:
         record = state.read(c, 'launches', {}).get(slot, {})
-        if (not record.get('id') or record.get('terminal') != terminal['handle']
-                or not terminal.get('incarnationId')
-                or record.get('terminal_incarnation_id') != terminal['incarnationId']
-                or record.get('worktree', {}).get('path') != slot
-                or not record.get('session_dir')):
+        if (record.get('id') and record.get('terminal') == terminal['handle']
+                and terminal.get('incarnationId')
+                and record.get('terminal_incarnation_id') == terminal['incarnationId']
+                and record.get('worktree', {}).get('path') == slot):
+            return record
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def _progress(c, terminal, slot, now, *, launch=None):
+    """Require the authoritative launch and one complete, slot-bound session."""
+    try:
+        record = _launch(c, terminal, slot) if launch is None else launch
+        if not record or not record.get('session_dir'):
             raise ValueError('launch binding unavailable')
         logs = list(Path(record['session_dir']).glob('*.jsonl'))
         if len(logs) != 1:
@@ -423,7 +434,13 @@ def collect(c, now=None):
         ready = (t.get('connected', False) and not t.get('orphaned') and
                  t.get('writable', False) and shell_ready(detail))
         ui = omp_ui(text)
-        progress = None if ready else _progress(c, t, w['path'], now)
+        launch = _launch(c, t, w['path'])
+        launch_at = launch.get('at') if launch else None
+        if (isinstance(launch_at, bool) or not isinstance(launch_at, (int, float))
+                or not math.isfinite(launch_at) or launch_at <= 0):
+            launch_at = None
+        progress = (_progress(c, t, w['path'], now, launch=launch)
+                    if not ready and launch else None)
         model, flags, idle = classify(t, text, progress, c['builder']['idle_seconds'], now)
         if not ready:
             if progress is None:
@@ -449,6 +466,7 @@ def collect(c, now=None):
                          'shell_ready': ready, 'binding': terminal_binding,
                          'incarnation_id': t.get('incarnationId'),
                          'ui_state': ui, 'progress': progress,
+                         'launch_id': launch['id'] if launch else None, 'launch_at': launch_at,
                          'connected': t.get('connected', False) and not t.get('orphaned')})
     slots = set(c['builder']['slots'])
     stray = [w['path'] for w in trees if w['path'] not in slots and w['path'] != c['root'] and not w.get('isMainWorktree')]

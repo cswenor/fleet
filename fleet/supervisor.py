@@ -249,10 +249,24 @@ def alerts(s, c, lane_free=None):
     for message in (s.get('github') or {}).get('unavailable', []):
         add('github-unknown:' + digest(message), 'GitHub optional data unknown', message)
     for b in s.get('inventory', {}).get('builders', []):
+        launch_at = b.get('launch_at')
+        observed_at = s.get('generated_at')
+        starting = (isinstance(launch_at, (int, float)) and not isinstance(launch_at, bool)
+                    and isinstance(observed_at, (int, float)) and not isinstance(observed_at, bool)
+                    and math.isfinite(launch_at) and math.isfinite(observed_at)
+                    and launch_at > 0 and 0 <= observed_at - launch_at < 120)
         for flag in b['flags']:
+            if starting and flag in ('model_unknown', 'progress_unknown'):
+                continue
             if flag == 'idle' and (b['path'] in (lane_free or {}) or _completed_idle(c, b)):
                 continue
             body = f'{b["terminal"]} {b["path"]}; model={b["model"] or "unknown"}; flag={flag}'
+            if flag in ('model_unknown', 'progress_unknown'):
+                observed = (datetime.fromtimestamp(observed_at, timezone.utc).isoformat()
+                            if isinstance(observed_at, (int, float))
+                            and not isinstance(observed_at, bool)
+                            and math.isfinite(observed_at) else 'unknown')
+                body += f'; observed at {observed}'
             if flag in ('stalled', 'progress_unknown'):
                 progress = b.get('progress') or {}
                 prs = b.get('owned_prs', [])
@@ -263,10 +277,15 @@ def alerts(s, c, lane_free=None):
             identity = digest([b['worktree'], b['terminal'], b.get('incarnation_id')])
             add(f'health:{identity}:{flag}', f'Builder {flag}: {b["task"] or b["title"]}', body)
             result[-1]['legacy_key'] = f'health:{b["worktree"]}:{flag}'
+            if flag == 'model_unknown':
+                # Delivery can be delayed; observation time is not new evidence.
+                result[-1]['occurrence'] = [b['terminal'], b.get('incarnation_id'),
+                                           b.get('launch_id'), b.get('ui_state')]
             if flag in ('stalled', 'progress_unknown'):
                 # Ages change every cycle; only evidence changes or recovery re-alert.
                 result[-1]['occurrence'] = [b['terminal'], b.get('incarnation_id'),
-                                           progress.get('launch_id'), progress.get('last_event_at'),
+                                           progress.get('launch_id') or b.get('launch_id'),
+                                           progress.get('last_event_at'),
                                            prs]
     for path in s.get('inventory', {}).get('stray_worktrees', []):
         if path in s['inventory'].get('expected_worktrees', []):
