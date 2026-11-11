@@ -75,7 +75,7 @@ def stop(c, ref, reason, timeout=120):
         raise ValueError('stop config path must be printable on one line')
     check_command = shlex.join(['fleet', '--config', config_path, 'thread', 'check', ref])
     caller = steering._main(c)
-    with state.lock(c, 'launcher'), state.lock(c, threads._name(ref)):
+    with state.lock(c, 'launcher', operation='thread stop'), state.lock(c, threads._name(ref)):
         ledger, task, launch, attempt = steering._target(c, ref)
         records = attempt.setdefault('steering', {})
         stops = state.read(c, 'stops', {})

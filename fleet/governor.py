@@ -70,7 +70,7 @@ def reconcile(c, launch_id, evidence):
         raise ValueError('park-reconcile requires the configured Main terminal identity')
     if not evidence.strip():
         raise ValueError('park-reconcile requires non-empty evidence')
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='park-reconcile'):
         active = state.read(c, 'supervisor', {}).get('governor', {}).get('active')
         if not active or active.get('launch_record_id') != launch_id:
             raise ValueError('park-reconcile requires the exact active park launch ID')

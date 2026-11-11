@@ -113,6 +113,72 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-113 — Check steering without waiting for launch/restart
+
+`thread check`/`--ack` reads atomic launches and the task ledger under the per-task
+lock, verifying native caller ownership against that snapshot.
+Acknowledgment uses a tiny shared launch-publication lock around final identity
+revalidation and ledger write; launch uses it only for final record publication.
+No native/Orca/Pad/Git I/O or subprocesses run inside it. After at most 5s,
+contention exits 4 with `launch publishing; retry` and PID/op/UTC-start metadata.
+Changes refuse with `launch changed; re-run check` without acknowledging.
+Read-only checks never acquire the global launcher or publication lock.
+
+Launcher lock holders record only PID, operation and UTC start in private
+`launcher-holder.json`, removed on release. Contention exits 4 and names the
+holder with `retry in ~60s`; unknown external/older holders remain explicit.
+`thread pending` waits at most 15s; existing immediate-refusal callers remain
+immediate. All launcher waits are capped at 15s. Builders retry later, never
+loop tightly. TASK-96's 180s checkpoint contract is superseded.
+
+Initial 299 focused steering/thread/launch/restart/supervisor/wake/parking/
+dispatcher/governor/stop regressions passed. After the publication-race fix, all
+69 steering/launcher tests pass, including real 15s/5s contention and replacement
+while acknowledgment waits for publication, without acknowledging old work.
+Main measured installed `fleet launch TASK-114` at 27.7s end-to-end. The reported
+Project Alpha 132s launch has no per-stage measurement here; changing lock hold time
+is out of scope. Main's live 90s-held-lock drill on code 6cf72fe returned real
+TASK-114 `thread check` exit 0 in 0.77s; Main's `thread pending` exited 4 in 15.58s
+with exact holder metadata (`msg_506300b3a096`). Independent review found the
+read/write publication race; Main approved the shared tiny lock and 5s bound in
+`msg_60110a9b2370`, with no further live drill required. Shared deployment remains
+Main-owned. Publication requires independent final-head review, green CI and
+Main exact-head GO; receipts belong on TASK-113/PR.
+
+Main's later scope addition (`msg_a9f928c81638`, `msg_83450845375a`) removes
+native I/O from every supervisor-cycle launcher holder. Builder wake snapshots
+launches under a file-only section, then takes a nonblocking per-slot lease before
+the task lock across native proof, final identity/question revalidation and send.
+Launch/restart share that lease across terminal mutation; nested launch reuses it.
+Busy wake slots skip until next cycle. PARK holds its slot lease across native
+proof, file revalidation and transport, without launcher. Lane-free transport
+also stays outside launcher; reservations use short launcher → needs-next sections,
+but known-ID receipts take only needs-next (max5s). Contention journals the known
+receipt in the supervisor's `pending_receipts`, reconciled next cycle without
+resend. Manual needs-next first preserves its known ID under the task lock.
+Every lock acquisition records only PID/op/UTC-start in its holder sidecar.
+The PR body lists every launcher holder, remaining I/O and expected (unmeasured)
+hold-time class. Manual command holders retain their serialization; launch/restart
+hold-time reduction remains a follow-up. Main requires no new live drill for
+these supervisor changes. All 114 focused supervisor/wake/governor/urgency tests
+pass, including real flock probes at native call boundaries, stale-launch wake
+refusal and lane-free deduplication; final-head review/CI/GO must be repeated.
+
+Independent review on 84ead87 found the wake/restart reuse and known-receipt
+contention gaps. Main approved per-slot leases and the shared report-lock fallback
+in `msg_14e3457fee2a`. Final lock order is launcher → slot → publication → task →
+needs-next; ack releases its task ownership-proof lock before publication → task
+file-only commit. All 309 focused steering/launch/restart/thread/wake/supervisor/
+governor/urgency regressions pass (35.408s), including busy-slot skip, actual
+launch/restart exclusion at wake send, known-ID retention under launcher/report
+contention and no-resend reconciliation. Repeated final-head gates remain required.
+Later review on 6683c58 identified the analogous PARK proof/send reuse gap;
+PARK now holds the same slot lease throughout and never acquires launcher.
+All 59 supervisor/governor/wake regressions pass (7.526s), including slot exclusion
+at every PARK native boundary and busy-slot refusal before native calls.
+The macOS CI failure in the Linux-only restart entrypoint proof was a fixture
+platform omission, corrected using the existing explicit Linux fixture convention.
+
 
 ### TASK-112 — Declare Main-owned scratch worktrees
 
@@ -361,14 +427,11 @@ Publication requires independent final-head Sol-medium review, green CI and
 Main exact-head GO; durable receipts belong on TASK-97/PR.
 Shared deployment remains Main-owned.
 
-### TASK-96 — Steering checkpoints wait behind launcher contention
+### TASK-96 — Steering checkpoints wait behind launcher contention (superseded)
 
-`thread check` (including `--ack`) and `thread pending` retain exclusive
-launcher serialization and wait up to 180 seconds instead of failing immediately
-behind a launch/restart. Expiry exits 2 with
-`fleet launcher busy for >180s; retry thread check`. Ownership is read again
-after acquisition; a replacement launch cannot receive a stale acknowledgement.
-Other lock callers retain immediate refusal (`wait_seconds=0`).
+The original 180s launcher wait for check/ack/pending is superseded by TASK-113:
+check/ack no longer take that lock; pending waits at most 15s and contention exits
+4 with holder metadata. Existing immediate-refusal paths stay immediate.
 
 All 26 steering plus 99 retirement/stop regressions pass, covering release,
 timeout, stale ownership, ack preservation and unchanged immediate refusal.

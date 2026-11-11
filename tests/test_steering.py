@@ -2,8 +2,11 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
+import time
 import uuid
 from unittest.mock import patch
 
@@ -86,52 +89,110 @@ class SteeringTests(unittest.TestCase):
     def attempt(self):
         return state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts'][self.launch['id']]
 
-    def test_check_ack_and_pending_wait_for_launcher_release(self):
+    @contextlib.contextmanager
+    def launcher_holder(self, name='launcher', replace=False):
+        script = '''
+import sys
+from fleet import state
+with state.lock({'_state': sys.argv[1]}, sys.argv[2], operation='launch'):
+    print('ready', flush=True)
+    sys.stdin.read()
+    if sys.argv[3] == 'replace':
+        c = {'_state': sys.argv[1]}
+        launches = state.read(c, 'launches')
+        launches[sys.argv[1]]['id'] = 'replacement'
+        state.write(c, 'launches', launches)
+'''
+        with subprocess.Popen([sys.executable, '-c', script, self.slot, name,
+                               'replace' if replace else 'hold'],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              text=True) as process:
+            try:
+                self.assertEqual(process.stdout.readline().strip(), 'ready')
+                yield process
+            finally:
+                process.stdin.close()
+                process.wait(timeout=5)
+
+    def test_check_and_ack_do_not_wait_for_launcher_process(self):
         receipt = self.send('Preserve this instruction through contention.')
-        for action in ('check', 'pending', 'ack'):
-            with self.subTest(action=action), contextlib.ExitStack() as held:
-                held.enter_context(state.lock(self.c, 'launcher'))
-                with patch.object(state.time, 'sleep', side_effect=lambda _: held.close()):
-                    if action == 'pending':
-                        messages = self.pending()['lanes'][0]['messages']
-                    else:
-                        result = steering.check(self.c, 'TASK-1',
-                                                receipt['token'] if action == 'ack' else None)
-                        messages = result['messages']
-                self.assertEqual([m['token'] for m in messages],
-                                 [] if action == 'ack' else [receipt['token']])
+        with self.launcher_holder():
+            started = time.monotonic()
+            self.assertEqual(steering.check(self.c, 'TASK-1')['messages'][0]['token'],
+                             receipt['token'])
+            self.assertEqual(steering.check(self.c, 'TASK-1', receipt['token'])['messages'], [])
+            self.assertLess(time.monotonic() - started, 2)
         self.assertTrue(self.attempt()['steering'][receipt['token']]['acknowledged_at'])
 
-    def test_checkpoint_timeout_cli_has_clear_error_and_does_not_ack(self):
+    def test_pending_timeout_cli_reports_holder_and_retry_exit(self):
         receipt = self.send()
-        for args in (['check', 'TASK-1'], ['check', 'TASK-1', '--ack', receipt['token']],
-                     ['pending']):
-            with self.subTest(args=args), state.lock(self.c, 'launcher'), \
-                    patch.object(state.time, 'monotonic', side_effect=[0, 180]), \
-                    patch.object(cli, 'load', return_value=self.c), \
-                    patch('sys.argv', ['fleet', 'thread', *args]), \
-                    self.as_main() if args == ['pending'] else contextlib.nullcontext():
-                error = io.StringIO()
-                with contextlib.redirect_stderr(error):
-                    self.assertEqual(cli.main(), 2)
-                self.assertIn('fleet launcher busy for >180s; retry thread check', error.getvalue())
+        with self.launcher_holder() as holder, \
+                patch.object(cli, 'load', return_value=self.c), \
+                patch('sys.argv', ['fleet', 'thread', 'pending']), self.as_main():
+            metadata = state.read(self.c, 'launcher-holder')
+            self.assertEqual(metadata['pid'], holder.pid)
+            self.assertEqual(metadata['op'], 'launch')
+            self.assertEqual(set(metadata), {'pid', 'op', 'start'})
+            error = io.StringIO()
+            started = time.monotonic()
+            with contextlib.redirect_stderr(error):
+                self.assertEqual(cli.main(), 4)
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, 14.5)
+            self.assertLess(elapsed, 18)
+            self.assertIn(f"launcher busy: held by pid {holder.pid} (launch) since "
+                          f"{metadata['start']}; retry in ~60s", error.getvalue())
+        self.assertIsNone(state.read(self.c, 'launcher-holder'))
         self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
 
-    def test_check_revalidates_launch_after_wait(self):
+    def test_publication_contention_blocks_ack_not_read_only_check(self):
         receipt = self.send()
-        with contextlib.ExitStack() as held:
-            held.enter_context(state.lock(self.c, 'launcher'))
-            def replace_launch(_):
-                state.write(self.c, 'launches', {self.slot: {**self.launch, 'id': 'replacement'}})
-                held.close()
-            with patch.object(state.time, 'sleep', side_effect=replace_launch):
-                with self.assertRaises(ValueError):
+        with self.launcher_holder('launch-publication') as holder, \
+                patch.object(cli, 'load', return_value=self.c), \
+                patch('sys.argv', ['fleet', 'thread', 'check', 'TASK-1', '--ack', receipt['token']]):
+            started = time.monotonic()
+            self.assertEqual(steering.check(self.c, 'TASK-1')['messages'][0]['token'],
+                             receipt['token'])
+            self.assertLess(time.monotonic() - started, 2)
+            error = io.StringIO()
+            started = time.monotonic()
+            with contextlib.redirect_stderr(error):
+                self.assertEqual(cli.main(), 4)
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, 4.5)
+            self.assertLess(elapsed, 8)
+            self.assertIn('launch publishing; retry', error.getvalue())
+            self.assertIn(str(holder.pid), error.getvalue())
+        self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
+
+    def test_ack_revalidates_after_waiting_for_publication(self):
+        receipt = self.send()
+        with self.launcher_holder('launch-publication', replace=True) as holder:
+            def publish(_):
+                holder.stdin.close()
+                holder.wait(timeout=5)
+            with patch.object(state, 'time', wraps=time) as clock:
+                clock.sleep.side_effect = publish
+                with self.assertRaisesRegex(ValueError, 'launch changed; re-run check'):
                     steering.check(self.c, 'TASK-1', receipt['token'])
         self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
 
+    def test_ack_revalidates_launch_after_ownership_io(self):
+        receipt = self.send()
+        for field, value in (('id', 'replacement'), ('terminal', 'term_new'),
+                             ('terminal_incarnation_id', 'new-incarnation')):
+            with self.subTest(field=field):
+                state.write(self.c, 'launches', {self.slot: self.launch})
+                def replace_launch(*args):
+                    state.write(self.c, 'launches', {self.slot: {**self.launch, field: value}})
+                with patch.object(threads, '_ownership', side_effect=replace_launch):
+                    with self.assertRaisesRegex(ValueError, 'launch changed; re-run check'):
+                        steering.check(self.c, 'TASK-1', receipt['token'])
+                self.assertFalse(self.attempt()['steering'][receipt['token']].get('acknowledged_at'))
+
     def test_other_lock_callers_still_fail_immediately(self):
         with state.lock(self.c, 'launcher'), patch.object(state.time, 'sleep') as sleep:
-            with self.assertRaisesRegex(ValueError, 'fleet launcher already running'):
+            with self.assertRaises(state.LauncherBusy):
                 self.send()
             sleep.assert_not_called()
 

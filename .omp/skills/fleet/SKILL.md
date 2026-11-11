@@ -305,6 +305,14 @@ Bound EVERY wait segment to at most 600 seconds, including background inbox,
 CI/watch-pr and wait-tool calls; long jobs may have longer execution deadlines.
 Between waits run `fleet --config CONFIG thread check TASK-N`, act on each
 Fleet-managed steering message, then `thread check TASK-N --ack TOKEN`.
+Read-only `thread check` takes only the per-task lock, not the launcher lock.
+`--ack` also takes the tiny launch-publication lock around final revalidation/write;
+after at most 5s contention exits 4 with `launch publishing; retry` and holder info.
+A changed launch refuses with `launch changed; re-run check`; inspect a fresh check
+rather than reuse a stale token. Retry contention later, never loop tightly.
+Launcher-required paths wait no more than 15s (immediate-refusal paths stay
+immediate). On exit 4 / `launcher busy`, retry later (about 60s), never loop tightly.
+The error names the holder PID, operation and UTC start when recorded.
 Do not re-wait before acting. Reading does not acknowledge. Main uses
 `thread send TASK-N --body TEXT` and `thread pending` to see unacknowledged or
 ambiguous sends per current lane with age. Normal sends never input to terminals;

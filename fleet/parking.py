@@ -87,7 +87,7 @@ def parked(c, ref, resume_note):
     if not isinstance(resume_note, str) or not resume_note.strip():
         raise ValueError('park requires a resume-note comment ID')
     caller = threads.identity(c)
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='thread parked'):
         matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
                    if slot in c['builder']['slots'] and launch.get('terminal') == caller]
         if len(matches) != 1 or matches[0][1].get('ref') != ref or not matches[0][1].get('id'):

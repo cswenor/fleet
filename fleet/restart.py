@@ -432,7 +432,7 @@ def restart(c, ref, slot, finished_ref):
     slot = str(Path(slot).expanduser().resolve())
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='restart'), state.slot_lock(c, slot):
         tree, target = _target(c, slot)
         record = state.read(c, 'launches', {}).get(slot, {})
         if (not record.get('id') or record.get('ref') != finished_ref or

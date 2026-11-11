@@ -1,5 +1,5 @@
 """Explicit guarded fresh launches; reuse only a terminal at a verified shell prompt."""
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, ExitStack
 from collections import deque
 from pathlib import Path
 import json
@@ -175,7 +175,7 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False):
 def launch(c, ref, slot=None, *, _locked=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
-    with nullcontext() if _locked else state.lock(c, 'launcher'), _preparation_receipt(c, ref) as preparation:
+    with nullcontext() if _locked else state.lock(c, 'launcher', operation='launch'), ExitStack() as lease, _preparation_receipt(c, ref) as preparation:
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
         occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
@@ -203,6 +203,8 @@ def launch(c, ref, slot=None, *, _locked=False):
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
+        if not _locked and chosen:
+            lease.enter_context(state.slot_lock(c, chosen))
         shells = []
         skipped = []
         if existing:
@@ -224,6 +226,8 @@ def launch(c, ref, slot=None, *, _locked=False):
             missing = chosen or next((p for p in slots if not Path(p).exists()), None)
             if not missing:
                 raise ValueError('no free configured slot')
+            if not _locked and not chosen:
+                lease.enter_context(state.slot_lock(c, missing))
             preparation.update(slot=missing, stage='preparation-attempted', action='worktree-create')
             if c['hooks'].get('before_launch'):
                 run(c['hooks']['before_launch'], c['root'])
@@ -301,6 +305,8 @@ An inbox send is durable enqueue, NOT a guaranteed new agent turn. While you own
 Run anything that can exceed a few minutes (test suites, evals, profilers) as an async background job with an explicit timeout sized to the expected runtime plus margin, and process its completion when it wakes you. The long job itself may run longer than 600 seconds; EVERY foreground/background inbox or CI wait segment, including wait-tool calls and watch-pr timeouts, MUST be at most 600 seconds (10 minutes). Bound each wait, not total job runtime. On a background job timeout or no progress, inspect (output size, stack/py-spy, logs) before re-running; a timeout is evidence, not a retry signal. Background jobs are exempt from the stalled alert, so the explicit job timeout is the hang detector.
 Between EVERY wait segment and at natural work checkpoints, run: {check_command}
 This returns one JSON object per pending Fleet-managed steering message per line (empty output means none), scoped to your current launch/attempt; reading does NOT acknowledge it. Process each message BEFORE acknowledging its token with: {check_command} --ack TOKEN
+On exit 4 / "launcher busy", retry later (about 60s); never loop tightly. Normal thread check does not take the launcher lock. If acknowledgement reports "launch changed; re-run check", inspect the current launch with a fresh check; never reuse a stale token.
+If acknowledgement exits 4 / "launch publishing; retry", its tiny publication lock was busy for 5s; retry later, never tightly. Read-only check never takes that lock.
 Do not re-wait before acting on received instructions/events. Also inspect ALL other native inbox message types at natural checkpoints: thread check covers only Fleet-managed steering, does not consume native mail, and does not replace thread wait for decision replies or native inbox inspection for other mail. Acknowledgment records processing, not mere reading. Sender IDs are advisory, not authentication. Priority steering is refused BEFORE side effects: the stock interrupt probe injected text into a running child's PTY, not structured steering, so no safe stock path is proven. Normal steering never uses terminal input. These bounded waits plus actionable checkpoints are event-driven, not repeated model-turn status polling, and override any older foreground-only or longer-wait instruction in the footer.
 If Main uses the sanctioned emergency `fleet thread stop {ref} --reason TEXT`, process its journaled STOP through {check_command} before acknowledging the token. Do not resume interrupted work unless Main tells you to. Normal steering and PARK remain cooperative; builders never interrupt other lanes.
 On a durable PARK request: finish your current step, commit and push WIP to this task branch, and write a concrete Pad resume-note comment on {ref}. Make {parked_command} --resume-note COMMENT_ID your last lane action, then end your turn: no further tool calls or background jobs, never wait on your own terminal/idle state or send input to your own terminal. It verifies a clean tree and remote branch head, records explicit park completion without a merge, and reports PARKED to Main. Main may retire and reassign the slot; resuming work requires a Main-confirmed fresh session. This replaces older raw-status-only PARK instructions in a project footer.
@@ -363,9 +369,12 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                    'untracked_files': untracked_files, 'untracked_count': untracked_count,
                    'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
         state.write(c, 'last-launch', receipt)
-        launches = state.read(c, 'launches', {})
-        launches[w['path']] = receipt
-        state.write(c, 'launches', launches)
+        # No native I/O in this commit section: acknowledgments serialize only
+        # against publication, never against the slow launcher operation.
+        with state.lock(c, 'launch-publication', wait_seconds=5, operation='launch'):
+            launches = state.read(c, 'launches', {})
+            launches[w['path']] = receipt
+            state.write(c, 'launches', launches)
         preparation['stage'] = 'launched'
         orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
         if c['hooks'].get('after_launch'):

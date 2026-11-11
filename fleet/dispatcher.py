@@ -142,7 +142,7 @@ def reconcile(c, slot, launch_id, evidence):
         raise ValueError('reconcile requires the configured Main terminal identity')
     if slot not in c['builder']['slots'] or not evidence.strip():
         raise ValueError('reconcile requires a configured slot and non-empty exit evidence')
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='reconcile'):
         inventory = health.collect(c)
         if inventory.get('errors') or any(b['path'] == slot and health.active(b) for b in inventory['builders']):
             raise ValueError('reconcile withheld: slot health is live, unknown or incomplete')
@@ -167,7 +167,7 @@ def carry(c, slot, launch_id, ref, evidence):
         raise ValueError('carry requires a configured slot and non-empty approval evidence')
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference')
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='carry'):
         launch = state.read(c, 'launches', {}).get(slot, {})
         if not launch_id or launch.get('id') != launch_id:
             raise ValueError('carry requires an exact current launch ID and slot')
@@ -279,7 +279,7 @@ def check_launch(c, ref, inventory, slot, *, retiring=None):
 
 
 def propose(c):
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='next'):
         s = snapshot.collect(c)
         admission = snapshot.may_start(c, s)
         inventory = s.get('inventory', {})

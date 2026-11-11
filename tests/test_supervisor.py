@@ -21,6 +21,109 @@ def sample(p):
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_lane_free_reserves_before_unlocked_delivery_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory, 'repo': 'owner/project',
+                 'coordinator': {'terminal': 'main', 'run': 'run'}}
+            identity = {'id': 'launch', 'slot': '/slot', 'ref': 'TASK-1',
+                        'terminal': 'builder', 'terminal_incarnation_id': 'inc'}
+            state.write(c, 'launches', {'/slot': identity})
+            state.write(c, 'threads-TASK-1', {'TASK-1': {'id': 'thread', 'attempts': {
+                'launch': {'slot': '/slot', 'terminal': 'builder',
+                           'settled': True, 'result': 'Published'}}}})
+            event = {'key': 'lane_free:launch', 'subject': 'Lane free', 'body': 'Done',
+                     'lane_free': identity}
+            def native(*args):
+                with state.lock(c, 'launcher', operation='test native checkpoint'), state.lock(c, 'needs-next'):
+                    self.assertEqual(state.read(c, 'needs-next')['launch']['status'], 'sending')
+                return {'message': {'id': 'msg_notice'}}
+            with patch.object(supervisor, 'orca', side_effect=native) as send:
+                supervisor.enqueue(c, event, 'run:run')
+                self.assertEqual(state.read(c, 'needs-next')['launch']['message_id'], 'msg_notice')
+                self.assertTrue(supervisor.enqueue(c, event, 'run:run')['deduplicated'])
+                self.assertEqual(send.call_count, 1)
+
+    def test_known_lane_receipt_survives_launcher_or_report_contention(self):
+        for held in ('launcher', 'needs-next'):
+            with self.subTest(held=held), tempfile.TemporaryDirectory() as directory:
+                c = {'_state': directory, 'repo': 'owner/project', 'hooks': {},
+                     'status': {'url': '', 'token_env': ''}, 'builder': {'max': 0},
+                     'coordinator': {'terminal': 'main', 'run': 'run'}}
+                identity = {'id': 'launch', 'slot': '/slot', 'ref': 'TASK-1',
+                            'terminal': 'builder', 'terminal_incarnation_id': 'inc'}
+                state.write(c, 'launches', {'/slot': identity})
+                state.write(c, 'threads-TASK-1', {'TASK-1': {'id': 'thread', 'attempts': {
+                    'launch': {'slot': '/slot', 'terminal': 'builder',
+                               'settled': True, 'result': 'Published'}}}})
+                event = {'key': 'lane_free:launch', 'subject': 'Lane free', 'body': 'Done',
+                         'lane_free': identity}
+                lease = state.lock(c, held)
+                def native(*args):
+                    lease.__enter__()
+                    return {'message': {'id': 'msg_known'}}
+                try:
+                    with patch.object(supervisor, 'orca', side_effect=native) as send:
+                        supervisor.enqueue(c, event, 'run:run')
+                        if held == 'needs-next':
+                            saved = state.read(c, 'supervisor')['pending_receipts']['launch']
+                            self.assertEqual(saved['message_id'], 'msg_known')
+                        else:
+                            self.assertEqual(state.read(c, 'needs-next')['launch']['message_id'], 'msg_known')
+                        self.assertEqual(send.call_count, 1)
+                finally:
+                    lease.__exit__(None, None, None)
+                if held == 'needs-next':
+                    snapshot = sample(pr())
+                    snapshot['inventory']['builders'] = []
+                    c['coordinator']['wake'] = False
+                    with patch.object(supervisor.snapshot, 'collect', return_value=snapshot), patch.object(
+                            supervisor, 'orca', side_effect=AssertionError('must not resend')):
+                        supervisor.cycle(c)
+                    self.assertEqual(state.read(c, 'supervisor')['pending_receipts'], {})
+                self.assertEqual(state.read(c, 'needs-next')['launch']['message_id'], 'msg_known')
+                with patch.object(supervisor, 'orca', side_effect=AssertionError('must not resend')):
+                    self.assertTrue(supervisor.enqueue(c, event, 'run:run')['deduplicated'])
+
+    def test_park_native_proof_and_delivery_release_launcher_and_recheck_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory, 'repo': 'owner/project',
+                 'coordinator': {'terminal': 'main', 'run': 'run'}}
+            attempt = {'path': '/slot', 'launch_record_id': 'launch', 'ref': 'TASK-1',
+                       'terminal': 'builder', 'incarnation_id': 'inc', 'worktree': 'tree'}
+            event = {'key': 'park:launch', 'subject': 'PARK', 'body': 'Park',
+                     'park': True, 'recipients': ['builder'], 'attempt': attempt}
+            with state.slot_lock(c, attempt['path']), patch.object(
+                    supervisor, 'orca', side_effect=AssertionError('busy PARK lease native I/O')):
+                with self.assertRaisesRegex(ValueError, 'slot-'):
+                    supervisor.enqueue(c, event, 'builder')
+            for replaced in (False, True):
+                with self.subTest(replaced=replaced):
+                    state.write(c, 'launches', {'/slot': {'id': 'launch'}})
+                    deliveries = []
+                    def native(c, *args):
+                        with self.assertRaisesRegex(ValueError, 'slot-'):
+                            with state.slot_lock(c, attempt['path']):
+                                self.fail('PARK proof/send must exclude terminal reuse')
+                        with state.lock(c, 'launcher', operation='test native checkpoint'):
+                            pass
+                        if args[:2] == ('terminal', 'show'):
+                            return {'terminal': {'connected': True, 'writable': True,
+                                                 'worktreeId': 'tree', 'incarnationId': 'inc'}}
+                        if args[:2] == ('terminal', 'read'):
+                            if replaced:
+                                state.write(c, 'launches', {'/slot': {'id': 'replacement'}})
+                            return {'terminal': {}}
+                        deliveries.append(args)
+                        return {'message': {'id': 'msg_park'}}
+                    with patch.object(supervisor, 'orca', side_effect=native), \
+                            patch.object(supervisor.health, 'shell_ready', return_value=False):
+                        if replaced:
+                            with self.assertRaisesRegex(CommandError, 'park owner identity'):
+                                supervisor.enqueue(c, event, 'builder')
+                        else:
+                            supervisor.enqueue(c, event, 'builder')
+                    self.assertEqual(len(deliveries), 0 if replaced else 1)
+
     def test_partial_failure_survives_restart_without_resending_coordinator(self):
         with tempfile.TemporaryDirectory() as directory:
             c = {'_state': directory, 'coordinator': {'run': 'r'}, 'hooks': {}, 'status': {'url': '', 'token_env': ''}}

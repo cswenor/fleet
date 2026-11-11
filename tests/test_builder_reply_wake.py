@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fleet import health, state, supervisor, threads
+from fleet import health, launcher, restart, state, supervisor, threads
 
 
 class BuilderWakeTests(unittest.TestCase):
@@ -55,6 +55,10 @@ class BuilderWakeTests(unittest.TestCase):
             'TASK-1': {'id': 'fleet-task', 'attempts': {'launch': self.attempt}}})
 
     def native(self, c, *args):
+        # Real flock probe on every native operation: a supervisor cycle must not
+        # keep unrelated launches/checkpoints blocked while waiting on Orca.
+        with state.lock(c, 'launcher', operation='test native checkpoint'):
+            pass
         if args[0] == 'inbox':
             self.assertEqual(args, ('inbox', '--terminal', 'builder', '--limit', '1000'))
             return {'messages': copy.deepcopy(self.messages), 'count': len(self.messages)}
@@ -183,6 +187,32 @@ class BuilderWakeTests(unittest.TestCase):
             self.wake(1000)
         self.assertEqual(self.sends, [])
 
+    def test_busy_slot_skips_without_native_io_then_retries(self):
+        with state.slot_lock(self.c, '/lane'), patch.object(
+                threads, 'request', side_effect=AssertionError('busy slot native I/O')):
+            self.wake()
+        self.assertEqual(self.sends, [])
+        self.wake(1)
+        self.assertEqual(len(self.sends), 1)
+
+    def test_wake_lease_prevents_retirement_and_reuse_even_at_send(self):
+        original = self.native
+        def native(c, *args):
+            if args[:2] == ('terminal', 'send'):
+                with patch.object(restart.sys, 'platform', 'linux'), self.assertRaisesRegex(ValueError, 'slot-'):
+                    restart.restart(c, 'TASK-2', '/lane', 'TASK-1')
+                with patch.object(launcher.snapshot, 'collect', return_value={
+                        'errors': [], 'inventory': {}}), patch.object(
+                        launcher.snapshot, 'may_start', return_value={'may_start': True, 'reasons': []}), patch.object(
+                        launcher, 'orca', return_value={}), patch.object(
+                        launcher.dispatcher, 'check_launch', return_value={}):
+                    with self.assertRaisesRegex(ValueError, 'slot-'):
+                        launcher.launch(c, 'TASK-2', '/lane')
+            return original(c, *args)
+        with patch.object(supervisor, 'orca', side_effect=native):
+            self.wake()
+        self.assertEqual(len(self.sends), 1)
+
     def test_current_carried_question_is_woken_but_unapproved_ref_is_not(self):
         self.launch['ref'] = 'TASK-2'
         state.write(self.c, 'launches', {'/lane': self.launch})
@@ -227,6 +257,22 @@ class BuilderWakeTests(unittest.TestCase):
         with patch.object(health, 'orca', side_effect=replacing):
             self.wake(1000)
         self.assertEqual(self.sends, [])
+
+    def test_launch_replaced_during_native_proof_never_wakes_old_builder(self):
+        original = self.native
+        for field, value in (('id', 'replacement'), ('terminal', 'other'),
+                             ('terminal_incarnation_id', 'replacement')):
+            with self.subTest(field=field):
+                state.write(self.c, 'launches', {'/lane': self.launch})
+                self.ledger = {}
+                def replacing(c, *args):
+                    result = original(c, *args)
+                    if args[:2] == ('terminal', 'read'):
+                        state.write(c, 'launches', {'/lane': {**self.launch, field: value}})
+                    return result
+                with patch.object(health, 'orca', side_effect=replacing):
+                    self.wake(1000)
+                self.assertEqual(self.sends, [])
 
     def test_unproven_config_path_never_inputs(self):
         for path in (None, '', 'relative.yml', '/private/fleet\nmalicious.yml'):

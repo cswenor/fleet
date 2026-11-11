@@ -412,13 +412,34 @@ def stuck_pr_alerts(c, ledger, current, now):
 
 
 def enqueue(c, event, recipient):
+    # PARK is task-addressed mail: prevent retirement/reuse between proof and
+    # delivery just as for builder wake, without acquiring the global launcher.
+    lease = (state.slot_lock(c, event['attempt']['path'])
+             if event.get('park') and recipient == event['recipients'][0]
+             else nullcontext())
+    with lease:
+        return _enqueue(c, event, recipient)
+
+
+def _enqueue(c, event, recipient):
     prefix = 'DRILL ' if c.get('_drill_usage_file') else ''
     if recipient.startswith('pad:'):
         return run(['pad', '--workspace', c['pad_workspace'], 'item', 'comment', recipient[4:],
                     prefix + event['body']], c['root'])
     builder_park = event.get('park') and recipient == event['recipients'][0]
-    # Serialize final identity check + enqueue against every Fleet launch/reuse.
-    with state.lock(c, 'launcher') if builder_park or event.get('lane_free') else nullcontext():
+    if builder_park:
+        attempt = event['attempt']
+        t = orca(c, 'terminal', 'show', '--terminal', recipient)['terminal']
+        screen = orca(c, 'terminal', 'read', '--terminal', recipient, '--screen')['terminal']
+        current = {'terminal': recipient, 'path': attempt['path'], 'task': attempt['ref'],
+                   'incarnation_id': t.get('incarnationId')}
+        if (not t.get('connected') or t.get('orphaned') or not t.get('writable')
+                or t.get('worktreeId') != attempt['worktree'] or health.shell_ready(screen)):
+            raise CommandError('park owner identity unavailable or changed')
+    # Lane-free reservations use only file operations under launcher/needs-next.
+    # PARK ownership is protected throughout by enqueue's per-slot lease.
+    with (state.lock(c, 'launcher', operation='supervisor enqueue reserve') if event.get('lane_free') else nullcontext(),
+          state.lock(c, 'needs-next', wait_seconds=5, operation='supervisor next reserve') if event.get('lane_free') else nullcontext()):
         if event.get('lane_free'):
             identity = event['lane_free']
             if recipient != 'run:' + c['coordinator']['run']:
@@ -433,38 +454,37 @@ def enqueue(c, event, recipient):
                 return {'deduplicated': True, 'report': notice}
             if _lane_free_reported(c, identity) is not False:
                 raise CommandError('lane-free launch or report changed')
-        if builder_park:
-            attempt = event['attempt']
-            t = orca(c, 'terminal', 'show', '--terminal', recipient)['terminal']
-            screen = orca(c, 'terminal', 'read', '--terminal', recipient, '--screen')['terminal']
-            current = {'terminal': recipient, 'path': attempt['path'], 'task': attempt['ref'],
-                       'incarnation_id': t.get('incarnationId')}
-            if (not t.get('connected') or t.get('orphaned') or not t.get('writable')
-                    or t.get('worktreeId') != attempt['worktree']
-                    or health.shell_ready(screen)
-                    or not governor.same_attempt(c, attempt, [current])):
-                raise CommandError('park owner identity unavailable or changed')
-        # Explicit sender permits a systemd process. Never inject terminal input.
-        target_run = (recipient[4:] if event['key'].startswith('main:') and recipient.startswith('run:')
-                      else c['coordinator']['run'])
+        if builder_park and not governor.same_attempt(c, attempt, [current]):
+            raise CommandError('park owner identity unavailable or changed')
         if event.get('lane_free'):
             notice = {'ref': identity['ref'], 'slot': identity['slot'],
                       'channel': 'supervisor', 'status': 'sending',
                       'body': prefix + f"[fleet {c['repo']}] {event['body']}"}
             notices[identity['id']] = notice
-            # Shared with thread needs-next under the launcher lock. An uncertain
-            # native response reserves this launch until explicit reconciliation.
+            # Reserve before native I/O; ambiguous sends still forbid duplicates.
             state.write(c, 'needs-next', notices)
-        receipt = orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
-                       '--to', recipient, '--run', target_run, '--type', event.get('type', 'status'),
-                       '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
-        if event.get('lane_free'):
-            message_id = receipt.get('message', {}).get('id')
-            if not isinstance(message_id, str) or not message_id:
-                raise ValueError('ambiguous lane-free response; reconcile native inbox; never resend')
-            notice.update(message_id=message_id, status='sent', at=time.time())
-            state.write(c, 'needs-next', notices)
-        return receipt
+    # Explicit sender permits a systemd process. Never inject terminal input.
+    target_run = (recipient[4:] if event['key'].startswith('main:') and recipient.startswith('run:')
+                  else c['coordinator']['run'])
+    receipt = orca(c, 'orchestration', 'send', '--from', c['coordinator']['terminal'],
+                   '--to', recipient, '--run', target_run, '--type', event.get('type', 'status'),
+                   '--subject', prefix + event['subject'], '--body', prefix + f"[fleet {c['repo']}] {event['body']}")
+    if event.get('lane_free'):
+        message_id = receipt.get('message', {}).get('id')
+        if not isinstance(message_id, str) or not message_id:
+            raise ValueError('ambiguous lane-free response; reconcile native inbox; never resend')
+        from .threads import _record_next_report
+        notice.update(message_id=message_id, status='sent', at=time.time())
+        try:
+            _record_next_report(c, identity['id'], notice)
+        except ValueError:
+            # The native ID is known: journal it now, never repeat the send.
+            pending = {identity['id']: notice}
+            ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
+            ledger.setdefault('pending_receipts', {}).update(pending)
+            state.write(c, 'supervisor', ledger)
+            receipt['pending_receipts'] = pending
+    return receipt
 
 
 def push(c, s, receipt):
@@ -637,89 +657,104 @@ def wake_builders(c, ledger, now, deliver):
     from . import threads
     events = []
     try:
-        with state.lock(c, 'launcher'):
+        with state.lock(c, 'launcher', operation='supervisor builder wake snapshot'):
             launches = state.read(c, 'launches', {})
-            for slot in c.get('builder', {}).get('slots', []):
-                launch = launches.get(slot, {})
-                if not launch.get('id') or not launch.get('terminal'):
-                    continue
-                try:
-                    candidates = list(threads.pending_questions(c, slot, launch))
-                    for ref, question in candidates:
-                        with state.lock(c, 'threads-' + ref):
-                            # Settlement/reply recording may have raced the first read.
-                            if not any(r == ref and q == question
-                                       for r, q in threads.pending_questions(c, slot, launch)):
-                                continue
-                            reply = threads.decision_reply(c, launch, question)
-                            if reply is None:
-                                continue
-                            replied = datetime.fromisoformat(reply['created_at'].replace('Z', '+00:00'))
-                            if replied.tzinfo is None or not math.isfinite(replied.timestamp()):
-                                continue
-                            journal = ledger.setdefault('builder_wakes', {})
-                            lane = journal.get(slot)
-                            if lane is None or lane['launch_id'] != launch['id']:
-                                lane = {'launch_id': launch['id'], 'attempts': {},
-                                        'unwakeable': [], 'last_at': None}
-                                journal[slot] = lane
-                            signature = digest([question['message_id'], reply['id']])
-                            if signature in lane['attempts']:
-                                continue
-                            try:
-                                config_path = c.get('_path')
-                                if (not isinstance(config_path, str) or not os.path.isabs(config_path)
-                                        or not all(char.isprintable() for char in config_path)):
-                                    raise ValueError('Builder config path unproven')
-                                check = shlex.join(['fleet', '--config', config_path,
-                                                    'thread', 'check', ref])
-                                wait = shlex.join(['fleet', '--config', config_path,
-                                                   'thread', 'wait', ref, '--timeout', '600'])
-                                proof = health.builder_wake_proof(c, launch, slot)
-                            except (RuntimeError, ValueError, KeyError, TypeError, AttributeError):
-                                if (now - replied.timestamp() >= c['coordinator'].get(
-                                        'unwakeable_after_seconds', 900)
-                                        and signature not in lane['unwakeable']):
-                                    lane['unwakeable'].append(signature)
-                                    events.append({
-                                        'key': 'builder_reply_unwakeable:' + signature,
-                                        'subject': ref + ' builder_reply_unwakeable',
-                                        'type': 'status', 'branch': None,
-                                        'recipients': ['run:' + c['coordinator']['run']],
-                                        'body': f'{ref}; question {question["message_id"]}; '
-                                                'builder idle launch/composer or config-path proof unavailable'})
-                                continue
-                            if (not deliver or (lane['last_at'] is not None
-                                    and now - lane['last_at'] < c['coordinator'].get(
-                                        'wake_cooldown_seconds', 600))):
-                                continue
-                            attempt = {'at': now, 'ref': ref, 'question_id': question['message_id'],
-                                       'reply_id': reply['id'], 'proof': proof, 'status': 'attempted'}
-                            lane['attempts'][signature] = attempt
-                            lane['last_at'] = now
-                            state.write(c, 'supervisor', ledger)
-                            try:
-                                attempt['receipt'] = orca(
-                                    c, 'terminal', 'send', '--terminal', launch['terminal'], '--text',
-                                    f'fleet: Main replied to your pending decision {question["message_id"]} '
-                                    f'on {ref}; run {check}, then {wait} '
-                                    'to read and record the decision before continuing.',
-                                    '--enter')
-                                attempt['status'] = 'sent'
-                            except (RuntimeError, ValueError):
-                                attempt['status'] = 'unknown'
-                            state.write(c, 'supervisor', ledger)
-                except (RuntimeError, ValueError, KeyError, TypeError, AttributeError, OSError):
-                    # Busy thread/transport/unknown evidence is not permission for input.
-                    continue
-    except (RuntimeError, ValueError, KeyError, TypeError, OSError):
-        pass
+    except (RuntimeError, ValueError, OSError):
+        return []
+    for slot in c.get('builder', {}).get('slots', []):
+        launch = launches.get(slot, {})
+        if not launch.get('id') or not launch.get('terminal'):
+            continue
+        try:
+            candidates = list(threads.pending_questions(c, slot, launch))
+            for ref, question in candidates:
+                with state.slot_lock(c, slot), state.lock(c, 'threads-' + ref):
+                    # Settlement/reply recording may have raced the first read.
+                    if not any(r == ref and q == question
+                               for r, q in threads.pending_questions(c, slot, launch)):
+                        continue
+                    reply = threads.decision_reply(c, launch, question)
+                    if reply is None:
+                        continue
+                    replied = datetime.fromisoformat(reply['created_at'].replace('Z', '+00:00'))
+                    if replied.tzinfo is None or not math.isfinite(replied.timestamp()):
+                        continue
+                    journal = ledger.setdefault('builder_wakes', {})
+                    lane = journal.get(slot)
+                    if lane is None or lane['launch_id'] != launch['id']:
+                        lane = {'launch_id': launch['id'], 'attempts': {},
+                                'unwakeable': [], 'last_at': None}
+                        journal[slot] = lane
+                    signature = digest([question['message_id'], reply['id']])
+                    if signature in lane['attempts']:
+                        continue
+                    try:
+                        config_path = c.get('_path')
+                        if (not isinstance(config_path, str) or not os.path.isabs(config_path)
+                                or not all(char.isprintable() for char in config_path)):
+                            raise ValueError('Builder config path unproven')
+                        check = shlex.join(['fleet', '--config', config_path,
+                                            'thread', 'check', ref])
+                        wait = shlex.join(['fleet', '--config', config_path,
+                                           'thread', 'wait', ref, '--timeout', '600'])
+                        proof = health.builder_wake_proof(c, launch, slot)
+                    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError):
+                        if (now - replied.timestamp() >= c['coordinator'].get(
+                                'unwakeable_after_seconds', 900)
+                                and signature not in lane['unwakeable']):
+                            lane['unwakeable'].append(signature)
+                            events.append({
+                                'key': 'builder_reply_unwakeable:' + signature,
+                                'subject': ref + ' builder_reply_unwakeable',
+                                'type': 'status', 'branch': None,
+                                'recipients': ['run:' + c['coordinator']['run']],
+                                'body': f'{ref}; question {question["message_id"]}; '
+                                        'builder idle launch/composer or config-path proof unavailable'})
+                        continue
+                    if (not deliver or (lane['last_at'] is not None
+                            and now - lane['last_at'] < c['coordinator'].get(
+                                'wake_cooldown_seconds', 600))):
+                        continue
+                    # Native proof is outside the launcher lock. Re-read authority
+                    # under this task lock immediately before journaling/send.
+                    latest = state.read(c, 'launches', {}).get(slot, {})
+                    if (any(latest.get(field) != launch.get(field)
+                            for field in ('id', 'terminal', 'terminal_incarnation_id'))
+                            or not any(r == ref and q == question
+                                       for r, q in threads.pending_questions(c, slot, latest))):
+                        continue
+                    attempt = {'at': now, 'ref': ref, 'question_id': question['message_id'],
+                               'reply_id': reply['id'], 'proof': proof, 'status': 'attempted'}
+                    lane['attempts'][signature] = attempt
+                    lane['last_at'] = now
+                    state.write(c, 'supervisor', ledger)
+                    try:
+                        attempt['receipt'] = orca(
+                            c, 'terminal', 'send', '--terminal', launch['terminal'], '--text',
+                            f'fleet: Main replied to your pending decision {question["message_id"]} '
+                            f'on {ref}; run {check}, then {wait} '
+                            'to read and record the decision before continuing.',
+                            '--enter')
+                        attempt['status'] = 'sent'
+                    except (RuntimeError, ValueError):
+                        attempt['status'] = 'unknown'
+                    state.write(c, 'supervisor', ledger)
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError, OSError):
+            # Busy thread/transport/unknown evidence is not permission for input.
+            continue
     return events
 
 
 def cycle(c, deliver=True):
     s = snapshot.collect(c)
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
+    from .threads import _record_next_report
+    for launch_id, notice in list(ledger.get('pending_receipts', {}).items()):
+        try:
+            _record_next_report(c, launch_id, notice)
+        except ValueError:
+            break
+        del ledger['pending_receipts'][launch_id]
     pending = ledger['pending']
     current_g = s.get('github')
     budget = s.get('github_budget', {})
@@ -903,6 +938,8 @@ def cycle(c, deliver=True):
                 continue
             try:
                 receipt = enqueue(c, event, recipient)
+                if isinstance(receipt, dict) and receipt.get('pending_receipts'):
+                    ledger.setdefault('pending_receipts', {}).update(receipt['pending_receipts'])
                 ledger['sent'][key] = {'at': time.time(), 'receipt': receipt}
                 state.write(c, 'supervisor', ledger)
             except (CommandError, ValueError) as error:

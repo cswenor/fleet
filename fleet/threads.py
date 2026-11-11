@@ -79,7 +79,7 @@ def reopen(c, ref, authorized_by, reason=''):
         raise ValueError('a recorded authorization message ID is required')
     authorized_by = authorized_by.strip()
     caller = identity(c)
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='thread reopen'):
         matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
                    if slot in c['builder']['slots'] and launch.get('terminal') == caller
                    and authorized(c, launch, slot, ref)]
@@ -289,7 +289,7 @@ def wait(c, ref, timeout=900):
 
 
 def pending_questions(c, slot, launch):
-    """Read current primary/carried attempts only; caller holds the launcher lock."""
+    """Read primary/carried candidates; callers must revalidate before acting."""
     refs = [launch.get('ref')]
     refs.extend(state.read(c, 'carries', {}).get(launch.get('id'), {}))
     for ref in dict.fromkeys(refs):
@@ -363,13 +363,21 @@ def _launch_report(task, launch_id, kind):
     return None
 
 
+def _record_next_report(c, launch_id, report):
+    """Merge one receipt without clobbering another launch's concurrent receipt."""
+    with state.lock(c, 'needs-next', wait_seconds=5, operation='next report receipt'):
+        reports = state.read(c, 'needs-next', {})
+        reports[launch_id] = report
+        state.write(c, 'needs-next', reports)
+
+
 def ready(c, next_ref, body=''):
     """Report a settled primary launch's next handoff, never resend an uncertain send."""
     _name(next_ref)
     caller = identity(c)
     # Serialize against launch/restart: readiness must never be attributed to a
     # replacement launch while publication or native delivery is in flight.
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='thread ready'):
         matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
                    if slot in c['builder']['slots'] and launch.get('terminal') == caller]
         if len(matches) != 1:
@@ -402,8 +410,9 @@ def ready(c, next_ref, body=''):
                           'body': f"Pad-Ref: {ref}\nFRESH-READY {next_ref}\n"
                                   f"Handoff: {next_ref} comment {proof['handoff']}\n"
                                   f"Published: {proof['pr']}\n{body}".rstrip()}
-                attempt['ready'] = report
-                state.write(c, name, ledger)
+                with state.lock(c, 'needs-next', wait_seconds=5, operation='ready reserve'):
+                    attempt['ready'] = report
+                    state.write(c, name, ledger)
                 message = request(c, 'send', '--from', caller,
                                   '--to', 'run:' + c['coordinator']['run'],
                                   '--type', 'question', '--thread-id', attempt.get('thread_id', task['id']),
@@ -424,7 +433,7 @@ def needs_next(c, ref):
     """Request assignment once for a completed launch without a next-ref handoff."""
     name = _name(ref)
     caller = identity(c)
-    with state.lock(c, 'launcher'):
+    with state.lock(c, 'launcher', operation='thread needs-next'):
         matches = [(slot, launch) for slot, launch in state.read(c, 'launches', {}).items()
                    if slot in c['builder']['slots'] and launch.get('terminal') == caller
                    and launch.get('ref') == ref]
@@ -442,6 +451,10 @@ def needs_next(c, ref):
             _ownership(c, launch, slot, caller)
             reports = state.read(c, 'needs-next', {})
             report = reports.get(key)
+            known = _launch_report(task, key, 'needs_next')
+            if known and known.get('message_id') and not (report or {}).get('message_id'):
+                _record_next_report(c, key, known)
+                report = known
             if report:
                 if not report.get('message_id'):
                     raise ValueError('ambiguous needs-next send; reconcile native inbox; never resend')
@@ -454,8 +467,7 @@ def needs_next(c, ref):
                           'completion': proof,
                           'body': f'Pad-Ref: {ref}\nNEEDS-NEXT-REF\n'
                                   f'{ref} complete in {slot}; needs next ref'}
-                reports[key] = report
-                state.write(c, 'needs-next', reports)
+                _record_next_report(c, key, report)
                 message = request(c, 'send', '--from', caller,
                                   '--to', 'run:' + c['coordinator']['run'],
                                   '--type', 'question',
@@ -463,7 +475,11 @@ def needs_next(c, ref):
                                   '--subject', f'{ref}: NEEDS-NEXT-REF',
                                   '--body', report['body'])['message']
                 report.update(message_id=message['id'], status='sent', at=time.time())
-                state.write(c, 'needs-next', reports)
+                # Preserve the returned native ID under our task lock before any
+                # contended shared-report write. A retry repairs that shared copy.
+                attempt['needs_next'] = report
+                state.write(c, name, ledger)
+                _record_next_report(c, key, report)
             attempt['needs_next'] = report
             state.write(c, name, ledger)
             if not report.get('recorded'):
@@ -471,6 +487,6 @@ def needs_next(c, ref):
                             f"Attempt: {attempt.get('attempt_id', key)}\n"
                             f"Needs-next report: {report['message_id']}\n{report['body']}")
                 report['recorded'] = True
-                state.write(c, 'needs-next', reports)
+                _record_next_report(c, key, report)
                 state.write(c, name, ledger)
             return {'attempt': key, **report}

@@ -3,7 +3,7 @@ import json
 import sys
 from .config import load
 from .commands import CommandError
-from . import snapshot
+from . import snapshot, state
 
 
 def main():
@@ -250,7 +250,7 @@ def main():
             return 2
         prefix = 'DRILL ' if getattr(args, 'drill_usage_file', None) else ''
         print(f'{prefix}fleet: {e}', file=sys.stderr)
-        return 2
+        return 4 if isinstance(e, state.LauncherBusy) else 2
 
 
 if __name__ == '__main__':

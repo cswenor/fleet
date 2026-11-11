@@ -472,6 +472,24 @@ class ReadyTests(unittest.TestCase):
         self.assertTrue(receipt['recorded'])
         self.assertEqual(len(self.sent), 1)
 
+    def test_needs_next_known_receipt_repairs_shared_copy_without_resending(self):
+        original = threads._record_next_report
+        failed = False
+        def contended(c, key, report):
+            nonlocal failed
+            if report.get('message_id') and not failed:
+                failed = True
+                raise ValueError('needs-next already running')
+            return original(c, key, report)
+        with patch.object(threads, '_record_next_report', side_effect=contended):
+            with self.assertRaisesRegex(ValueError, 'needs-next already running'):
+                threads.needs_next(self.c, 'TASK-1')
+        known = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['one']['needs_next']
+        receipt = threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(receipt['message_id'], known['message_id'])
+        self.assertEqual(state.read(self.c, 'needs-next')['one']['message_id'], known['message_id'])
+        self.assertEqual(len(self.sent), 1)
+
     def test_needs_next_ambiguous_native_send_forbids_duplicate(self):
         original = self.request
         def failing(c, verb, *args):

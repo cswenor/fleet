@@ -1,5 +1,4 @@
 """Attempt-scoped Main steering, surfaced explicitly without terminal input."""
-from contextlib import contextmanager, ExitStack
 import os
 import time
 import uuid
@@ -46,7 +45,7 @@ def send(c, ref, body, priority=False):
     if not isinstance(body, str) or not body.strip():
         raise ValueError('steering body must be non-empty')
     caller = _main(c)
-    with state.lock(c, 'launcher'), state.lock(c, threads._name(ref)):
+    with state.lock(c, 'launcher', operation='thread send'), state.lock(c, threads._name(ref)):
         ledger, task, launch, attempt = _target(c, ref)
         if any(row.get('status') == 'sending' for row in attempt.get('steering', {}).values()):
             raise ValueError('ambiguous steering send; reconcile native inbox before sending again')
@@ -66,41 +65,41 @@ def send(c, ref, body, priority=False):
         return dict(receipt)
 
 
-@contextmanager
-def _checkpoint_lock(c):
-    with ExitStack() as stack:
-        try:
-            stack.enter_context(state.lock(c, 'launcher', wait_seconds=180))
-        except ValueError as e:
-            if not isinstance(e.__cause__, BlockingIOError):
-                raise
-            raise ValueError('fleet launcher busy for >180s; retry thread check') from e
-        yield
-
-
 def check(c, ref, acknowledge=None):
     caller = threads.identity(c)
     name = threads._name(ref)
-    with _checkpoint_lock(c), state.lock(c, name):
+    with state.lock(c, name):
         ledger, task, key, attempt = threads.current(c, ref, caller)
-        launch = state.read(c, 'launches', {})[attempt['slot']]
+        launch = state.read(c, 'launches', {}).get(attempt['slot'], {})
+        if (launch.get('terminal') != caller or launch.get('id') not in task['attempts']
+                or task['attempts'][launch['id']] is not attempt):
+            raise ValueError('launch changed; re-run check')
         threads._ownership(c, launch, attempt['slot'], caller)
         receipts = attempt.get('steering', {})
-        if acknowledge is not None:
+    if acknowledge is not None:
+        # Ownership proof stays outside the short publication commit section.
+        with state.lock(c, 'launch-publication', wait_seconds=5,
+                        operation='thread check --ack'), state.lock(c, name):
+            latest = state.read(c, 'launches', {}).get(attempt['slot'], {})
+            if any(latest.get(field) != launch.get(field)
+                   for field in ('id', 'terminal', 'terminal_incarnation_id')):
+                raise ValueError('launch changed; re-run check')
+            ledger, task, key, attempt = threads.current(c, ref, caller)
+            receipts = attempt.get('steering', {})
             receipt = receipts.get(acknowledge)
             if not receipt or receipt.get('status') != 'sent':
                 raise ValueError('unknown or unsent steering acknowledgement token')
             receipt.setdefault('acknowledged_at', time.time())
             state.write(c, name, ledger)
-        return {'ref': ref, 'attempt': key, 'messages': [dict(row)
-                for row in sorted(receipts.values(), key=lambda row: row['at'])
-                if row.get('status') == 'sent' and not row.get('acknowledged_at')]}
+    return {'ref': ref, 'attempt': key, 'messages': [dict(row)
+            for row in sorted(receipts.values(), key=lambda row: row['at'])
+            if row.get('status') == 'sent' and not row.get('acknowledged_at')]}
 
 
 def pending(c):
     _main(c)
     lanes = []
-    with _checkpoint_lock(c):
+    with state.lock(c, 'launcher', wait_seconds=15, operation='thread pending'):
         for slot, launch in state.read(c, 'launches', {}).items():
             if slot not in c['builder']['slots']:
                 continue

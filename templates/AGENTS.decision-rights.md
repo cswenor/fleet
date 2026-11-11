@@ -47,6 +47,12 @@ is acceptable. With delivery and `coordinator.builder_wake` enabled, Fleet wakes
 the proven-idle builder when Main replies. On wake run `thread check REF`, then
 `thread wait REF --timeout 600` using the original `--config` to record the reply
 on Pad before continuing. No settlement, restart or interrupt is authorized.
+Read-only `thread check` uses only the per-task lock. `--ack` additionally uses a
+tiny publication lock, never the global launcher lock; contention waits at most
+5s then exits 4 with `launch publishing; retry`. Retry later, never loop tightly.
+On `launch changed; re-run check`, inspect a fresh check before acknowledging.
+Launcher-required paths wait at most 15s; exit 4 / `launcher busy` means retry
+later (about 60s), never loop tightly. Immediate-refusal paths remain immediate.
 
 Unknown is not permission: unknown quota blocks starts; unknown liveness does not
 authorize stop/retry; ambiguous launch receipts do not authorize duplicate launches.

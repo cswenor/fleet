@@ -253,6 +253,20 @@ inputs. Main wake, restart and settlement rules are unchanged.
 The fixed reminder requires `thread check` followed by `thread wait --timeout
 600`, both with the supervisor's shell-quoted loaded config path; a missing,
 relative or nonprintable config path refuses input rather than guessing.
+Builder-wake cycles snapshot launches under the launcher lock using only file
+reads, then release it before all native inbox/terminal proof and wake input.
+Wake takes a nonblocking per-slot lease before its task lock; a busy lease skips
+the slot until the next cycle. It holds that lease across native proof, final
+launch/question revalidation, journaling and send. Launch/restart hold the same
+lease across terminal mutation, so retirement/reuse cannot race wake input.
+Supervisor PARK holds its slot lease across native proof, file revalidation and
+delivery, without the launcher lock. Lane-free proof/transport also stays outside
+launcher.
+Lane-free reservations precede transport; known native IDs are merged under the
+short `needs-next` lock, never by reacquiring the launcher lock. After at most 5s
+of receipt-lock contention, the supervisor journals the known ID as a
+`pending_receipts` entry in its own ledger and reconciles next cycle, never
+resending. Unknown/ambiguous native sends still forbid duplicates.
 
 Builders may end their turn after recording a pending decision and finishing
 unaffected work. On the wake reminder, use the original config for `thread check
@@ -467,9 +481,44 @@ fleet --config CONFIG thread check REF --ack TOKEN
 It exposes only sent, unacknowledged Fleet-managed steering for the current
 launch/attempt. Reading leaves messages pending; acknowledgment records processing,
 not receipt. Unknown tokens refuse. Main's `pending` reflects outstanding records.
+Read-only `check` uses only the per-task lock, so launch/restart cannot stall it.
+Acknowledgment proves ownership under the task lock, releases it, then acquires
+the tiny `launch-publication` lock before reacquiring the task lock and re-reading
+launch/task files. Launch shares it only for its final record write.
+No native/Pad/Git I/O runs in that section. Contention waits at most 5s, then exits
+4 with `launch publishing; retry` and holder metadata. Retry later, never tightly.
+`launch changed; re-run check` refuses a stale acknowledgment; inspect a fresh
+check rather than reusing an old token.
+Launcher-required commands retain their lock: `thread pending` waits at most 15s,
+other immediate-refusal paths stay immediate. Contention exits **4** with
+`launcher busy: held by pid N (<op>) since <UTC>; retry in ~60s`.
+Retry later, never loop tightly. The private `launcher-holder.json` sidecar holds
+only PID, operation and UTC start; older/external holders report `unknown`.
 Neither command consumes native inbox mail. Inspect **all** other native inbox
 types at natural checkpoints; keep `thread wait` for decisions and native inbox
 handling for other mail. Act on every instruction/event before re-waiting.
+
+### Launch-domain lock order
+
+When combined, acquire **launcher → slot → publication → task → needs-next**.
+Separate snapshot/proof phases release their locks before changing order.
+Every `state.lock` acquisition writes a private holder sidecar containing only
+PID, operation and UTC start, removed on release.
+
+| Path | Locks / held work |
+|---|---|
+| Launch | Launcher → `slot-<sha256(path)>`; terminal create/reuse/send under slot; publication only for final launch files |
+| Restart | Launcher → slot across retirement and nested launch; nested launch reuses both leases |
+| Builder wake | Launcher for file snapshot only, released; then nonblocking slot → task across native proof/send; busy slot skips |
+| Read-only check | Task for file snapshots and native ownership proof; never launcher/slot/publication |
+| Ack commit | Ownership proof under task, released; publication → task for final file revalidation/write only |
+| Supervisor PARK | Slot across native proof, file revalidation and send; never launcher |
+| Supervisor lane-free | Launcher → needs-next for file-only reservation; released before native send; receipt takes only needs-next, max5s, then own-ledger fallback |
+| Thread ready/needs-next | Launcher → task; short needs-next sections reserve/merge report files, never native I/O; known native IDs first persist under task |
+
+Other manual launcher holders keep their existing serialization; the complete
+I/O/expected-hold-time audit is attached to TASK-113/PR105. Short acquisition
+bounds do not shorten launch/restart's intentionally retained long hold times.
 
 `thread send REF --body TEXT --priority` is refused **before side effects**.
 The scratch omp 18.18.1 probe accepted native `terminal send --interrupt` input
