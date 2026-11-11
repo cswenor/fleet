@@ -325,7 +325,7 @@ own Run cannot ensure anyone notices. Delivery means durable enqueue, not wake/r
 `coordinator.wake` (boolean, default true) is a narrow Main-only input exception:
 read-only peek of its own Run, actionable unread age ≥ `wake_after_seconds` (default 120)
 and positive bound-Run/exact-pane idle OMP + empty composer proof permit a fixed
-inbox reminder. No builder input, working/background UI, draft, dialog, unknown
+inbox reminder. No working/background UI, draft, dialog, unknown
 identity or unavailable screen is permitted. Null restored `programStatus` needs
 idle/done agent state, no interrupt and every remaining proof. Actionable means
 native question/escalation: the decision/urgent classes in `fleet wait`. Status-only
@@ -339,6 +339,29 @@ Main for observed actionable mail; restart capture remains incomplete at that ca
 journaled before input in `supervisor.json` → `main_wakes`, with metadata and
 screen hash, not raw screen contents. Attempt/signature lists retain 200 entries.
 `--no-deliver` never inputs; peeks never consume or acknowledge Main mail.
+
+`coordinator.builder_wake` (boolean, default true) separately permits a fixed
+decision reminder for a current, open builder attempt. Native status mail must
+match its unique pending-question subthread, configured Main sender/Run,
+builder recipient and `Re: <question subject>`; unread/read state alone is not
+reply evidence. The lane must match the authoritative launch's worktree and
+terminal incarnation, remain unbound to any Run, and pass the same exact-pane
+idle/empty-composer proof. `--no-deliver` never inputs.
+The reminder requires `thread check`, then `thread wait --timeout 600` with the
+supervisor's absolute, printable loaded config path (shell-quoted); an unproven
+path refuses input rather than using a default project.
+`supervisor.json` → `builder_wakes` journals before input and retains one attempt
+per (question ID, reply ID) for the current launch, including unknown sends;
+there is no automatic retry. `wake_cooldown_seconds` also limits different
+decisions in the same lane. Unsafe proof older than `unwakeable_after_seconds`
+from the reply emits one ordinary `builder_reply_unwakeable` status to Main.
+No interrupt, restart, settlement or deployment permission is added.
+
+After recording a pending decision and completing unaffected work, a builder
+may end its turn. With delivery and builder wake enabled, Fleet wakes its
+positively idle pane when Main replies. On wake, run `thread check REF`, then
+`thread wait REF --timeout 600` with the original `--config` to record the
+decision on Pad before continuing; `thread check` alone does not read replies.
 
 Health alert identities include worktree, terminal handle, terminal incarnation
 and flag. Recovery requires `builder.alert_recovery_cycles` consecutive absent

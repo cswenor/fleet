@@ -220,6 +220,28 @@ any input. Peeking never delivers or acknowledges mail. No builder input,
 screenless idle inference, automatic restart or deployment permission is added.
 Both attempt history and unwakeable-set signatures retain their latest 200 entries.
 
+TASK-101 adds `coordinator.builder_wake` (boolean, default true), independent of
+Main wake. Each cycle reads only current open primary/carried attempts and
+matches native status mail to the pending question's unique subthread,
+configured Main terminal/Run, builder recipient and exact `Re:` subject.
+Before one fixed reminder + Enter, prove the launch worktree/incarnation,
+unbound builder identity and the same exact-pane idle/empty composer as Main.
+No draft, working/background, dialog, unavailable screen or unknown proof inputs.
+The private `supervisor.json` → `builder_wakes` journal precedes input; one
+attempt per question/reply pair survives ambiguous sends without retry for that
+launch. Different decisions also honor `wake_cooldown_seconds`. After
+`unwakeable_after_seconds` from the reply, unsafe proof emits one ordinary
+`builder_reply_unwakeable` status to the coordinator Run. Delivery off never
+inputs. Main wake, restart and settlement rules are unchanged.
+The fixed reminder requires `thread check` followed by `thread wait --timeout
+600`, both with the supervisor's shell-quoted loaded config path; a missing,
+relative or nonprintable config path refuses input rather than guessing.
+
+Builders may end their turn after recording a pending decision and finishing
+unaffected work. On the wake reminder, use the original config for `thread check
+REF`, then `thread wait REF --timeout 600` to read and durably record Main's
+reply before continuing. `thread check` only covers steering, not decisions.
+
 
 ### Carry a prerequisite
 

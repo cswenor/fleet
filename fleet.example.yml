@@ -62,6 +62,10 @@ builder:
     the native type question to run:<coordinator.run> itself; never also send a
     direct orca send/ask/question for the same decision. Follow-ups use reply/status
     in the same pending native subthread, not a new direct question.
+    After recording a pending decision and finishing unaffected work, you may end
+    your turn. With delivery and builder_wake enabled, Fleet wakes your proven-idle
+    pane when Main replies. On wake run thread check, then thread wait with the
+    original --config to read/record the decision before continuing.
     Ordinary progress/PARK reports may still raw-send with --type status.
     If Main authorizes continuing after thread result, run fleet --config CONFIG
     thread reopen REF --authorized-by MSG_ID before any new question; never fall
@@ -85,6 +89,8 @@ coordinator:
   unknown_alert_cycles: 3
   # Only own-Run actionable unread mail + idle OMP + empty composer permits input.
   wake: true
+  # Native reply to a pending builder question + exact idle launch proof only.
+  builder_wake: true
   wake_after_seconds: 120
   wake_cooldown_seconds: 600
   # Relay unsafe/unknown Main proof only after this actionable unread age.

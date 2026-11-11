@@ -288,6 +288,53 @@ def wait(c, ref, timeout=900):
             time.sleep(min(2, remaining))
 
 
+def pending_questions(c, slot, launch):
+    """Read current primary/carried attempts only; caller holds the launcher lock."""
+    refs = [launch.get('ref')]
+    refs.extend(state.read(c, 'carries', {}).get(launch.get('id'), {}))
+    for ref in dict.fromkeys(refs):
+        if not isinstance(ref, str) or not re.fullmatch(r'[A-Z]+-\d+', ref):
+            continue
+        if not authorized(c, launch, slot, ref):
+            continue
+        if (state.read(c, 'reconciliations', {}).get(launch['id'], {}).get('launch_id') == launch['id']
+                or state.read(c, 'retirements', {}).get(slot, {}).get('launch_id') == launch['id']):
+            continue
+        task = state.read(c, _name(ref), {}).get(ref, {})
+        attempt = task.get('attempts', {}).get(launch['id'], {})
+        if (attempt.get('settled') is not False or attempt.get('slot') != slot
+                or attempt.get('terminal') != launch.get('terminal')
+                or not attempt.get('recorded')):
+            continue
+        token = attempt.get('latest_question')
+        q = attempt.get('questions', {}).get(token, {})
+        expected = task.get('id', '') + '/' + attempt.get('attempt_id', launch['id']) + '/'
+        if (q.get('status') == 'pending' and not q.get('reply_recorded')
+                and isinstance(q.get('message_id'), str)
+                and re.fullmatch(r'msg_[A-Za-z0-9_-]+', q['message_id'])
+                and isinstance(token, str) and token.startswith(expected)
+                and q.get('thread_id') == token):
+            yield ref, q
+
+
+def decision_reply(c, launch, question):
+    """Native unique-question subthread evidence; never consume or acknowledge mail."""
+    history = request(c, 'inbox', '--terminal', launch['terminal'], '--limit', '1000')
+    messages = history.get('messages')
+    if not isinstance(messages, list) or history.get('count') != len(messages):
+        raise ValueError('invalid terminal inbox')
+    replies = [m for m in messages if
+               m.get('thread_id') == question['thread_id']
+               and m.get('from_handle') == c['coordinator']['terminal']
+               and m.get('to_handle') == launch['terminal']
+               and m.get('run_id') == c['coordinator']['run']
+               and m.get('type') == 'status'
+               and m.get('subject') == 'Re: ' + question['subject']
+               and isinstance(m.get('id'), str)
+               and re.fullmatch(r'msg_[A-Za-z0-9_-]+', m['id'])]
+    return min(replies, key=lambda m: (m['created_at'], m['id'])) if replies else None
+
+
 def result(c, ref, body):
     name = _name(ref)
     caller = identity(c)

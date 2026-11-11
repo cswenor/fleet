@@ -131,11 +131,14 @@ def load(path):
     coordinator.setdefault('liveness_minutes', 5)
     coordinator.setdefault('unknown_alert_cycles', 3)
     coordinator.setdefault('wake', True)
+    coordinator.setdefault('builder_wake', True)
     coordinator.setdefault('wake_after_seconds', 120)
     coordinator.setdefault('wake_cooldown_seconds', 600)
     coordinator.setdefault('unwakeable_after_seconds', 900)
     if type(coordinator['wake']) is not bool:
         raise ValueError('coordinator.wake must be a boolean')
+    if type(coordinator['builder_wake']) is not bool:
+        raise ValueError('coordinator.builder_wake must be a boolean')
     for key in ('wake_after_seconds', 'wake_cooldown_seconds', 'unwakeable_after_seconds'):
         value = coordinator[key]
         if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:

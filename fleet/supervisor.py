@@ -1,4 +1,4 @@
-"""Per-project supervision; only positively idle Main may receive a fixed inbox wake."""
+"""Per-project supervision with journaled, positively idle inbox/decision wakes."""
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import shlex
 import signal
 import time
 import urllib.request
@@ -626,6 +627,93 @@ def wake_main(c, ledger, now, deliver):
              'body': f'Run {coordinator["run"]}; oldest unread {oldest["id"]}; {reason}'}]
 
 
+def wake_builders(c, ledger, now, deliver):
+    """Wake only current pending decisions with native reply and exact idle proof."""
+    if not c['coordinator'].get('builder_wake', True):
+        return []
+    from . import threads
+    events = []
+    try:
+        with state.lock(c, 'launcher'):
+            launches = state.read(c, 'launches', {})
+            for slot in c.get('builder', {}).get('slots', []):
+                launch = launches.get(slot, {})
+                if not launch.get('id') or not launch.get('terminal'):
+                    continue
+                try:
+                    candidates = list(threads.pending_questions(c, slot, launch))
+                    for ref, question in candidates:
+                        with state.lock(c, 'threads-' + ref):
+                            # Settlement/reply recording may have raced the first read.
+                            if not any(r == ref and q == question
+                                       for r, q in threads.pending_questions(c, slot, launch)):
+                                continue
+                            reply = threads.decision_reply(c, launch, question)
+                            if reply is None:
+                                continue
+                            replied = datetime.fromisoformat(reply['created_at'].replace('Z', '+00:00'))
+                            if replied.tzinfo is None or not math.isfinite(replied.timestamp()):
+                                continue
+                            journal = ledger.setdefault('builder_wakes', {})
+                            lane = journal.get(slot)
+                            if lane is None or lane['launch_id'] != launch['id']:
+                                lane = {'launch_id': launch['id'], 'attempts': {},
+                                        'unwakeable': [], 'last_at': None}
+                                journal[slot] = lane
+                            signature = digest([question['message_id'], reply['id']])
+                            if signature in lane['attempts']:
+                                continue
+                            try:
+                                config_path = c.get('_path')
+                                if (not isinstance(config_path, str) or not os.path.isabs(config_path)
+                                        or not all(char.isprintable() for char in config_path)):
+                                    raise ValueError('Builder config path unproven')
+                                check = shlex.join(['fleet', '--config', config_path,
+                                                    'thread', 'check', ref])
+                                wait = shlex.join(['fleet', '--config', config_path,
+                                                   'thread', 'wait', ref, '--timeout', '600'])
+                                proof = health.builder_wake_proof(c, launch, slot)
+                            except (RuntimeError, ValueError, KeyError, TypeError, AttributeError):
+                                if (now - replied.timestamp() >= c['coordinator'].get(
+                                        'unwakeable_after_seconds', 900)
+                                        and signature not in lane['unwakeable']):
+                                    lane['unwakeable'].append(signature)
+                                    events.append({
+                                        'key': 'builder_reply_unwakeable:' + signature,
+                                        'subject': ref + ' builder_reply_unwakeable',
+                                        'type': 'status', 'branch': None,
+                                        'recipients': ['run:' + c['coordinator']['run']],
+                                        'body': f'{ref}; question {question["message_id"]}; '
+                                                'builder idle launch/composer or config-path proof unavailable'})
+                                continue
+                            if (not deliver or (lane['last_at'] is not None
+                                    and now - lane['last_at'] < c['coordinator'].get(
+                                        'wake_cooldown_seconds', 600))):
+                                continue
+                            attempt = {'at': now, 'ref': ref, 'question_id': question['message_id'],
+                                       'reply_id': reply['id'], 'proof': proof, 'status': 'attempted'}
+                            lane['attempts'][signature] = attempt
+                            lane['last_at'] = now
+                            state.write(c, 'supervisor', ledger)
+                            try:
+                                attempt['receipt'] = orca(
+                                    c, 'terminal', 'send', '--terminal', launch['terminal'], '--text',
+                                    f'fleet: Main replied to your pending decision {question["message_id"]} '
+                                    f'on {ref}; run {check}, then {wait} '
+                                    'to read and record the decision before continuing.',
+                                    '--enter')
+                                attempt['status'] = 'sent'
+                            except (RuntimeError, ValueError):
+                                attempt['status'] = 'unknown'
+                            state.write(c, 'supervisor', ledger)
+                except (RuntimeError, ValueError, KeyError, TypeError, AttributeError, OSError):
+                    # Busy thread/transport/unknown evidence is not permission for input.
+                    continue
+    except (RuntimeError, ValueError, KeyError, TypeError, OSError):
+        pass
+    return events
+
+
 def cycle(c, deliver=True):
     s = snapshot.collect(c)
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
@@ -715,6 +803,7 @@ def cycle(c, deliver=True):
     pending.extend(lane_free_reports(c, lane_free, ledger))
     pending.extend(missing_ready_reports(c, s, ledger, time.time(), lane_free))
     pending.extend(wake_main(c, ledger, time.time(), deliver))
+    pending.extend(wake_builders(c, ledger, time.time(), deliver))
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')

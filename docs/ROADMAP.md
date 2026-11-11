@@ -113,6 +113,51 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-101 — Wake idle builders for Main's recorded native reply
+
+`coordinator.builder_wake` (boolean, default true) enables a narrow fixed-line
+reminder for a current open primary/carried attempt's pending question. Reply
+evidence is native status mail matching its unique question subthread, configured
+Main terminal/Run, builder recipient and exact `Re:` subject (stock Orca exposes
+no reply-to ID). Main approved that evidence contract in `msg_357fa1ccc6b6`.
+The authoritative launch worktree/incarnation, unbound builder terminal and
+shared exact-pane idle/empty-composer recognizer must all agree before input.
+No draft, working/background, dialog, screenless or unknown pane can be woken.
+
+The supervisor journals before input in `builder_wakes`, preserving one attempt
+per question/reply pair for the current launch, including ambiguous sends without
+retry. Per-lane cooldown uses `wake_cooldown_seconds`; unsafe proof relays one
+ordinary `builder_reply_unwakeable` status to Main after
+`unwakeable_after_seconds` from the reply. Delivery off never inputs.
+Builders may end a turn with a recorded pending decision; on wake they run
+`thread check`, then `thread wait` with the original config to record Main's
+decision before continuing. Main wake, restart and settlement are unchanged.
+
+All 44 focused wake and 34 thread regressions pass, plus 17 supervisor and 31
+launcher regressions. Coverage includes ambiguous-send dedupe, cooldown, unsafe
+panes, replacement races, carried refs, continuations, retired launches and
+lock contention. Main's scratch TASK-102 question `msg_c939d70c430b` matched
+native reply `msg_67660a2f860d`; the candidate correctly refused its stale screen
+(`composer state: unknown`) with zero input attempts. On a fresh terminal,
+scratch launch `1794359057405840344` question `msg_8fe9c1dfaf3b` matched Main
+reply `msg_dbf10cdd3ff9`; the candidate journaled and sent one fixed wake at
+01:07:27Z. The real builder resumed at 01:07:34Z, ran `thread check` and
+`thread wait`, recorded the reply on Pad and ended idle. A repeated candidate
+cycle retained exactly one attempt. Private before/after/pickup screens and
+journals are retained under the task's acceptance receipt; no Main delivery,
+shared supervisor restart or deployment occurred. Publication requires independent
+final-head Sol-medium review, green CI and Main exact-head GO; durable receipts
+belong on TASK-101. Shared deployment remains Main-owned.
+
+Independent review identified a P2 in the initially briefed fixed reminder:
+`thread check` alone does not retrieve decisions. Main approved requiring
+`thread check`, then `thread wait --timeout 600` before continuing, both with
+the shell-quoted loaded supervisor config path (`msg_75aabf976109`,
+`msg_9ccb8e6c14ae`). Missing, relative or nonprintable paths refuse input.
+Exact-line and quoting regressions cover the corrected template. Main explicitly
+accepted the existing runtime proof without another lane wake: that builder
+already ran `thread wait` and durably recorded its decision.
+
 ### TASK-100 — Superseded cancelled merge groups are status
 
 Supervisor merge-group relays downgrade a cancelled run only when the current

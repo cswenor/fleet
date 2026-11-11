@@ -42,6 +42,11 @@ owner-only decisions to the owner and records approval before action.
 Enqueue is not approval or proof of wake. Proceed only with unaffected in-scope
 work while a decision is pending. Never bind a builder terminal to any Run;
 scratch Runs belong only to separate owned scratch terminals, closed after use.
+After recording a pending decision and finishing unaffected work, ending the turn
+is acceptable. With delivery and `coordinator.builder_wake` enabled, Fleet wakes
+the proven-idle builder when Main replies. On wake run `thread check REF`, then
+`thread wait REF --timeout 600` using the original `--config` to record the reply
+on Pad before continuing. No settlement, restart or interrupt is authorized.
 
 Unknown is not permission: unknown quota blocks starts; unknown liveness does not
 authorize stop/retry; ambiguous launch receipts do not authorize duplicate launches.

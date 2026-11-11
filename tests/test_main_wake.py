@@ -241,7 +241,7 @@ class MainWakeTests(unittest.TestCase):
 class WakeConfigTests(unittest.TestCase):
     def test_wake_controls_validate(self):
         raw = yaml.safe_load(Path('fleet.example.yml').read_text())
-        for key, bad in [('wake', 'yes'), ('wake_after_seconds', 0),
+        for key, bad in [('wake', 'yes'), ('builder_wake', 'yes'), ('wake_after_seconds', 0),
                          ('wake_after_seconds', True), ('wake_cooldown_seconds', float('inf')),
                          ('wake_cooldown_seconds', -1), ('unwakeable_after_seconds', 0),
                          ('unwakeable_after_seconds', True),

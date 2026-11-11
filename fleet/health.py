@@ -127,15 +127,33 @@ def omp_ui(text):
 
 def main_wake_proof(c):
     """Positive own-Run, exact-pane OMP idle proof; never infer idle screenlessly."""
-    handle, run_id = c['coordinator']['terminal'], c['coordinator']['run']
+    return _wake_proof(c, c['coordinator']['terminal'], c['coordinator']['run'])
+
+
+def builder_wake_proof(c, launch, slot):
+    """Require the authoritative lane incarnation and an unbound, idle OMP pane."""
+    return _wake_proof(c, launch['terminal'], launch=launch, slot=slot)
+
+
+def _wake_proof(c, handle, run_id=None, *, launch=None, slot=None):
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     keys = ('handle', 'incarnationId', 'worktreeId', 'tabId', 'leafId')
     if (terminal.get('handle') != handle or not all(terminal.get(k) for k in keys)
             or terminal.get('connected') is not True or terminal.get('writable') is not True
             or terminal.get('orphaned') or terminal.get('agentIdentity') != 'omp'):
         raise ValueError('Main terminal identity unproven')
+    if launch is not None:
+        worktree = launch.get('worktree', {})
+        if (not launch.get('terminal_incarnation_id')
+                or terminal['incarnationId'] != launch['terminal_incarnation_id']
+                or not worktree.get('id') or worktree.get('path') != slot
+                or terminal['worktreeId'] != worktree['id']):
+            raise ValueError('Builder launch identity unproven')
     binding = orca(c, 'orchestration', 'run-current', '--from', handle)
-    if (binding.get('run') or {}).get('id') != run_id:
+    if launch is not None:
+        if 'run' not in binding or binding['run'] is not None:
+            raise ValueError('Builder terminal is Run-bound')
+    elif (binding.get('run') or {}).get('id') != run_id:
         raise ValueError('Main Run binding unproven')
     processes = orca(c, 'worktree', 'ps')
     if processes.get('truncated') or processes.get('hostScope', {}).get('omittedHostIds'):

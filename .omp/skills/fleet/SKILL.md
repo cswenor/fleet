@@ -328,6 +328,15 @@ or cooperative PARK, and does not authorize restart/retirement.
 
 
 Run thread waits asynchronously. Do not bind a builder terminal to **any** Run.
+After recording a pending decision and finishing unaffected work, you may end
+your turn. With supervisor delivery and `coordinator.builder_wake` enabled
+(default true), Fleet wakes a positively idle, empty-composer builder only for
+native reply evidence on its exact pending-question subthread. It journals once
+per question/reply pair, including ambiguous input; unsafe panes never receive
+input and later relay `builder_reply_unwakeable` to Main. On wake, use the same
+`--config` for `thread check REF`, then `thread wait REF --timeout 600` to read
+and record the decision on Pad before continuing. `thread check` alone does not
+retrieve decision replies. No restart, interrupt or settlement rule changes.
 Decision requests use **exactly one channel**: `fleet thread question`, which
 sends native type `question` to `run:<coordinator.run>` itself. Never also send a
 direct orca send/ask/question for the same decision. Success output confirms the
