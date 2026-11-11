@@ -54,11 +54,14 @@ class BudgetFlowTests(unittest.TestCase):
         session = context.__enter__.return_value
         session.stats = {'requests': 0, 'not_modified': 0}
         session.blocked_until = 1000
-        with patch.object(github_api, 'Session', return_value=context), patch.object(
+        clock = [0]
+        def advance(seconds):
+            clock[0] += seconds
+        with tempfile.TemporaryDirectory() as directory, patch.object(github_api, 'Session', return_value=context), patch.object(
                 watcher.github, 'collect', side_effect=github_api.BudgetLow(1000)) as collect, patch.object(
-                watcher.time, 'monotonic', side_effect=[0, 0, 20]), patch.object(
-                watcher.time, 'time', return_value=100), patch.object(watcher.time, 'sleep') as sleep:
-            result = watcher.watch({'repo': 'o/r'}, 1, timeout=20, interval=1)
+                watcher.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(
+                watcher.time, 'time', return_value=100), patch.object(watcher.time, 'sleep', side_effect=advance) as sleep:
+            result = watcher.watch({'repo': 'o/r', '_state': directory}, 1, timeout=20, interval=1)
         self.assertEqual(result['event'], 'timeout')
         collect.assert_called_once()
         sleep.assert_called_once_with(20)
@@ -85,4 +88,4 @@ class BudgetFlowTests(unittest.TestCase):
                         supervisor.cycle(c)
                     self.assertEqual(state.read(c, 'supervisor')['github']['merge_group_runs'], [run])
             group_reports = [e for e in delivered if e['key'].startswith('group:')]
-            self.assertEqual(len(group_reports), 2)  # coordinator and owning builder, once each
+            self.assertEqual(len(group_reports), 1)

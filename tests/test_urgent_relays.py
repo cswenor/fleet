@@ -254,7 +254,7 @@ class UrgentRelayTests(unittest.TestCase):
         for conclusion in ['failure', 'failure', 'success', 'failure', 'failure']:
             self.s['github']['merge_group_runs'] = [{**group, 'conclusion': conclusion}]
             self.cycle(0)
-        self.assertEqual([r for _, r in self.urgent_calls()], ['run:r', 'builder'] * 2)
+        self.assertEqual([r for _, r in self.urgent_calls()], ['run:r'] * 2)
         self.assertTrue(all(e['key'].startswith('group:') for e, _ in self.urgent_calls()))
 
     def test_superseded_cancelled_group_is_one_status_per_run(self):
@@ -298,7 +298,7 @@ class UrgentRelayTests(unittest.TestCase):
                     'id': index, 'head_sha': head, 'conclusion': conclusion, 'prs': [1],
                     'url': 'https://example/group', 'membership_complete': True}]
                 self.cycle(index)
-                self.assertEqual([r for _, r in self.urgent_calls()], ['run:r', 'builder'])
+                self.assertEqual([r for _, r in self.urgent_calls()], ['run:r'])
                 self.assertTrue(all(e['subject'].startswith('[urgent] Merge group')
                                     for e, _ in self.calls))
 
@@ -345,7 +345,7 @@ class UrgentRelayTests(unittest.TestCase):
         self.cycle(1)
         failures = [(e, r) for e, r in self.calls if ':failure:' in e['key']]
         self.assertEqual([(e['type'], r) for e, r in failures],
-                         [('question', 'run:r'), ('question', 'builder')])
+                         [('question', 'run:r')])
         self.assertEqual([(e['type'], r) for e, r in self.calls if ':cancelled:' in e['key']],
                          [('status', 'run:r')])
 

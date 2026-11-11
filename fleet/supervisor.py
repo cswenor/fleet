@@ -769,7 +769,7 @@ def cycle(c, deliver=True):
         if current_g.get('merge_group_unknown'):
             # Missing permission is not supersession or recovery evidence.
             current_g['merge_group_runs'] = ledger['github'].get('merge_group_runs', [])
-        changes = github.events(ledger['github'], current_g)
+        changes = github.events(ledger['github'], current_g, aggregate_checks=True)
         seen = set(ledger.get('seen_prs', []))
         initial = [github.initial_event(p) for p in current_g['prs'] if p['number'] not in seen]
         initial = [e for e in initial if e is not None]
@@ -914,9 +914,12 @@ def cycle(c, deliver=True):
                                  event.get('recipients', ['run:' + c['coordinator']['run']]))
                 continue
         recipients = list(event.get('recipients', ['run:' + c['coordinator']['run']]))
-        owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
-        if owning_terminal:
-            recipients.append(owning_terminal)
+        # watch-pr already exposes PR/group transitions to builders. Only the
+        # supervisor's inactivity timer has no watch-pr equivalent.
+        if event['key'].startswith('pr_stuck:'):
+            owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
+            if owning_terminal:
+                recipients.append(owning_terminal)
         if (event['key'].startswith('pr_stuck:') and current_g is not None
                 and _stuck_progress_unknown(current_g, event.get('pr'))):
             remaining.append(event)
@@ -945,8 +948,8 @@ def cycle(c, deliver=True):
             except (CommandError, ValueError) as error:
                 failures.append({'recipient': recipient,
                                  'code': error.code if isinstance(error, CommandError) else 'delivery_failed'})
-        # Unknown inventory is a transient lookup failure, not proof there is no owner.
-        resolved = inventory is not None or not event.get('branch')
+        # Only supervisor-only inactivity alerts need branch ownership discovery.
+        resolved = not event['key'].startswith('pr_stuck:') or inventory is not None
         done = resolved and all(digest([event['key'], r]) in ledger['sent'] for r in recipients)
         if not done:
             remaining.append(event)

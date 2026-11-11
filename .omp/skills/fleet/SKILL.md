@@ -418,7 +418,10 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
 2. Green GitHub CI on that **same final head**. While owning an open PR, builders
    **MUST** keep `fleet --config CONFIG watch-pr NUMBER` armed as an async
    background command. Process each event and re-arm after every completion
-   (including timeout/error) until merged or closed. Never rely on retired
+   (including timeout/error) until merged or closed. Exception: `superseded`
+   means a newer watch owns the same repo/PR/terminal; do not re-arm the old job.
+   PR/check/comment/review/merge-group supervisor relays go only to Main;
+   `watch-pr` retains builder visibility. Never rely on retired
    `pr-wait.sh` scripts or a single-workflow `gh run watch` alone. A watcher
    reports initial failing/DIRTY/merged/closed state too; initial failures can
    return immediately again. Fix the named failing checks rather than ignoring

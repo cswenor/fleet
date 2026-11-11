@@ -158,6 +158,37 @@ head GitHub CI is gate two. Builder fixes task-caused failures and self-merges
 only green+reviewed small PRs. Keep reusable lanes after merge; retire session,
 not slot. Update Pad result and roadmap evidence when acceptance is actually met.
 
+TASK-118 routes PR/head/check/comment/review/merge-group relays only to the
+coordinator Run; builders receive those transitions through `watch-pr`, not
+duplicate terminal mail. The supervisor-only `pr_stuck` inactivity timer retains
+a builder copy because `watch-pr` has no equivalent timer. PARK and other
+explicitly addressed task messages keep their existing destinations.
+Supervisor check relays compare only `(head SHA, overall conclusion)`; pending,
+success and failure changes relay, individual job transitions do not. Same-name/
+head attempts supersede old check runs only with matching App/check-suite proof;
+workflow-history supersession retains its existing same-workflow/head proof.
+Independent or unknown producers keep their failures, including legacy snapshots.
+
+`watch-pr` is newest-wins per repository, PR and resolved terminal identity
+(`ORCA_TERMINAL_HANDLE`, otherwise `--terminal`, otherwise anonymous). Starting a
+replacement changes a private generation receipt; older watches return
+`{"pr": N, "event": "superseded"}` at their next interval or after an in-flight
+collection. No process is signalled or killed. Do not re-arm a superseded job:
+its newer watch owns the wait.
+
+Stale builder inbox assessment is **read-only**, Main-only and restricted to a
+current configured lane:
+`fleet --config CONFIG relays clear-stale --terminal TERMINAL --dry-run`.
+It prints counts, blocker sender classes/types and `would_be_all_stale`, never
+bodies. Only unthreaded supervisor STATUS relays from this project that predate
+the lane launch count as proven stale. Matching text does not prove the same
+relay occurrence. Capped history cannot prove an all-stale inbox.
+There is no mutation mode and no automatic cleanup: stock Orca lacks selective
+mark-read by message ID or a consuming check conditional on expected IDs/max
+sequence. Peek then consume could silently consume a newly arrived question;
+the backlog remains until that native capability exists. Never edit Orca's DB
+or consume a mixed lane inbox to clear cosmetic duplicates.
+
 TASK-65 adds conditional REST reads and private supervisor caches. Use
 `watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.
 Compare budgets only within the same token pool; builder App tokens need the

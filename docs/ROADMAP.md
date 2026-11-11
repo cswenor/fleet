@@ -113,6 +113,45 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-118 — Reduce duplicate relay and watcher noise
+
+PR/branch transitions now target only the coordinator Run; builders use
+`watch-pr`. Only the supervisor-only `pr_stuck` timer retains an owner copy.
+Supervisor checks compare `(head, pending/success/failure)` rather than every
+check-run transition. Newest same-name/head attempts with proven App/check-suite
+identity supersede old failures and cancellations; independent/unknown producers
+keep failures. Existing same-workflow/head history proof is unchanged.
+Watchers register newest-wins ownership per repo/PR/caller and
+older generations return `superseded` without signals.
+
+Main revised pruning in decisions `msg_4c9da3acbd7d` / `msg_bc065d626aeb`:
+`relays clear-stale --terminal T --dry-run` is Main-only, counts-only and never
+mutates mail. Native selective mark-read or conditional consume is missing;
+peek/consume has a concurrent-question loss race. Automatic and manual mutation
+are out of scope until Orca provides that API. Duplicate text alone cannot prove
+relay occurrence identity.
+
+Read-only real Project Alpha PR #2546 replay captured seven check snapshots on head
+`b109a9f625acb801f3a067dd5e6810994b80a878`, all overall failure. Six adjacent
+fine-grained transitions produced twelve old destination copies; aggregate mode
+produces zero additional check relays after the baseline failure. Exact Email
+message `msg_9416fbe7c825` belongs to Fleet's Run/address, not Project Alpha's Run or
+any lane, and was absent from Project Alpha's read-only peek: global listing visibility,
+not cross-delivery. No live inbox, service or shared installation was changed.
+All 195 focused supervisor/check/watcher/initial/budget/relay/urgency/permission/
+launcher regressions pass. Two concurrent real source CLI watches of Fleet
+PR #106 returned `superseded` (older, exit 0) and `timeout` (newer, exit 0).
+Live read-only lane-2046 assessment found 71 unread: 9 pre-launch stale statuses;
+blockers were 9 other-sender statuses, 5 supervisor questions and 48 current
+supervisor statuses. No all-stale proof and no mutation support.
+First independent review found a P1: same-name checks from independent producers
+could hide failures. Matching App/check-suite identity now gates supersession;
+collection and summary regressions cover independent/unknown producers. The
+53 focused check/parser/watcher regressions pass after this fix. CI also exposed
+an obsolete subject-wording parser test with a malformed unnamed check; removed
+that incidental test rather than re-pinning wording.
+Final-head independent review, green CI and Main exact-head GO remain required.
+
 ### TASK-113 — Check steering without waiting for launch/restart
 
 `thread check`/`--ack` reads atomic launches and the task ledger under the per-task

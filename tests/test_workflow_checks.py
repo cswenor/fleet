@@ -115,6 +115,44 @@ class WorkflowChecksTests(unittest.TestCase):
                                              'conclusion': 'failure',
                                              'completed_at': legacy['updated_at']}])
 
+
+    def test_same_producer_newer_checks_supersede_without_workflow_history(self):
+        for old_conclusion in ('failure', 'cancelled'):
+            for status, conclusion in [('queued', None), ('in_progress', None),
+                                       ('completed', 'success')]:
+                with self.subTest(old=old_conclusion, status=status):
+                    current = self.collect(
+                        [check(12, status=status, conclusion=conclusion,
+                               app={'id': 1}, check_suite={'id': 101}),
+                         check(11, conclusion=old_conclusion,
+                               app={'id': 1}, check_suite={'id': 101})], [])
+                    self.assertEqual([c['id'] for c in current['checks']], [12])
+                    self.assertIsNone(github.initial_event(current))
+                    self.assertEqual(github.checks_conclusion(current),
+                                     'success' if conclusion == 'success' else 'pending')
+
+    def test_independent_app_or_suite_failure_survives_collection(self):
+        for app, suite in [(2, 101), (1, 102), (None, None)]:
+            with self.subTest(app=app, suite=suite):
+                current = self.collect([
+                    check(11, conclusion='failure', app={'id': 1}, check_suite={'id': 101}),
+                    check(12, conclusion='success', app={'id': app}, check_suite={'id': suite})], [])
+                self.assertEqual(github.checks_conclusion(current), 'failure')
+                self.assertEqual([row['id'] for row in current['checks']], [11, 12])
+
+    def test_unsuperseded_cancellation_is_failure(self):
+        current = self.collect([check(11)], [])
+        self.assertEqual(github.checks_conclusion(current), 'failure')
+        self.assertIn('failing checks: CI', github.initial_event(current)['subject'])
+
+    def test_latest_commit_status_retains_failure_alongside_newer_check(self):
+        statuses = [{'id': 31, 'context': 'CI', 'state': 'failure'},
+                    {'id': 30, 'context': 'CI', 'state': 'success'}]
+        current = self.collect([check(100, conclusion='success')], [], statuses)
+        self.assertEqual([c['id'] for c in current['checks']], [31, 100])
+        self.assertEqual(github.checks_conclusion(current), 'failure')
+        self.assertIn('failing checks: CI', github.initial_event(current)['subject'])
+
     def test_workflow_history_is_bounded_and_keeps_unlinked_checks(self):
         rows = [workflow(n, workflow_id=n) for n in range(1000, 1100)]
         with patch.object(github, 'gh', return_value={'workflow_runs': rows}) as gh:
@@ -174,19 +212,6 @@ class WorkflowChecksTests(unittest.TestCase):
                 current = self.collect([check(11, **linkage)], [workflow(1), workflow(2)])
                 self.assertEqual([r['id'] for r in current['checks']], [11])
 
-    def test_initial_identity_includes_head_and_failed_check_evidence_only(self):
-        current = self.collect([check(11, 1, conclusion='failure')], [workflow(1)])
-        baseline = github.initial_event(current)['key']
-        for changes in [{'head': 'new-sha'},
-                        {'checks': [check(12, conclusion='failure')]},
-                        {'checks': [check(11, conclusion='timed_out')]},
-                        {'checks': [check(11, conclusion='failure',
-                                          completed_at='2026-11-06T02:00:00Z')]}]:
-            with self.subTest(changes=changes):
-                self.assertNotEqual(github.initial_event({**current, **changes})['key'], baseline)
-        for status, conclusion in [('queued', None), ('completed', 'success')]:
-            current['checks'].append(check(20, status=status, conclusion=conclusion))
-            self.assertEqual(github.initial_event(current)['key'], baseline)
 
 
 if __name__ == '__main__':

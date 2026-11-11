@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 from fleet import github, groups, watcher
@@ -19,6 +20,9 @@ class InitialStateTests(unittest.TestCase):
         anonymous = patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''})
         anonymous.start()
         self.addCleanup(anonymous.stop)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.c = {'repo': 'owner/repo', '_state': directory.name}
 
     def test_watch_reports_actionable_initial_state_without_waiting(self):
         scenarios = [
@@ -29,7 +33,7 @@ class InitialStateTests(unittest.TestCase):
         ]
         for pr, diagnostic in scenarios:
             with self.subTest(diagnostic=diagnostic), patch.object(github, 'collect', return_value=history(pr)), patch.object(watcher.time, 'sleep', side_effect=AssertionError('actionable initial state must not poll')):
-                result = watcher.watch({}, 7)
+                result = watcher.watch(self.c, 7)
                 self.assertEqual(result['pr'], 7)
                 self.assertIn(diagnostic, result['events'][0]['body'])
 
@@ -43,10 +47,13 @@ class InitialStateTests(unittest.TestCase):
                                                 'status': 'pending', 'conclusion': None}]))
                 failed = history(pull(checks=[{'id': 1, 'name': name,
                                                'status': status, 'conclusion': conclusion}]))
+                clock = [0]
+                def sleep(seconds):
+                    clock[0] += seconds
                 with patch.object(github, 'collect', side_effect=[pending] * 6 + [failed]), \
-                        patch.object(watcher.time, 'sleep'), \
-                        patch.object(watcher.time, 'monotonic', side_effect=range(0, 390, 30)):
-                    result = watcher.watch({}, 7, timeout=600, interval=60)
+                        patch.object(watcher.time, 'sleep', side_effect=sleep), \
+                        patch.object(watcher.time, 'monotonic', side_effect=lambda: clock[0]):
+                    result = watcher.watch(self.c, 7, timeout=600, interval=60)
                 event = result['events'][0]
                 self.assertEqual(event['pr'], 7)
                 self.assertIn('failing checks: ' + name, event['subject'])
@@ -68,7 +75,7 @@ class InitialStateTests(unittest.TestCase):
                 current = history(pull(), runs=[{**failed, 'prs': members,
                                                  'membership_complete': complete}])
                 with patch.object(github, 'collect', return_value=current):
-                    result = watcher.watch({}, 7, timeout=0)
+                    result = watcher.watch(self.c, 7, timeout=0)
                 if relevant:
                     self.assertEqual([(e['pr'], e['subject']) for e in result['events']],
                                      [(7, 'Merge group 5 failure')])
@@ -79,7 +86,7 @@ class InitialStateTests(unittest.TestCase):
         failed = {'id': 5, 'conclusion': 'failure', 'url': 'https://example/run/5',
                   'prs': [8], 'membership_complete': True}
         with patch.object(github, 'collect', return_value=history(pull(merge_state='DIRTY'), runs=[failed])):
-            result = watcher.watch({}, 7)
+            result = watcher.watch(self.c, 7)
         self.assertEqual([e['pr'] for e in result['events']], [7])
         self.assertIn('DIRTY', result['events'][0]['body'])
 
@@ -89,7 +96,7 @@ class InitialStateTests(unittest.TestCase):
         before = history(pull(), runs=[failed])
         after = history(pull(merge_state='DIRTY'), runs=[failed])
         with patch.object(github, 'collect', side_effect=[before, after]), patch.object(watcher.time, 'sleep'):
-            result = watcher.watch({}, 7)
+            result = watcher.watch(self.c, 7)
         self.assertEqual([e['pr'] for e in result['events']], [7])
         self.assertIn('DIRTY', result['events'][0]['body'])
 
@@ -118,7 +125,7 @@ class InitialStateTests(unittest.TestCase):
             with self.subTest(label=label):
                 current = history(pull(), runs=[old] + ([successor] if successor else []))
                 with patch.object(github, 'collect', return_value=current):
-                    result = watcher.watch({}, 7, timeout=0)
+                    result = watcher.watch(self.c, 7, timeout=0)
                 self.assertEqual([e['subject'] for e in result.get('events', [])],
                                  [f'Merge group {n} failure' for n in expected])
 
@@ -129,7 +136,7 @@ class InitialStateTests(unittest.TestCase):
                                 ({'7': 'sha'}, True), ({'7': 'old'}, False)]:
             with self.subTest(heads=heads), patch.object(github, 'collect',
                     return_value=history(pull(), runs=[failed | {'member_heads': heads}])):
-                result = watcher.watch({}, 7, timeout=0)
+                result = watcher.watch(self.c, 7, timeout=0)
             self.assertEqual(bool(result.get('events')), expected)
 
     def test_watch_newer_group_live_failure_still_wakes(self):
@@ -141,7 +148,7 @@ class InitialStateTests(unittest.TestCase):
         after = history(pull(), runs=[old, newer | {'conclusion': 'failure'}])
         with patch.object(github, 'collect', side_effect=[before, after]), \
                 patch.object(watcher.time, 'sleep'):
-            result = watcher.watch({}, 7)
+            result = watcher.watch(self.c, 7)
         self.assertEqual([e['subject'] for e in result['events']], ['Merge group 6 failure'])
 
     def test_daemon_first_sighting_and_new_unhealthy_pr_notify_once(self):
@@ -166,6 +173,9 @@ class GroupTests(unittest.TestCase):
         anonymous = patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''})
         anonymous.start()
         self.addCleanup(anonymous.stop)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.c = {'repo': 'owner/repo', '_state': directory.name}
 
     def test_synthetic_chain_excludes_side_history_and_includes_every_group_member(self):
         commit = lambda sha, parent, number: {'sha': sha, 'parents': [{'sha': parent}, {'sha': 'side'}], 'commit': {'message': f'Title (#{number})'}}
@@ -224,7 +234,7 @@ class GroupTests(unittest.TestCase):
         # A per-PR watcher only loads its own PR; membership must still wake it.
         scoped = history(a, runs=[failed])
         with patch.object(github, 'collect', side_effect=[history(a), scoped]), patch.object(watcher.time, 'sleep'):
-            result = watcher.watch({}, 7)
+            result = watcher.watch(self.c, 7)
         self.assertEqual([(e['pr'], e['subject']) for e in result['events']], [(7, 'Merge group 5 failure')])
 
 

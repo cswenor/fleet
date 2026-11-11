@@ -436,6 +436,16 @@ also record their current initial diagnosis to avoid an immediate re-arm duplica
 Otherwise it blocks on only the selected PR (including merge-group failures naming
 it) and exits on changes, timeout, or API failure, so async shell completion can
 wake a builder without polling model turns. Check-failure subjects name the failing checks.
+Only one watch owns each repo/PR/resolved caller key (anonymous is a key too).
+A replacement registers a new generation; the older process returns
+`event: superseded` at its next interval or after an in-flight collection, without
+signals or kills. Do not re-arm that superseded process.
+PR/check/comment/review/merge-group supervisor relays target Main's Run only;
+only the supervisor-specific `pr_stuck` inactivity timer retains a builder copy.
+Supervisor check relays compare head and overall pending/success/failure, while
+`watch-pr` retains fine-grained changes. Check-run failure summaries ignore older
+same-name/head attempts only with matching App/check-suite identity; independent
+or unknown producers retain failures. Existing workflow-history proof is unchanged.
 Initial merge-group failures are omitted only when a newer, completely resolved
 group with a distinct synthetic head SHA also includes this PR, or a synthetic
 merge's second parent proves it tested an older PR head. Ordering uses creation
@@ -503,7 +513,8 @@ installation token to diagnose a lane.
 
 While owning an open PR, builders **MUST** keep `fleet --config CONFIG watch-pr N`
 armed as an async background command. Process each event and re-arm after every
-completion, including timeout/error, until the PR merges or closes. Fix reported
+completion, including timeout/error, until the PR merges or closes. A `superseded`
+completion belongs to a newer watch; do not re-arm the older job. Fix reported
 failures even when re-arming suppresses their unchanged initial event; quiet inboxes
 are not success. Never rely on retired `pr-wait.sh` scripts or a single-workflow
 `gh run watch` alone.

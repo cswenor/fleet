@@ -54,6 +54,11 @@ def main():
     p.add_argument('--terminal', help='caller identity when ORCA_TERMINAL_HANDLE is unavailable')
     p.add_argument('--include-seen', action='store_true', help='re-emit an already returned initial event')
     p.add_argument('--debug', action='store_true', help='report GitHub request and 304 counts per poll')
+    p = sub.add_parser('relays', help='read-only stale relay assessment; never consumes mail')
+    relay_commands = p.add_subparsers(dest='relay_command', required=True)
+    p = relay_commands.add_parser('clear-stale', help='assess a configured lane; cleanup is unavailable')
+    p.add_argument('--terminal', required=True)
+    p.add_argument('--dry-run', action='store_true', required=True)
     p = sub.add_parser('wait', help='wait for Run mail; recover read-only API outages for up to 30s',
                        description='Exit 0: messages; 3: timeout; 4: runtime recovered, rearm without replaying an ambiguous ack; 2: error/runtime_unavailable. Recovery is bounded to 30s; consuming checks are never retried.')
     p.add_argument('--timeout', type=int, default=900, help='checkpoint after 1–1800 seconds')
@@ -147,6 +152,10 @@ def main():
                 result['event'] == 'dry-run' and not result['blockers']) else 2
         if getattr(args, 'drill_usage_file', None):
             c['_drill_usage_file'] = args.drill_usage_file
+        if args.command == 'relays':
+            from .relays import clear_stale
+            print(json.dumps(clear_stale(c, args.terminal, dry_run=args.dry_run)))
+            return 0
         if args.command == 'thread':
             from . import threads
             if args.thread_command == 'stop':

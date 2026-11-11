@@ -6,7 +6,6 @@ from unittest.mock import patch
 from fleet import health
 from fleet.health import branch, classify, owner
 from fleet.quota import evaluate
-from fleet.github import events
 
 
 class HealthTests(unittest.TestCase):
@@ -204,17 +203,6 @@ class QuotaTests(unittest.TestCase):
         self.assertFalse(evaluate({}, config, 100)['may_start'])
 
 
-class DiffTests(unittest.TestCase):
-    def test_comments_checks_and_close_are_distinct_events(self):
-        p = {'number': 1, 'url': 'https://example/pr/1', 'branch': 'x', 'head': 'sha', 'state': 'open', 'checks': [], 'comments': [], 'reviews': []}
-        before = {'prs': [p], 'merge_group_runs': []}
-        after = {'prs': [{**p, 'checks': [{'id': 2, 'status': 'failure'}], 'comments': [{'id': 3}]}], 'merge_group_runs': []}
-        result = events(before, after)
-        self.assertEqual({x['subject'].split()[2] for x in result}, {'checks', 'comments'})
-        closed = {'prs': [{**p, 'state': 'closed'}], 'merge_group_runs': []}
-        self.assertEqual([e['subject'] for e in events(after, closed)], ['PR #1 state changed: closed'])
-        self.assertEqual(events(after, after), [])
-        self.assertEqual(events({}, before), [])
 
 
 if __name__ == '__main__':

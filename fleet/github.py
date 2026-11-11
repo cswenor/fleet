@@ -37,6 +37,29 @@ def pages(c, endpoint):
     return [row for page in data for row in page]
 
 
+def _latest_checks(checks):
+    """Supersede only attempts with a proven common check producer."""
+    latest = {}
+    unversioned = []
+    for check in checks:
+        if check.get('id') is None:
+            unversioned.append(check)
+            continue
+        is_status = check.get('status') in ('pending', 'success', 'failure', 'error')
+        app = check.get('app_id', (check.get('app') or {}).get('id'))
+        suite = check.get('check_suite_id', (check.get('check_suite') or {}).get('id'))
+        if not is_status and (app is None or suite is None):
+            # Legacy snapshots and unlinked providers cannot prove supersession.
+            unversioned.append(check)
+            continue
+        key = (check['name'], check.get('head_sha'), is_status,
+               None if is_status else (app, suite))
+        previous = latest.get(key)
+        if previous is None or check['id'] > previous['id']:
+            latest[key] = check
+    return list(latest.values()) + unversioned
+
+
 def _workflow_checks(c, sha, checks, unavailable=None):
     if not any(r.get('conclusion') == 'cancelled' or
                (r.get('status') == 'completed' and
@@ -201,8 +224,10 @@ def collect(c, pr_number=None):
             check_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/commits/{sha}/check-runs?per_page=100')
             raw_checks = [r for page in check_pages for r in page['check_runs']]
             checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'],
-                       'conclusion': r['conclusion'], 'completed_at': r.get('completed_at')}
-                      for r in _workflow_checks(c, sha, raw_checks, unavailable)]
+                       'conclusion': r['conclusion'], 'completed_at': r.get('completed_at'),
+                       'app_id': (r.get('app') or {}).get('id'),
+                       'check_suite_id': (r.get('check_suite') or {}).get('id')}
+                      for r in _latest_checks(_workflow_checks(c, sha, raw_checks, unavailable))]
             statuses = pages(c, f'repos/{repo}/commits/{sha}/statuses?per_page=100')
             latest = {}
             for s in statuses:
@@ -304,7 +329,21 @@ _FAILED_CONCLUSIONS = frozenset((
 
 
 def _failing_checks(p):
-    return sorted({x['name'] for x in p['checks'] if x.get('conclusion') in _FAILED_CONCLUSIONS})
+    return sorted({x['name'] for x in _latest_checks(p.get('checks', []))
+                   if x.get('conclusion') in _FAILED_CONCLUSIONS})
+
+
+def checks_conclusion(p):
+    """Return the overall pending/success/failure state of effective PR checks."""
+    checks = _latest_checks(p.get('checks', []))
+    if any(x.get('conclusion') in _FAILED_CONCLUSIONS for x in checks):
+        return 'failure'
+    if not checks or any(
+            x.get('status') not in ('completed', 'success') or
+            x.get('conclusion') not in ('success', 'neutral', 'skipped')
+            for x in checks):
+        return 'pending'
+    return 'success'
 
 
 def initial_event(p):
@@ -322,7 +361,7 @@ def initial_event(p):
     detail = '; '.join(reasons)
     failures = sorted(
         ((x.get('id'), x['name'], x.get('conclusion'), x.get('completed_at'))
-         for x in p.get('checks', []) if x.get('conclusion') in _FAILED_CONCLUSIONS),
+         for x in _latest_checks(p.get('checks', [])) if x.get('conclusion') in _FAILED_CONCLUSIONS),
         key=lambda x: (x[1], str(x[0]), x[2] or '', x[3] or ''))
     evidence = json.dumps(failures, separators=(',', ':'))
     return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{p["head"]}:{detail}:{evidence}',
@@ -330,7 +369,7 @@ def initial_event(p):
             'branch': p['branch'], 'body': p['url'] + '\n' + detail}
 
 
-def events(previous, current):
+def events(previous, current, *, aggregate_checks=False):
     old = {p['number']: p for p in previous.get('prs', [])}
     events = []
     for p in current['prs']:
@@ -346,10 +385,17 @@ def events(previous, current):
         for field in fields:
             if field not in before and field == 'merge_state' and p.get(field) != 'DIRTY':
                 continue
-            if before.get(field) != p.get(field):
+            changed = before.get(field) != p.get(field)
+            if field == 'checks' and aggregate_checks:
+                conclusion = checks_conclusion(p)
+                changed = (before['head'], checks_conclusion(before)) != (p['head'], conclusion)
+                value = json.dumps({'head': p['head'], 'conclusion': conclusion}, sort_keys=True)
+            else:
                 value = json.dumps(p.get(field), sort_keys=True)
+            if changed:
                 occurrence = p.get('updated_at', p['head'])
-                detail = f'{field} changed: {p["state"]}'
+                detail = (f'checks changed: {conclusion}' if field == 'checks' and aggregate_checks
+                          else f'{field} changed: {p["state"]}')
                 if field == 'checks':
                     failed = _failing_checks(p)
                     if failed:

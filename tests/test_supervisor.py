@@ -130,7 +130,7 @@ class DeliveryTests(unittest.TestCase):
             calls = []
             def enqueue(config, event, recipient):
                 calls.append(recipient)
-                if recipient == 'builder' and calls.count('builder') == 1:
+                if recipient == 'run:r' and calls.count('run:r') == 1:
                     raise CommandError('offline')
                 return {'accepted': True}
             with patch.object(supervisor.snapshot, 'collect', return_value=sample(pr())), patch.object(supervisor, 'enqueue', side_effect=enqueue):
@@ -141,7 +141,7 @@ class DeliveryTests(unittest.TestCase):
                 _, recovered = supervisor.cycle(c)
                 self.assertEqual(recovered['pending'], 0)
                 supervisor.cycle(c)
-            self.assertEqual(calls, ['run:r', 'builder', 'builder'])
+            self.assertEqual(calls, ['run:r', 'run:r'])
             self.assertEqual(state.read(c, 'supervisor')['pending'], [])
 
     def test_alert_recovery_allows_a_new_warning(self):
@@ -161,7 +161,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual([subject for subject in calls if subject == 'Fleet quota reserve: new builders withheld'],
                              ['Fleet quota reserve: new builders withheld'] * 2)
 
-    def test_initial_unhealthy_or_terminal_pr_is_delivered_once_to_both_inboxes(self):
+    def test_initial_unhealthy_or_terminal_pr_is_delivered_once_to_coordinator(self):
         scenarios = [pr('merged'), pr('closed'), {**pr(), 'merge_state': 'DIRTY'},
                      {**pr(), 'checks': [{'name': 'CI', 'conclusion': 'failure'}]}]
         for p in scenarios:
@@ -171,9 +171,9 @@ class DeliveryTests(unittest.TestCase):
                 with patch.object(supervisor.snapshot, 'collect', return_value=sample(p)), patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(r)):
                     supervisor.cycle(c)
                     supervisor.cycle(c)
-                self.assertEqual(calls, ['run:r', 'builder'])
+                self.assertEqual(calls, ['run:r'])
 
-    def test_inventory_outage_keeps_owner_delivery_pending(self):
+    def test_inventory_outage_does_not_defer_coordinator_only_relay(self):
         with tempfile.TemporaryDirectory() as directory:
             c = {'_state': directory, 'coordinator': {'run': 'r'}, 'hooks': {}, 'status': {'url': '', 'token_env': ''}}
             calls = []
@@ -181,11 +181,11 @@ class DeliveryTests(unittest.TestCase):
             del unavailable['inventory']
             with patch.object(supervisor.snapshot, 'collect', return_value=unavailable), patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(r)):
                 _, report = supervisor.cycle(c)
-                self.assertEqual(report['pending'], 1)
+                self.assertEqual(report['pending'], 0)
             with patch.object(supervisor.snapshot, 'collect', return_value=sample(pr('merged'))), patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(r)):
                 _, report = supervisor.cycle(c)
                 self.assertEqual(report['pending'], 0)
-            self.assertEqual(calls, ['run:r', 'builder'])
+            self.assertEqual(calls, ['run:r'])
 
     def test_old_saved_baseline_is_not_proof_of_an_initial_notification(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -196,7 +196,7 @@ class DeliveryTests(unittest.TestCase):
             with patch.object(supervisor.snapshot, 'collect', return_value=s), patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append((r, e['subject']))):
                 supervisor.cycle(c)
                 supervisor.cycle(c)
-            self.assertEqual(calls, [('run:r', 'PR #1 initial state: DIRTY'), ('builder', 'PR #1 initial state: DIRTY')])
+            self.assertEqual(calls, [('run:r', 'PR #1 initial state: DIRTY')])
 
     def test_alert_content_change_notifies_without_repeating_identical_content(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -232,9 +232,8 @@ class DeliveryTests(unittest.TestCase):
                     patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append((r, e['body']))):
                 for _ in events:
                     supervisor.cycle(c)
-            self.assertEqual(calls, [('run:r', 'failure'), ('builder', 'failure'),
-                                     ('run:r', 'success'), ('builder', 'success'),
-                                     ('run:r', 'failure'), ('builder', 'failure')])
+            self.assertEqual(calls, [('run:r', 'failure'), ('run:r', 'success'),
+                                     ('run:r', 'failure')])
 
     def test_duplicate_github_event_does_not_resend_successful_recipient(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -242,10 +241,10 @@ class DeliveryTests(unittest.TestCase):
             calls = []
             def enqueue(config, event, recipient):
                 calls.append(recipient)
-                if recipient == 'builder':
+                if recipient == 'run:r' and len(calls) == 1:
                     raise CommandError('private message', code='recipient_run_mismatch')
                 return {'accepted': True}
-            def events(before, current):
+            def events(before, current, **kwargs):
                 return [{'key': 'pr:1:checks:' + str(len(calls)), 'subject': 'Checks',
                          'body': 'same failure', 'branch': 'feature'}]
             with patch.object(supervisor.snapshot, 'collect', return_value=sample(pr())), \
@@ -253,11 +252,10 @@ class DeliveryTests(unittest.TestCase):
                     patch.object(supervisor, 'enqueue', side_effect=enqueue):
                 _, first = supervisor.cycle(c)
                 _, second = supervisor.cycle(c)
-            self.assertEqual(calls, ['run:r', 'builder', 'builder'])
+            self.assertEqual(calls, ['run:r', 'run:r'])
             self.assertEqual(first['pending'], 1)
-            self.assertEqual(second['pending'], 1)
-            self.assertEqual(second['delivery_failures'],
-                             [{'recipient': 'builder', 'code': 'recipient_run_mismatch'}])
+            self.assertEqual(second['pending'], 0)
+            self.assertEqual(second['delivery_failures'], [])
 
     def test_group_failure_recovery_recurrence_is_not_suppressed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -273,7 +271,7 @@ class DeliveryTests(unittest.TestCase):
                 with patch.object(supervisor.snapshot, 'collect', return_value=s), \
                         patch.object(supervisor, 'enqueue', side_effect=lambda c, e, r: calls.append(r)):
                     supervisor.cycle(c)
-            self.assertEqual(calls, ['run:r', 'builder', 'run:r', 'builder'])
+            self.assertEqual(calls, ['run:r', 'run:r'])
 
 class CollectionAlertTests(unittest.TestCase):
     def setUp(self):
