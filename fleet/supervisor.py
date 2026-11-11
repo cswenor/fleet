@@ -239,6 +239,31 @@ def missing_ready_reports(c, s, ledger, now, lane_free=None):
     return result
 
 
+def _startup_grace(c, builder, observed_at):
+    """Grace unknown startup evidence only for a receipt or exact preparation."""
+    def recent(started_at):
+        return (isinstance(started_at, (int, float)) and not isinstance(started_at, bool)
+                and isinstance(observed_at, (int, float)) and not isinstance(observed_at, bool)
+                and math.isfinite(started_at) and math.isfinite(observed_at)
+                and started_at > 0 and 0 <= observed_at - started_at < 120)
+
+    if recent(builder.get('launch_at')):
+        return True
+    try:
+        slot, ref = builder['path'], builder['task']
+        if not isinstance(ref, str) or not re.fullmatch(r'[A-Z]+-\d+', ref):
+            return False
+        preparation = state.read(c, 'launch-preparations', {}).get(slot, {})
+        # A native create may not have a terminal handle yet. Match the persisted
+        # slot and task, and never refresh the grace from later stage updates.
+        return (preparation.get('slot') == slot and preparation.get('ref') == ref
+                and preparation.get('stage') == 'launch-attempted'
+                and 'failure' not in preparation
+                and recent(preparation.get('started_at')))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 
 def alerts(s, c, lane_free=None):
     result = []
@@ -249,12 +274,8 @@ def alerts(s, c, lane_free=None):
     for message in (s.get('github') or {}).get('unavailable', []):
         add('github-unknown:' + digest(message), 'GitHub optional data unknown', message)
     for b in s.get('inventory', {}).get('builders', []):
-        launch_at = b.get('launch_at')
         observed_at = s.get('generated_at')
-        starting = (isinstance(launch_at, (int, float)) and not isinstance(launch_at, bool)
-                    and isinstance(observed_at, (int, float)) and not isinstance(observed_at, bool)
-                    and math.isfinite(launch_at) and math.isfinite(observed_at)
-                    and launch_at > 0 and 0 <= observed_at - launch_at < 120)
+        starting = _startup_grace(c, b, observed_at)
         for flag in b['flags']:
             if starting and flag in ('model_unknown', 'progress_unknown'):
                 continue

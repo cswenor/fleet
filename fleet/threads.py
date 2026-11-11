@@ -405,10 +405,13 @@ def ready(c, next_ref, body=''):
                 from .restart import _completion
                 proof = _completion(c, next_ref, ref, launch, require_handoff=True)
                 _ownership(c, launch, slot, caller)
+                from .launcher import resolve_model
+                selection = resolve_model(c, next_ref)['_model_selection']
                 report = {'next_ref': next_ref, 'handoff': proof['handoff'],
-                          'pr': proof['pr'], 'status': 'sending',
+                          'pr': proof['pr'], 'status': 'sending', **selection,
                           'body': f"Pad-Ref: {ref}\nFRESH-READY {next_ref}\n"
                                   f"Handoff: {next_ref} comment {proof['handoff']}\n"
+                                  f"Next {selection['model_description']}; re-resolved at Main-approved launch\n"
                                   f"Published: {proof['pr']}\n{body}".rstrip()}
                 with state.lock(c, 'needs-next', wait_seconds=5, operation='ready reserve'):
                     attempt['ready'] = report

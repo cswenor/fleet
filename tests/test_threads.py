@@ -238,6 +238,16 @@ class ReadyTests(unittest.TestCase):
     def setUp(self):
         ThreadTests.setUp(self)
         from fleet import restart
+        from fleet import dispatcher
+        self.c['builder'].update(model='provider/default', resolved_model='provider/default',
+                                 thinking='medium', plan_models={
+                                     'PLAN-2': {'model': 'other/model', 'thinking': 'high'}},
+                                 allowed_models={'other/model': ['high']})
+        self.c['quota'] = {}
+        ancestry = patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {
+            'ref': args[2], 'parent_ref': 'PLAN-2'} if args[2] != 'PLAN-2' else {'ref': 'PLAN-2'})
+        ancestry.start()
+        self.addCleanup(ancestry.stop)
         self.launch = state.read(self.c, 'launches')[self.temp.name]
         self.launch['at'] = 1767225599
         self.launch['terminal_incarnation_id'] = 'builder-incarnation'
@@ -277,6 +287,9 @@ class ReadyTests(unittest.TestCase):
                     self.assertEqual(cli.main(), 0)
                 receipts.append(json.loads(output.getvalue()))
         self.assertEqual(receipts[0]['message_id'], receipts[1]['message_id'])
+        self.assertEqual(receipts[0]['resolved_model'], 'other/model')
+        self.assertEqual(receipts[0]['model_source'], 'plan:PLAN-2')
+        self.assertIn('model other/model high (plan:PLAN-2)', receipts[0]['body'])
         self.assertEqual(len(self.sent), 1)
         flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
         self.assertEqual(flags['--type'], 'question')

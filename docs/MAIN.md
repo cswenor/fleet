@@ -122,6 +122,33 @@ fleet --config ~/.config/fleet/fleet.yml launch TASK-N --slot /home/dev/orca/wor
 fleet --config ~/.config/fleet/fleet.yml restart TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2 --finished-ref TASK-OLD
 ```
 
+### Per-launch builder model selection (TASK-121)
+
+`builder.model`, `resolved_model` and `thinking` remain project defaults.
+Optional `builder.plan_models` maps a PLAN ref to `{model: provider/model,
+thinking: level}`. Only the nearest PLAN ancestor applies; an unmapped nearer
+PLAN uses defaults, never an outer mapping. Missing, unreadable or cyclic
+ancestry refuses before terminal mutation.
+
+`builder.allowed_models` maps fully resolved model IDs to lists of allowed
+thinking levels. The default resolved-model/thinking pair is implicitly allowed.
+Every plan/override pair must be allowed; aliases are supported only by the
+existing default `builder.model`/`resolved_model` contract.
+
+`launch` and `restart` accept paired `--model provider/model --thinking level`.
+Both are required for a one-shot override; precedence is override > nearest
+PLAN mapping > default. Choices never rewrite config or carry into later
+launches. Main approves the pair; this is not permission to change budgets.
+Admission checks the selected provider, including restart preflight before exit.
+Old-session identity remains pinned to its original receipt.
+
+Receipts, launch prompt headers and launch output retain `model_description`,
+`model_source` (`default`, `plan:PLAN-N`, `override`) and `plan_ref`.
+FRESH-READY includes the next task's model/thinking and source as a proposal;
+Main's later launch resolves again, without inheriting the finished launch's
+override. Reviewer selection and publication gates are unchanged.
+
+
 On withheld/error: inspect reasons, state and `~/.local/state/fleet/cswenor--fleet/last-launch.json`.
 A saved receipt after partial failure forbids blind relaunch. Verify actual new
 session model/thinking and first turn (screen/session events), not just argv or

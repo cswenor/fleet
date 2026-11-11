@@ -425,7 +425,7 @@ def _exited_shell(process, handle):
 
 
 
-def restart(c, ref, slot, finished_ref):
+def restart(c, ref, slot, finished_ref, *, model=None, thinking=None):
     if not sys.platform.startswith('linux'):
         raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
     if not all(re.fullmatch(r'[A-Z]+-\d+', x) for x in (ref, finished_ref)):
@@ -434,6 +434,8 @@ def restart(c, ref, slot, finished_ref):
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
     with state.lock(c, 'launcher', operation='restart'), state.slot_lock(c, slot):
+        launch_config = c
+        c = launcher.resolve_model(c, ref, model=model, thinking=thinking)
         tree, target = _target(c, slot)
         record = state.read(c, 'launches', {}).get(slot, {})
         if (not record.get('id') or record.get('ref') != finished_ref or
@@ -531,7 +533,7 @@ def restart(c, ref, slot, finished_ref):
             state.write(c, 'retirements', retirements)
             receipt['stage'] = 'launch-attempted'
             state.write(c, 'retirements', retirements)
-            launched = launcher.launch(c, ref, slot, _locked=True)
+            launched = launcher.launch(launch_config, ref, slot, model=model, thinking=thinking, _locked=True)
             receipt['next_launch_id'] = launched['id']
             receipt['stage'] = 'launched'
             state.write(c, 'retirements', retirements)
@@ -552,10 +554,13 @@ def restart(c, ref, slot, finished_ref):
                 if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
             if receipt.get('retired'):
-                recovery = shlex.join([
+                recovery_argv = [
                     'fleet', '--config',
                     str(c.get('_path') or Path(c['root']) / 'fleet.yml'),
-                    'launch', ref, '--slot', slot])
+                    'launch', ref, '--slot', slot]
+                if model is not None:
+                    recovery_argv.extend(['--model', model, '--thinking', thinking])
+                recovery = shlex.join(recovery_argv)
                 receipt['recovery_command'] = recovery
                 published = state.read(c, 'last-launch', {})
                 replacement = (published.get('id') != record['id'] and published.get('ref') == ref and

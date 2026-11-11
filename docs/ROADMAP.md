@@ -113,6 +113,39 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-121 — Plan-scoped and one-shot builder model selection
+
+Main ruling `msg_f906ee6f0153` approves `builder.allowed_models` as resolved
+model IDs → thinking-level lists, with the default pair implicitly allowed;
+`builder.plan_models` maps PLAN refs to `{model, thinking}`. Paired one-shot
+`--model`/`--thinking` on launch/restart precedes the nearest PLAN mapping,
+then project defaults. Unmapped nearer plans do not inherit outer mappings.
+Ancestry and pair failures refuse before terminal mutation. Config is unchanged
+between launches; quota follows the selected provider and health expectations
+remain receipt-bound. Launch receipts/prompt/output and next-task FRESH-READY
+name model, thinking and source. Reviewer policy is unchanged.
+
+The same ruling requests a bounded pre-receipt startup grace: persisted exact
+slot/ref `launch-attempted` preparation proof anchors the existing 120-second
+unknown-model/progress relay grace to preparation start. Raw flags, other
+health relays and admission are unchanged.
+
+Read-only candidate resolution against an in-memory copy of real project-gamma
+config proves live TASK-34 → Fable/xhigh (`plan:PLAN-32`, anthropic quota);
+TASK-44 → Sol/medium (`default`, openai-codex quota). TASK-49 initially had
+PLAN-32 as parent; its captured Pad task resolves Fable by plan, or Sol with
+the explicit override. Main approved this acceptance adjustment in
+`msg_9bb55171233c` and notified project-gamma Main. By the live probe TASK-49 had
+been moved to unmapped PLAN-50 and correctly resolved Sol by default.
+No config/Pad/service/terminal mutations were made by these probes.
+All 238 focused model-selection/launcher/restart/thread/supervisor/session-model/
+platform regressions pass; CLI launch/restart help exposes paired overrides.
+
+Publication requires runtime resolution evidence, independent final-head
+Sol-medium review, green CI and Main's exact-head GO. Main reports Actions
+billing blocked; merge and shared deployment remain withheld until the gates pass.
+
+
 ### TASK-117 — Startup health relays and partial restart diagnostics
 
 Project Beta Main corrected the incident account (`msg_697f8a115d9f`, relayed

@@ -13,6 +13,36 @@ STATUS_DEFAULTS = {'not_started': ['open'], 'in_progress': ['in-progress'],
 URGENT_EVENTS = ('provider_stalled', 'idle', 'wrong_model', 'stray_worktree',
                  'merge_group_failure', 'pr_stuck', 'stalled', 'main_down')
 
+THINKING_LEVELS = ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto')
+
+
+def validate_model_policy(builder):
+    allowed = builder.setdefault('allowed_models', {})
+    if not isinstance(allowed, dict):
+        raise ValueError('builder.allowed_models must map provider/model IDs to thinking levels')
+    for model, levels in allowed.items():
+        if (not isinstance(model, str) or not re.fullmatch(r'[^\s/]+/[^\s/]+', model)
+                or not isinstance(levels, list) or not levels
+                or any(not isinstance(level, str) or level not in THINKING_LEVELS for level in levels)
+                or len(set(levels)) != len(levels)):
+            raise ValueError('invalid builder.allowed_models model or thinking levels')
+    plans = builder.setdefault('plan_models', {})
+    if not isinstance(plans, dict):
+        raise ValueError('builder.plan_models must be a mapping')
+    for ref, selection in plans.items():
+        if not isinstance(ref, str) or not re.fullmatch(r'PLAN-\d+', ref):
+            raise ValueError('builder.plan_models keys must be PLAN refs')
+        if (not isinstance(selection, dict) or set(selection) != {'model', 'thinking'}
+                or not isinstance(selection['model'], str)
+                or not isinstance(selection['thinking'], str)
+                or not model_allowed(builder, selection['model'], selection['thinking'])):
+            raise ValueError(f'invalid or nonallowlisted builder.plan_models entry for {ref}')
+
+
+def model_allowed(builder, model, thinking):
+    return ((model, thinking) == (builder['resolved_model'], builder['thinking'])
+            or thinking in builder.get('allowed_models', {}).get(model, []))
+
 
 def validate_statuses(statuses, *, allow_no_progress=False):
     if not isinstance(statuses, dict) or set(statuses) != set(STATUS_DEFAULTS):
@@ -73,8 +103,9 @@ def load(path):
         minutes = b[key]
         if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
             raise ValueError(f'builder.{key} must be a positive finite number')
-    if b['thinking'] not in ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'):
+    if b['thinking'] not in THINKING_LEVELS:
         raise ValueError('invalid builder.thinking')
+    validate_model_policy(b)
     if not isinstance(b['max'], int) or b['max'] < 1:
         raise ValueError('builder.max must be positive')
     if not isinstance(b['slots'], list) or not all(isinstance(s, str) for s in b['slots']):

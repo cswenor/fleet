@@ -14,6 +14,15 @@ builder:
   model: openai-codex/gpt-6.1-sol
   resolved_model: openai-codex/gpt-6.1-sol
   thinking: medium
+  # Optional resolved model -> allowed thinking levels. Default pair is implicit.
+  allowed_models: {}
+  # Nearest Pad PLAN only; no fallback to a mapped outer plan.
+  # Every nondefault pair must be in allowed_models.
+  # plan_models:
+  #   PLAN-32: {model: anthropic/claude-fable-5-2, thinking: xhigh}
+  # allowed_models:
+  #   anthropic/claude-fable-5-2: [xhigh]
+  plan_models: {}
   max: 2
   slots:
     - /path/to/slot-a
@@ -72,7 +81,7 @@ builder:
     back to direct Run questions. Use the same config as thread open.
     Never bind a builder terminal to any Run.
 quota:
-  # Provider is derived from builder.resolved_model, not the reviewer's model.
+  # Provider follows the selected per-launch resolved model, never the reviewer.
   reserve_percent: 10
   max_age_seconds: 900
   unknown_alert_cycles: 3 # Consecutive unknown cycles before alerting; starts remain withheld.

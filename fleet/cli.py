@@ -26,6 +26,8 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot')
     p.add_argument('--drill-usage-file', help='test-only additional launch withhold, never bypasses real quota')
+    p.add_argument('--model', help='one-shot resolved provider/model; requires --thinking and an allowed pair')
+    p.add_argument('--thinking', help='one-shot thinking level; requires --model')
     p = sub.add_parser('orca-restart', help='restart Orca from the initiating Main and verify preservation',
                        description='Journal one restart, preserve terminals/Run mail, and enqueue owner questions. '
                                    'Exit 0 only for verified completion or an unblocked read-only dry-run; otherwise 2.')
@@ -35,6 +37,8 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
     p.add_argument('--finished-ref', required=True)
+    p.add_argument('--model', help='one-shot next builder model; requires --thinking and an allowed pair')
+    p.add_argument('--thinking', help='one-shot next builder thinking level; requires --model')
     p = sub.add_parser('reconcile', help='Main records positive exit evidence for an exact launch')
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
@@ -226,11 +230,12 @@ def main():
             return 0
         if args.command == 'launch':
             from .launcher import launch
-            print(json.dumps(launch(c, args.ref, args.slot), indent=2))
+            print(json.dumps(launch(c, args.ref, args.slot, model=args.model, thinking=args.thinking), indent=2))
             return 0
         if args.command == 'restart':
             from .restart import restart
-            print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref), indent=2))
+            print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref,
+                                     model=args.model, thinking=args.thinking), indent=2))
             return 0
         if args.command == 'watch-pr':
             if args.timeout < 1 or args.interval < 1 or args.number < 1:

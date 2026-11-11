@@ -274,6 +274,82 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(calls, ['run:r', 'run:r'])
 
 class StartupAlertTests(unittest.TestCase):
+    def test_in_progress_preparation_graces_observation_before_final_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory}
+            preparation = {'slot': '/lane', 'ref': 'TASK-1', 'stage': 'launch-attempted',
+                           'started_at': 1000, 'at': 1039}
+            state.write(c, 'launch-preparations', {'/lane': preparation})
+            s = sample(pr())
+            b = s['inventory']['builders'][0]
+            b.update(path='/lane', model=None, task='TASK-1', title='builder',
+                     flags=['model_unknown', 'progress_unknown', 'disconnected', 'wrong_model'])
+            s['generated_at'] = 1040
+            # The receipt can still be absent, or published 0.35s after collection.
+            for receipt_at in (None, 1040.35):
+                with self.subTest(receipt_at=receipt_at):
+                    b['launch_at'] = receipt_at
+                    events = supervisor.alerts(s, c)
+                    self.assertEqual([e['subject'] for e in events],
+                                     ['Builder disconnected: TASK-1', 'Builder wrong_model: TASK-1'])
+            self.assertEqual(b['flags'],
+                             ['model_unknown', 'progress_unknown', 'disconnected', 'wrong_model'])
+
+    def test_preparation_grace_uses_start_time_and_exact_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory}
+            state.write(c, 'launch-preparations', {'/lane': {
+                'slot': '/lane', 'ref': 'TASK-1', 'stage': 'launch-attempted',
+                'started_at': 1000, 'at': 1119}})
+            s = sample(pr())
+            s['inventory']['builders'][0].update(
+                path='/lane', model=None, task='TASK-1', title='builder',
+                flags=['model_unknown', 'progress_unknown'])
+            for observed, graced in ((999.99, False), (1000, True), (1119.99, True),
+                                     (1120, False), (1120.01, False)):
+                with self.subTest(observed=observed):
+                    s['generated_at'] = observed
+                    self.assertEqual(len(supervisor.alerts(s, c)), 0 if graced else 2)
+            # Once published, the existing receipt grace has its own unchanged anchor.
+            s['generated_at'] = 1130
+            s['inventory']['builders'][0]['launch_at'] = 1040.35
+            self.assertEqual(supervisor.alerts(s, c), [])
+
+    def test_missing_stale_mismatched_or_invalid_preparation_never_graces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory}
+            s = sample(pr())
+            s['generated_at'] = 1040
+            s['inventory']['builders'][0].update(
+                path='/lane', model=None, task='TASK-1', title='builder',
+                flags=['model_unknown', 'progress_unknown'])
+            proof = {'slot': '/lane', 'ref': 'TASK-1', 'stage': 'launch-attempted',
+                     'started_at': 1000}
+            records = [
+                {}, {'/other': proof}, {'/lane': dict(proof, slot='/other')},
+                {'/lane': dict(proof, ref='TASK-2')},
+                {'/lane': dict(proof, stage='prepared')},
+                {'/lane': dict(proof, stage='launched')},
+                {'/lane': dict(proof, failure='CommandError')},
+                {'/lane': None}, None,
+            ]
+            records.extend({'/lane': dict(proof, started_at=value)} for value in (
+                None, True, '1000', 0, float('nan'), float('inf'), 1041, 920))
+            for record in records:
+                with self.subTest(record=record):
+                    state.write(c, 'launch-preparations', record)
+                    self.assertEqual([e['subject'] for e in supervisor.alerts(s, c)],
+                                     ['Builder model_unknown: TASK-1',
+                                      'Builder progress_unknown: TASK-1'])
+            state.write(c, 'launch-preparations', {'/lane': proof})
+            for task in (None, '', 'unknown', 'TASK-2'):
+                with self.subTest(task=task):
+                    s['inventory']['builders'][0]['task'] = task
+                    self.assertEqual(len(supervisor.alerts(s, c)), 2)
+            s['inventory']['builders'][0]['task'] = 'TASK-1'
+            with patch.object(supervisor.state, 'read', side_effect=OSError('unreadable')):
+                self.assertEqual(len(supervisor.alerts(s, c)), 2)
+
     def test_receipt_grace_expires_without_hiding_other_health_failures(self):
         s = sample(pr())
         b = s['inventory']['builders'][0]
