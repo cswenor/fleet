@@ -113,6 +113,34 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-106 — Preflight restart admission and preserve user files
+
+Restart checks tracked cleanliness, task branch checkout feasibility without
+switching the live session, rules availability, Pad admission, coordinator
+visibility and quota/disk/capacity before retirement. Preflight refusals explicitly
+leave the old session untouched. Normal launch checks repeat after retirement;
+if a hook or concurrent change withholds that launch, fix admission and use
+`fleet launch NEXT --slot PATH`, not another restart.
+
+Launch preserves non-ignored untracked files, recording the first 50 relative
+paths and total count in its receipt and a fixed user-ownership warning in the
+builder prompt. Tracked/staged changes and conflicting checkouts still refuse.
+Same-ref recovery preserves the branch and committed WIP without fetch/switch,
+but now refuses uncommitted tracked changes too.
+
+Main's live lane2 drill on candidate `4f2d1cf` passed: TASK-107 → TASK-108 restart
+launched `1794369563248871263`, listing `drill-user-file.txt` in receipt and prompt;
+the file stayed untracked with unchanged hash. Fresh session `01a1c8c2` recorded
+Sol/medium without fallback. A later tracked README change refused before retirement;
+OMP PID 564797 stayed alive, idle pane and TASK-108 launch receipt unchanged.
+Main's acceptance and safe point are recorded in `msg_d4e3e458b065` on TASK-106.
+
+Independent review found a P2: the initial preflight required tracked rules.
+The corrected check resolves target-tree files/symlinks plus preserved untracked,
+ignored or absolute rules; it still refuses removed, missing or cyclic rules.
+Final-head Sol-medium review, green CI and Main exact-head GO remain required;
+shared deployment is Main-owned.
+
 ### TASK-104 — Resume PARKED attempts on the same ref
 
 Main-confirmed same-ref `restart REF --slot PATH --finished-ref REF` accepts a

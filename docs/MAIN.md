@@ -102,9 +102,12 @@ independent read-only unadvised Sol review then final-head green CI, small PR.
 ```
 
 Check slot state and preserve user work. Same-ref recovery (last launch ref or
-current task-branch ref matches) keeps the exact branch and dirty/unpushed WIP,
-without fetch or switch. Different-ref launch fetches origin, refuses dirty
-or unpushed work, and prepares `task-<n>-<title-slug>` from `origin/main` (or reuses
+current task-branch ref matches) keeps the exact branch and committed/unpushed WIP,
+without fetch or switch. Tracked/staged changes withhold launch. Untracked user
+files are preserved, listed (first 50 paths plus total count) in the launch receipt
+and protected by a fixed builder-prompt instruction. Conflicting checkouts refuse.
+Different-ref launch fetches origin, refuses detached or unpushed work, and prepares
+`task-<n>-<title-slug>` from `origin/main` (or reuses
 a pushed unmerged exact task branch). Merged names are preserved with numeric
 suffixes for new pieces. No stash/reset/clean. Branch, prompt and launch receipt
 agree before builder input. Keep OLD's branch intact until restart verifies exit.
@@ -340,9 +343,15 @@ all remaining argv must match, and target environment cannot authorize a path.
 Unsupported/unreadable evidence refuses. Exact-pane idle/done and a current empty
 idle composer are required; only top-level credential/title metadata and exact
 `custom/todo_hud_state` UI snapshots may follow the final assistant stop. It checks
-next-task eligibility and admission before journaling `/exit`, verifies the
-same-incarnation shell, then rechecks normal launch gates under one lock.
-Inspect `retirements.json` and launch receipts on any partial error; never retry retirement blindly.
+next-task eligibility, quota/reserve, disk/capacity, coordinator visibility, tracked
+cleanliness, rules availability and branch checkout feasibility before journaling
+`/exit`; preflight never switches the old session's branch. A refusal leaves the
+old session untouched. It verifies the same-incarnation shell, then rechecks normal
+launch gates under one lock. Hooks and concurrent changes can still cause a later
+refusal. Inspect `retirements.json` and launch receipts on any partial error.
+After verified retirement and no replacement launch, fix admission and run
+`fleet --config CONFIG launch NEXT --slot PATH`, **not restart**. No recreated
+terminal is needed; never retry retirement blindly.
 Pre-binding/legacy sessions without proof remain manual reconciliation, not
 permission for forced retirement. This does not restart Orca or the supervisor.
 

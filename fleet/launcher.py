@@ -1,6 +1,9 @@
 """Explicit guarded fresh launches; reuse only a terminal at a verified shell prompt."""
 from contextlib import contextmanager, nullcontext
+from collections import deque
 from pathlib import Path
+import json
+import os
 import re
 import shlex
 import time
@@ -36,17 +39,88 @@ def _preparation_receipt(c, ref):
         raise
 
 
-def _prepare_branch(c, ref, item, slot):
-    """Prepare different-ref launches; same-ref recovery preserves exact WIP."""
+def _untracked(slot):
+    paths = run(['git', 'ls-files', '--others', '--exclude-standard', '-z'], slot, text=False)
+    names = [os.fsdecode(path) for path in paths.split(b'\0') if path]
+    return names[:50], len(names)
+
+
+def _rules_after_checkout(c, slot, destination):
+    """Resolve the rules file against the target tree plus preserved user files."""
+    root = Path(slot).resolve()
+    path = root / c['builder']['rules_file']
+
+    def entry(tree, relative):
+        data = run(['git', 'ls-tree', '-z', tree, '--', str(relative)], slot, text=False)
+        return data.split(b'\t', 1)[0].split() if data else None
+
+    pending = deque(path.parts[1:])
+    current = Path(path.anchor)
+    links = 0
+    while pending:
+        part = pending.popleft()
+        if part == '..':
+            current = current.parent
+            continue
+        candidate = current / part
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError:
+            relative = None
+        target = entry(destination, relative) if relative and relative.parts else None
+        link = None
+        if target:
+            mode, kind, oid = target
+            if mode == b'120000':
+                link = os.fsdecode(run(['git', 'cat-file', 'blob', oid.decode('ascii')],
+                                       slot, text=False))
+            directory, regular = kind == b'tree', kind == b'blob'
+        else:
+            old = entry('HEAD', relative) if relative and relative.parts else None
+            if old and old[1] != b'tree':
+                break  # A removed tracked file/symlink does not survive checkout.
+            if candidate.is_symlink():
+                link = os.readlink(candidate)
+            directory, regular = candidate.is_dir(), candidate.is_file()
+            if old and directory:
+                directory = bool(run(['git', 'ls-files', '--others', '--directory', '-z',
+                                      '--', str(relative)], slot, text=False))
+        if link is not None:
+            links += 1
+            if links > 40:
+                break
+            target_path = Path(link)
+            if target_path.is_absolute():
+                current = Path(target_path.anchor)
+                parts = target_path.parts[1:]
+            else:
+                parts = target_path.parts
+            pending.extendleft(reversed(parts))
+            continue
+        if not pending:
+            if regular:
+                return
+            break
+        if not directory:
+            break
+        current = candidate
+    raise ValueError('configured project rules_file would be absent after checkout')
+
+
+def _prepare_branch(c, ref, item, slot, *, dry_run=False):
+    """Check preparation without switching a live session's branch during preflight."""
     current = run(['git', 'branch', '--show-current'], slot).strip()
     if not current:
         raise ValueError('launch withheld: slot has detached HEAD')
+    if run(['git', 'status', '--porcelain', '--untracked-files=no'], slot).strip():
+        raise ValueError('launch withheld: slot has uncommitted tracked work')
     previous = state.read(c, 'launches', {}).get(slot, {})
     if previous.get('ref') == ref or re.match(re.escape(ref.lower()) + r'(?:-|$)', current.lower()):
+        if dry_run and c.get('builder', {}).get('rules_file'):
+            _rules_after_checkout(c, slot, 'HEAD')
         return current
     run(['git', 'fetch', '--prune', 'origin'], slot)
-    if run(['git', 'status', '--porcelain'], slot).strip():
-        raise ValueError('launch withheld: slot has uncommitted work')
+    # Untracked user files are allowed, unless the target checkout would overwrite them.
     if run(['git', 'rev-list', 'HEAD', '--not', '--remotes=origin'], slot).strip():
         # Squash/rebase publication may outlive the deleted origin task ref.
         head = run(['git', 'rev-parse', 'HEAD'], slot).strip()
@@ -72,14 +146,24 @@ def _prepare_branch(c, ref, item, slot):
             suffix += 1
             branch = f'{base}-{suffix}'
             continue
-        if target is None:
-            run(['git', 'switch', '--no-track', '-c', branch, 'origin/main'], slot)
-            break
-        if run(['git', 'rev-list', target, '--not', '--remotes=origin'], slot).strip():
+        if local in refs:
+            owner = run(['git', 'for-each-ref', '--format=%(worktreepath)', local], slot).strip()
+            if owner and Path(owner).resolve() != Path(slot).resolve():
+                raise ValueError('launch withheld: task branch is checked out in another worktree')
+        if target and run(['git', 'rev-list', target, '--not', '--remotes=origin'], slot).strip():
             raise ValueError('launch withheld: existing task branch has unpushed work')
         if local in refs and remote in refs:
             if run(['git', 'rev-list', remote, '--not', local], slot).strip():
                 raise ValueError('launch withheld: existing task branch is behind or diverged from origin')
+        destination = target or 'origin/main'
+        run(['git', 'read-tree', '--dry-run', '-m', '-u', 'HEAD', destination], slot)
+        if dry_run:
+            if c.get('builder', {}).get('rules_file'):
+                _rules_after_checkout(c, slot, destination)
+            break
+        if target is None:
+            run(['git', 'switch', '--no-track', '-c', branch, 'origin/main'], slot)
+            break
         if local in refs:
             run(['git', 'switch', branch], slot)
         else:
@@ -154,6 +238,7 @@ def launch(c, ref, slot=None, *, _locked=False):
             run(c['hooks']['before_launch'], w['path'])
         preparation.update(slot=w['path'], worktree=w, stage='prepared')
         preparation.update(stage='preparation-attempted', action='task-branch')
+        untracked_files, untracked_count = _untracked(w['path'])
         branch = _prepare_branch(c, ref, item, w['path'])
         w = dict(w, branch=branch)
         preparation.update(worktree=w, branch=branch, stage='prepared')
@@ -175,6 +260,10 @@ def launch(c, ref, slot=None, *, _locked=False):
         rules = Path(w['path']) / b['rules_file']
         if not rules.is_file():
             raise ValueError('configured project rules_file is absent in slot')
+        untracked_notice = ('Pre-existing untracked files in this slot belong to the user: '
+                            'never stage, commit, move or delete them: ' +
+                            json.dumps(untracked_files, ensure_ascii=True) +
+                            f' ({untracked_count} total; listing {len(untracked_files)})')
         thread_command = shlex.join(['fleet', '--config',
                                      str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
                                      'thread', 'open', ref, '--slot', w['path']])
@@ -193,6 +282,7 @@ def launch(c, ref, slot=None, *, _locked=False):
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
 Prepared task branch: {branch}. Publish this task from this branch.
+{untracked_notice}
 Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
 Never create extra git worktrees. Self-publish according to project rules.
 Open the durable task thread before working: {thread_command}
@@ -266,6 +356,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                    'terminal_selection': {'action': 'reuse' if handle is not None else 'create',
                                           'reason': reason, 'skipped_terminals': skipped},
                    'session_dir': str(session_dir),
+                   'untracked_files': untracked_files, 'untracked_count': untracked_count,
                    'receipt': result, 'prompt': str(prompt_path), 'overlay': str(overlay)}
         state.write(c, 'last-launch', receipt)
         launches = state.read(c, 'launches', {})

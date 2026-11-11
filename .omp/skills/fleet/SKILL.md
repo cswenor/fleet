@@ -259,8 +259,11 @@ Observable acceptance: real scenario, failure boundaries, review + CI receipts.
 prose dates, budget and dependencies. It reserves nothing. Launch rechecks under
 lock; unknown quota/liveness or unresolved receipts block starts. Same-ref
 recovery (last launch ref or current task-branch ref matches) preserves the exact
-branch and dirty/unpushed WIP without fetch/switch. Different-ref launch fetches
-origin, refuses dirty/detached/unpushed work, then prepares the title-derived task
+branch and committed/unpushed WIP without fetch/switch. Tracked/staged changes
+withhold launch; untracked user files are preserved and listed in the receipt
+(first 50 paths plus count) and protected by the builder prompt. Conflicting
+checkouts refuse. Different-ref launch fetches origin, refuses detached/unpushed
+work, then prepares the title-derived task
 branch from `origin/main` or reuses its pushed unmerged branch. Merged name
 collisions receive numeric suffixes; existing branches are never reset/deleted.
 The prompt and receipt name the prepared branch; primary `thread open` verifies
@@ -512,7 +515,7 @@ commit/push WIP, write a concrete Pad resume comment, then make
 `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last lane
 action. It verifies clean tracked files and HEAD equal to the actual origin branch
 head. Non-ignored untracked files are preserved regardless of age and listed
-(up to 50 relative paths plus total count); different-ref launch still refuses dirt.
+(up to 50 relative paths plus total count); launch still refuses tracked dirt.
 It records park completion and settles the attempt without a merged PR.
 Main may use guarded different-ref restart to reassign the slot, or same-ref
 restart to confirm a fresh resume on the parked branch. PARKED attempts cannot

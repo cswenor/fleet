@@ -251,7 +251,9 @@ def _target(c, slot):
     trees = [w for w in inventory['worktrees'] if w['path'] == slot]
     candidates = [b for b in inventory['builders'] if b['path'] == slot and health.active(b)]
     if len(trees) != 1 or len(candidates) != 1:
-        raise ValueError('slot must have exactly one non-shell session; ambiguous or absent target')
+        raise ValueError('slot must have exactly one non-shell session; ambiguous or absent target; '
+                         'if already retired, inspect retirement/launch receipts and, after fixing admission '
+                         'and confirming no replacement started, use fleet launch NEXT --slot PATH, not restart')
     target = candidates[0]
     if not target['connected']:
         raise ValueError('target disconnected or orphaned; retirement withheld')
@@ -421,13 +423,19 @@ def restart(c, ref, slot, finished_ref):
         proof = _idle(c, record, tree, target['terminal'])
         completion = _completion(c, ref, finished_ref, record)
         # Validate next task and gates before retiring, then again inside normal launch.
-        s = snapshot.collect(c)
-        # Only this exact proven old launch is exempt; competing receipts still block.
-        dispatcher.check_launch(c, ref, s['inventory'], slot, retiring=record)
-        s['inventory']['builders'] = [b for b in s['inventory']['builders'] if b['terminal'] != target['terminal']]
-        admission = snapshot.may_start(c, s)
-        if not admission['may_start']:
-            raise ValueError('restart withheld: ' + '; '.join(admission['reasons']))
+        try:
+            s = snapshot.collect(c)
+            # Only this exact proven old launch is exempt; competing receipts still block.
+            item = dispatcher.check_launch(c, ref, s['inventory'], slot, retiring=record)
+            s['inventory']['builders'] = [b for b in s['inventory']['builders'] if b['terminal'] != target['terminal']]
+            admission = snapshot.may_start(c, s)
+            if not admission['may_start']:
+                raise ValueError('; '.join(admission['reasons']))
+            launcher.orca(c, 'terminal', 'show', '--terminal', c['coordinator']['terminal'])
+            launcher.orca(c, 'orchestration', 'run-show', '--id', c['coordinator']['run'])
+            launcher._prepare_branch(c, ref, item, slot, dry_run=True)
+        except (ValueError, CommandError) as exc:
+            raise ValueError(f'restart preflight withheld: {exc}; old session untouched') from exc
         fresh_tree, fresh_target = _target(c, slot)
         fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof)
         if (fresh_tree != tree or fresh_target['terminal'] != target['terminal'] or

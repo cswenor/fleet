@@ -845,7 +845,7 @@ unchanged live terminal ownership, no pending decisions, a clean tracked worktre
 and local HEAD equal to the actual origin branch head (not a tracking cache).
 Non-ignored untracked files are preserved regardless of age. Receipts/report
 bodies list up to 50 relative paths and the total count (`untracked_files`,
-`untracked_count` in the receipt). Different-ref launch still refuses dirty slots.
+`untracked_count` in the receipt). Launch refuses tracked changes, not untracked files.
 The exact Pad comment must exist on REF and be newer than the launch.
 The command reports PARKED, records the park receipt and settles the attempt;
 no merged PR or fake done status is required. Main can use guarded different-ref
@@ -934,9 +934,12 @@ For other vocabularies set a complete `pad.statuses` mapping with `not_started`,
 There are **no automatic starts**. Main inspects `next`, writes the Pad brief,
 and explicitly runs `launch REF --slot PATH`. Same-ref recovery (the slot's last
 launch ref matches, or its current branch starts with the exact task ref) keeps
-the existing branch, index and dirty/unpushed WIP: no fetch or switch, even if
-the Pad title changed. Existing occupancy, receipt and admission guards remain.
-For different-ref launches the launcher fetches origin and refuses dirty,
+the existing branch and committed/unpushed WIP: no fetch or switch, even if
+the Pad title changed. Tracked modifications and staged changes withhold launch.
+Non-ignored untracked user files are preserved; the launch receipt records the
+first 50 relative paths and total count, and the prompt forbids staging, committing,
+moving or deleting them. A target checkout that conflicts with them refuses.
+For different-ref launches the launcher fetches origin and refuses
 detached or unpushed current work before switching. It creates
 `task-<n>-<title-slug>` from `origin/main`, or reuses that exact
 unmerged, pushed task branch. A remote-only task branch is checked out locally;

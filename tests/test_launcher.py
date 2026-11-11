@@ -18,6 +18,7 @@ class RestartTests(unittest.TestCase):
         self.slot = str(root / 'slot')
         Path(self.slot).mkdir()
         (Path(self.slot) / 'RULES.md').write_text('rules')
+        subprocess.run(['git', 'init', self.slot], check=True, capture_output=True)
         self.c = {'root': self.directory.name, '_state': str(root / 'state'), 'repo': 'owner/project',
                   'orca': '/orca', 'orca_repo_id': 'repo', 'pad_workspace': 'workspace',
                   'coordinator': {'terminal': 'main', 'run': 'run'}, 'hooks': {},
@@ -57,9 +58,46 @@ class RestartTests(unittest.TestCase):
             return {'send': {'handle': handle, 'accepted': True}}
         return {}
 
-    def launch(self, snapshots=None, automatic=False):
-        with patch.object(launcher, '_prepare_branch', return_value='task-123-test'), patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run'), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'title': 'Test', 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
+    def command(self, argv, cwd, **kwargs):
+        if argv[:2] == ['git', 'ls-files']:
+            return subprocess.run(argv, cwd=cwd, check=True, capture_output=True).stdout
+        return ''
+
+    def launch(self, snapshots=None, automatic=False, preparation=None):
+        with patch.object(launcher, '_prepare_branch', return_value='task-123-test', side_effect=preparation), patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run', side_effect=self.command), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'title': 'Test', 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
             return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot)
+
+    def test_launch_preserves_and_reports_user_files(self):
+        user = Path(self.slot) / 'user\nnotes'
+        user.write_bytes(b'user\x00content')
+        receipt = self.launch()
+        self.assertIn(user.name, receipt['untracked_files'])
+        self.assertEqual(receipt['untracked_count'], 2)
+        prompt = Path(receipt['prompt']).read_text()
+        self.assertIn('never stage, commit, move or delete them: ', prompt)
+        self.assertIn(json.dumps(user.name), prompt)
+        self.assertEqual(user.read_bytes(), b'user\x00content')
+
+    def test_user_file_notice_survives_checkout_ignore_changes(self):
+        user = Path(self.slot) / 'user-file'
+        user.write_text('user content')
+        def prepare(*args):
+            (Path(self.slot) / '.git/info/exclude').write_text('user-file\n')
+            return 'task-123-test'
+        receipt = self.launch(preparation=prepare)
+        self.assertIn(user.name, receipt['untracked_files'])
+        self.assertIn(json.dumps(user.name), Path(receipt['prompt']).read_text())
+        self.assertEqual(user.read_text(), 'user content')
+
+    def test_launch_recovers_after_retirement_then_withheld_launch(self):
+        old = {'id': 'old', 'ref': 'TASK-122', 'terminal': 'old-shell',
+               'terminal_incarnation_id': 'inc', 'worktree': {'path': self.slot}}
+        state.write(self.c, 'launches', {self.slot: old})
+        state.write(self.c, 'retirements', {self.slot: {
+            'launch_id': 'old', 'terminal': 'old-shell', 'terminal_incarnation_id': 'inc',
+            'next_ref': 'TASK-123', 'stage': 'launch-attempted', 'failure': 'ValueError'}})
+        self.assertEqual(self.launch()['terminal'], 'old-shell')
+        self.assertEqual(self.sent, ['old-shell'])
 
     def test_builder_cannot_automatically_spend_saved_resets(self):
         self.launch()
@@ -338,6 +376,120 @@ class BranchPreparationTests(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-m', 'change')
 
+    def test_untracked_file_survives_preflight_and_switch(self):
+        user = self.slot / 'user notes'
+        user.write_bytes(b'private\x00bytes')
+        before = self.git('rev-parse', 'HEAD')
+        branch = launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                          str(self.slot), dry_run=True)
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), before)
+        self.assertEqual(self.prepare(), branch)
+        self.assertEqual(user.read_bytes(), b'private\x00bytes')
+
+    def test_conflicting_untracked_file_refuses_without_switching(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        (self.slot / 'conflict').write_text('target content')
+        self.git('add', 'conflict')
+        self.git('commit', '-m', 'target')
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        (self.slot / 'conflict').write_text('user content')
+        before = self.git('write-tree')
+        with self.assertRaises(CommandError):
+            launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                     str(self.slot), dry_run=True)
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+        self.assertEqual(self.git('write-tree'), before)
+        self.assertEqual((self.slot / 'conflict').read_text(), 'user content')
+
+    def test_rules_preflight_preserves_untracked_ignored_and_absolute_files(self):
+        (self.slot / '.git/info/exclude').write_text('ignored-rules\n')
+        paths = [self.slot / 'user-rules', self.slot / 'ignored-rules', self.root / 'private-rules']
+        for path in paths:
+            path.write_text('user instructions')
+            self.c['builder'] = {'rules_file': str(path) if path.parent == self.root else path.name}
+            branch = launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                              str(self.slot), dry_run=True)
+            self.assertEqual(branch, 'task-123-fix-branch')
+            self.assertEqual(path.read_text(), 'user instructions')
+            self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
+    def test_rules_added_on_target_are_available_but_removed_rules_refuse(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        self.git('rm', 'file')
+        (self.slot / 'new-rules').write_text('new instructions')
+        self.git('add', 'new-rules')
+        self.git('commit', '-m', 'replace rules')
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        self.c['builder'] = {'rules_file': 'new-rules'}
+        self.assertEqual(launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                                 str(self.slot), dry_run=True), 'task-123-fix-branch')
+        self.assertFalse((self.slot / 'new-rules').exists())
+        self.c['builder']['rules_file'] = 'file'
+        with self.assertRaisesRegex(ValueError, 'rules_file would be absent'):
+            launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                     str(self.slot), dry_run=True)
+        self.assertEqual((self.slot / 'file').read_text(), 'base')
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
+    def test_rules_symlinks_resolve_against_target_not_current_files(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        (self.slot / 'rules-link').symlink_to('file')
+        (self.slot / 'bad-link').symlink_to('missing')
+        (self.slot / 'loop-link').symlink_to('loop-link')
+        self.git('add', 'rules-link', 'bad-link', 'loop-link')
+        self.git('commit', '-m', 'rules links')
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        self.c['builder'] = {'rules_file': 'rules-link'}
+        self.assertEqual(launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                                 str(self.slot), dry_run=True), 'task-123-fix-branch')
+        for name in ('bad-link', 'loop-link'):
+            self.c['builder']['rules_file'] = name
+            with self.assertRaisesRegex(ValueError, 'rules_file would be absent'):
+                launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                         str(self.slot), dry_run=True)
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
+    def test_preserved_rules_symlinks_cannot_hide_deleted_target_files(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        self.git('rm', 'file')
+        self.git('commit', '-m', 'remove instructions')
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        links = [self.slot / 'user-rules', self.root / 'external-rules']
+        for path in links:
+            path.symlink_to(self.slot / 'file')
+            self.c['builder'] = {'rules_file': str(path)}
+            self.assertTrue(path.is_file())
+            with self.assertRaisesRegex(ValueError, 'rules_file would be absent'):
+                launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                         str(self.slot), dry_run=True)
+            self.assertTrue(path.is_symlink())
+        self.assertEqual((self.slot / 'file').read_text(), 'base')
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
+    def test_rules_parent_components_require_real_target_directories(self):
+        self.git('switch', '-c', 'task-123-fix-branch')
+        (self.slot / 'bad-rules').symlink_to('missing/../file')
+        (self.slot / 'good-rules').symlink_to('present/../file')
+        (self.slot / 'present').mkdir()
+        (self.slot / 'present/kept').write_text('kept')
+        self.git('add', 'bad-rules', 'good-rules', 'present')
+        self.git('commit', '-m', 'rules paths with parent components')
+        self.git('push', 'origin', 'HEAD')
+        self.git('switch', 'main')
+        self.c['builder'] = {'rules_file': 'bad-rules'}
+        with self.assertRaisesRegex(ValueError, 'rules_file would be absent'):
+            launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                     str(self.slot), dry_run=True)
+        self.c['builder']['rules_file'] = 'good-rules'
+        self.assertEqual(launcher._prepare_branch(self.c, 'TASK-123', {'title': 'Fix branch!'},
+                                                 str(self.slot), dry_run=True), 'task-123-fix-branch')
+        self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
+
     def test_same_ref_dirty_unpushed_recovery_preserves_everything(self):
         for branch, previous_ref in (('task-123-original-title', 'TASK-122'),
                                      ('custom-existing-branch', 'TASK-123')):
@@ -356,7 +508,8 @@ class BranchPreparationTests(unittest.TestCase):
                     ('status', ('status', '--porcelain')))}
                 # Fetch would fail; same-ref recovery must not need the network.
                 self.git('remote', 'set-url', 'origin', str(self.root / 'absent-origin'))
-                self.assertEqual(self.prepare(), branch)
+                with self.assertRaisesRegex(ValueError, 'uncommitted tracked'):
+                    self.prepare()
                 for name, args in (('head', ('rev-parse', 'HEAD')),
                                    ('index', ('diff', '--cached')),
                                    ('worktree', ('diff',)),
@@ -411,7 +564,7 @@ class BranchPreparationTests(unittest.TestCase):
 
 
     def test_dirty_and_unpushed_work_refuse_without_switching(self):
-        (self.slot / 'untracked').write_text('user work')
+        (self.slot / 'file').write_text('user work')
         with self.assertRaisesRegex(ValueError, 'uncommitted'):
             self.prepare()
         self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
@@ -419,7 +572,7 @@ class BranchPreparationTests(unittest.TestCase):
         self.git('commit', '-m', 'private')
         with self.assertRaisesRegex(ValueError, 'unpushed'):
             self.prepare()
-        self.assertEqual((self.slot / 'untracked').read_text(), 'user work')
+        self.assertEqual((self.slot / 'file').read_text(), 'user work')
         self.assertEqual(self.git('branch', '--show-current').strip(), 'main')
 
     def test_reuses_pushed_unmerged_task_branch_without_repointing(self):

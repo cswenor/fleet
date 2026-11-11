@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 from fleet import restart, state
@@ -22,6 +23,10 @@ class RetirementTests(unittest.TestCase):
         self.c = {'root': self.slot, '_state': str(root / 'state'), 'repo': 'owner/repo',
                   'pad_workspace': 'project', 'builder': {'slots': [self.slot], 'max': 1,
                                                         'model': 'provider/model', 'thinking': 'medium'}}
+        self.c['coordinator'] = {'terminal': 'main', 'run': 'run'}
+        self.c['builder']['rules_file'] = 'RULES.md'
+        (root / 'RULES.md').write_text('rules')
+        self.prepare_branch = restart.launcher._prepare_branch
         self.tree = {'id': 'tree', 'path': self.slot}
         self.builder = {'terminal': 'target', 'path': self.slot, 'connected': True, 'shell_ready': False}
         self.inventory = {'errors': [], 'worktrees': [self.tree], 'builders': [self.builder]}
@@ -75,6 +80,8 @@ class RetirementTests(unittest.TestCase):
                             'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True}, 'disk': {'low': False}}),
                         patch.object(restart.dispatcher, 'pad', side_effect=self.dispatcher_pad),
                         patch.object(restart.dispatcher, 'run', return_value='task-1'),
+                        patch.object(restart.launcher, '_prepare_branch', return_value='task-2'),
+                        patch.object(restart.launcher, 'orca', side_effect=self.orca),
                         patch.object(restart.launcher, 'launch', return_value={'id': 'new'})]
         for p in self.patches:
             p.start()
@@ -136,7 +143,7 @@ class RetirementTests(unittest.TestCase):
             return self.next_edges
         if args[2] == 'PLAN-1':
             return {'ref': args[2], 'fields': {'status': self.next_parent_status}}
-        return {'ref': args[2], 'fields': {'status': self.next_status}, 'parent_ref': 'PLAN-1'}
+        return {'ref': args[2], 'title': 'Test', 'fields': {'status': self.next_status}, 'parent_ref': 'PLAN-1'}
 
     def pad(self, argv, cwd):
         if argv[0] == 'omp':
@@ -144,6 +151,8 @@ class RetirementTests(unittest.TestCase):
         return self.comments if 'comments' in argv else self.item
 
     def orca(self, c, *args):
+        if args[:2] == ('orchestration', 'run-show'):
+            return {}
         if args[:2] == ('terminal', 'show'):
             return {'terminal': self.terminal}
         if args[:2] == ('terminal', 'read'):
@@ -185,6 +194,49 @@ class RetirementTests(unittest.TestCase):
             self.run_restart()
         self.assertEqual(self.sent, [])
         self.launch.assert_not_called()
+
+    def test_tracked_work_refuses_before_exit(self):
+        def git(*args):
+            return subprocess.run(['git', *args], cwd=self.slot, check=True,
+                                  capture_output=True).stdout
+        git('init')
+        git('config', 'user.name', 'Test')
+        git('config', 'user.email', 'test@example.invalid')
+        git('add', 'RULES.md')
+        git('commit', '-m', 'base')
+        (Path(self.slot) / 'RULES.md').write_text('user work')
+        with patch.object(restart.launcher, '_prepare_branch', wraps=self.prepare_branch):
+            self.refused('uncommitted tracked.*old session untouched')
+        self.assertFalse(self.exited)
+        self.assertEqual((Path(self.slot) / 'RULES.md').read_text(), 'user work')
+
+    def test_checkout_conflict_refuses_before_exit(self):
+        git = lambda *args: subprocess.run(['git', *args], cwd=self.slot, check=True,
+                                           capture_output=True).stdout
+        remote = Path(self.temp.name) / 'remote.git'
+        git('init', '--bare', str(remote))
+        git('init')
+        git('config', 'user.name', 'Test')
+        git('config', 'user.email', 'test@example.invalid')
+        git('switch', '-c', 'main')
+        git('add', 'RULES.md')
+        git('commit', '-m', 'base')
+        git('remote', 'add', 'origin', str(remote))
+        git('push', 'origin', 'main')
+        git('switch', '-c', 'task-2-test')
+        user = Path(self.slot) / 'conflict'
+        user.write_text('target')
+        git('add', 'conflict')
+        git('commit', '-m', 'target')
+        git('push', 'origin', 'HEAD')
+        git('switch', 'main')
+        user.write_text('user')
+        with patch.object(restart.launcher, '_prepare_branch', wraps=self.prepare_branch), \
+                patch.object(restart.launcher, 'gh', return_value=[]):
+            self.refused('old session untouched')
+        self.assertFalse(self.exited)
+        self.assertEqual(user.read_text(), 'user')
+        self.assertEqual(git('branch', '--show-current').strip(), b'main')
 
     def test_finished_idle_session_exits_once_then_launches(self):
         result = self.run_restart()
@@ -734,6 +786,10 @@ class RetirementTests(unittest.TestCase):
         self.sent.clear()
         self.launch.reset_mock()
         self.refused('already attempted')
+
+    def test_already_retired_shell_refuses_restart_with_launch_recovery(self):
+        self.builder['shell_ready'] = True
+        self.refused('exactly one non-shell session.*fleet launch NEXT --slot PATH')
 
     def test_reserve_failure_does_not_retire_finished_session(self):
         with patch.object(restart.snapshot, 'may_start', return_value={'may_start': False, 'reasons': ['quota reserve']}):
