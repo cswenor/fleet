@@ -1,5 +1,7 @@
 """One snapshot contract for CLI, daemon, and central status."""
 import json
+import os
+import re
 from pathlib import Path
 import shutil
 import time
@@ -21,6 +23,29 @@ def _github(c, result):
                                            'blocked': True, 'reset': session.blocked_until}
 
 
+def _collection_reason(error):
+    lines = str(error).splitlines()
+    message = lines[0] if lines else ''
+    message = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', message)
+    message = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', message)
+    # Exception messages may contain shell assignments or private configured values.
+    for name, value in os.environ.items():
+        if value and (len(value) >= 8 or re.search(
+                r'(?i)token|secret|password|credential|auth|api_?key', name)):
+            message = message.replace(value, '[redacted]')
+    message = re.sub(
+        r'(?i)\b(?:[A-Z_][A-Z_0-9]*\s*=|(?:password|secret|api[_-]?key|token)\s*:)\s*'
+        r'(?:"(?:\\.|[^"\\])*"?|\'(?:\\.|[^\'\\])*\'?|\S+)',
+        '[redacted assignment]', message)
+    message = re.sub(
+        r'(?i)(--?(?:password|secret|token|api[_-]?key|authorization))(?:=|\s+)'
+        r'(?:"(?:\\.|[^"\\])*"?|\'(?:\\.|[^\'\\])*\'?|\S+)',
+        r'\1 [redacted]', message)
+    message = re.sub(r'\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/]*@[^\s]*',
+                     '[redacted URL]', message)
+    return (type(error).__name__ + ': ' + health._screen_evidence(message))[:200]
+
+
 def collect(c):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
@@ -31,8 +56,10 @@ def collect(c):
         except github_api.BudgetLow as error:
             result['github_budget'] = {**result.get('github_budget', {}), 'reset': error.reset,
                                        'blocked': True}
-        except (CommandError, ValueError, KeyError, TypeError):
-            result['errors'].append(key + ' collection unavailable')
+        except (CommandError, ValueError, KeyError, TypeError) as error:
+            label = key + ' collection unavailable'
+            result['errors'].append(label)
+            result.setdefault('error_details', {})[label] = _collection_reason(error)
     if result.get('inventory') is not None and result.get('github') is not None:
         health.add_pr_stalls(c, result['inventory'], result['github'], now)
     if c.get('_drill_usage_file'):
@@ -42,8 +69,10 @@ def collect(c):
     try:
         free = shutil.disk_usage(c['disk']['path']).free / 1_000_000_000
         result['disk'] = {'path': c['disk']['path'], 'free_gb': round(free, 2), 'min_free_gb': c['disk']['min_free_gb'], 'low': free < c['disk']['min_free_gb']}
-    except OSError:
-        result['errors'].append('disk collection unavailable')
+    except OSError as error:
+        label = 'disk collection unavailable'
+        result['errors'].append(label)
+        result.setdefault('error_details', {})[label] = _collection_reason(error)
     return result
 
 

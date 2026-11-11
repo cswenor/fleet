@@ -750,7 +750,18 @@ def cycle(c, deliver=True):
         candidate = _lane_free_candidate(c, builder)
         if candidate:
             lane_free[builder['path']] = candidate
+    failures = {error for error in s.get('errors', [])
+                if error.endswith(' collection unavailable')}
+    previous_failures = ledger.get('collection_failure_streaks', {})
+    streaks = {error: min(2, previous_failures.get(error, 0) + 1) for error in failures}
+    ledger['collection_failure_streaks'] = streaks
     active = alerts(s, c, lane_free) + pr_alerts + main_alerts(c, s, ledger, time.time())
+    active = [a for a in active if a['key'].removeprefix('error:') not in streaks
+              or streaks[a['key'].removeprefix('error:')] >= 2]
+    for alert in active:
+        reason = s.get('error_details', {}).get(alert['key'].removeprefix('error:'))
+        if reason:
+            alert['body'] += ': ' + reason
     # Unknown collection/progress is not recovery: retain occurrence dedupe.
     prior_alerts = ledger.get('active_alerts', {})
     active_stuck = {

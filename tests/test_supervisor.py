@@ -172,6 +172,53 @@ class DeliveryTests(unittest.TestCase):
                     supervisor.cycle(c)
             self.assertEqual(calls, ['run:r', 'builder', 'run:r', 'builder'])
 
+class CollectionAlertTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.c = {'_state': directory.name, 'coordinator': {'run': 'r', 'wake': False},
+                  'hooks': {}, 'status': {'url': '', 'token_env': ''}}
+        self.s = sample(pr())
+        self.s['inventory']['builders'] = []
+        self.calls = []
+        collect = patch.object(supervisor.snapshot, 'collect', return_value=self.s)
+        collect.start()
+        self.addCleanup(collect.stop)
+        enqueue = patch.object(supervisor, 'enqueue',
+                               side_effect=lambda c, event, recipient: self.calls.append(event))
+        enqueue.start()
+        self.addCleanup(enqueue.stop)
+
+    def test_two_failures_persist_and_relay_latest_reason_once(self):
+        for key in ('github', 'inventory', 'coordinator', 'disk', 'quota'):
+            with self.subTest(key=key):
+                state.write(self.c, 'supervisor', {
+                    'github': {}, 'pending': [], 'sent': {}, 'active_alerts': {}})
+                self.calls.clear()
+                label = key + ' collection unavailable'
+                self.s['errors'] = [label]
+                self.s['error_details'] = {label: 'CommandError: first failure'}
+                supervisor.cycle(self.c)
+                self.assertEqual(self.calls, [])
+                self.assertEqual(state.read(self.c, 'supervisor')['collection_failure_streaks'],
+                                 {label: 1})
+                self.s['error_details'][label] = 'CommandError: latest failure'
+                supervisor.cycle(self.c)
+                supervisor.cycle(self.c)
+                self.assertEqual([e['body'] for e in self.calls],
+                                 [label + ': CommandError: latest failure'])
+
+    def test_recovery_and_different_key_break_consecutive_failures(self):
+        for errors in (['github collection unavailable'], [],
+                       ['github collection unavailable'], ['disk collection unavailable']):
+            self.s['errors'] = errors
+            supervisor.cycle(self.c)
+        self.assertEqual(self.calls, [])
+        self.s['errors'] = ['disk collection unavailable']
+        supervisor.cycle(self.c)
+        self.assertEqual([e['body'] for e in self.calls], ['disk collection unavailable'])
+
+
 
 class QuotaAlertTests(unittest.TestCase):
     def setUp(self):
@@ -260,8 +307,10 @@ class QuotaAlertTests(unittest.TestCase):
         self.s['errors'] = ['github collection unavailable']
         self.s['inventory']['errors'] = ['terminal collection unavailable']
         supervisor.cycle(self.c)
+        self.assertEqual([e['body'] for e in self.calls], ['terminal collection unavailable'])
+        supervisor.cycle(self.c)
         self.assertEqual([e['body'] for e in self.calls],
-                         ['github collection unavailable', 'terminal collection unavailable'])
+                         ['terminal collection unavailable', 'github collection unavailable'])
 
     def test_threshold_one_alerts_on_first_unknown(self):
         self.c['quota'] = {'unknown_alert_cycles': 1}

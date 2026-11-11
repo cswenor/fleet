@@ -113,6 +113,25 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-103 — Debounce collection-unavailable relays and retain safe causes
+
+Snapshot `errors` retains immediate stable collection-failure labels; the adjacent
+`error_details` map supplies exception class plus a sanitized first-line reason,
+bounded to 200 characters. Environment values, token-like strings, auth headers,
+credential-bearing URLs and secret command arguments are redacted before bounding.
+Admission still fails immediately. The supervisor persists per-key failure streaks
+and emits collection-error relays only after two consecutive failed cycles; an
+absent failure resets that key. Existing content dedupe, transport receipts and
+the additional unknown-quota threshold remain unchanged.
+
+Scratch source CLI `serve --once --no-deliver` with an isolated state directory
+and failing `gh` PATH shim produced zero GitHub relays on cycle one and one on
+cycle two, including the sanitized `GhError` reason. `status --json` exposed the
+failure immediately. No live state, delivery or installed service was changed.
+Publication requires independent final-head Sol-medium review, green CI and
+Main exact-head GO; durable receipts belong on TASK-103/PR.
+Shared deployment remains Main-owned.
+
 ### TASK-101 — Wake idle builders for Main's recorded native reply
 
 `coordinator.builder_wake` (boolean, default true) enables a narrow fixed-line
