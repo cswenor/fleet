@@ -71,6 +71,13 @@ class RestartTests(unittest.TestCase):
         with patch.object(launcher, '_prepare_branch', return_value='task-123-test', side_effect=preparation), patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run', side_effect=self.command), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'title': 'Test', 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
             return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot, **selection)
 
+    def test_unset_model_policy_preserves_default_omp_argv(self):
+        receipt = self.launch()
+        self.assertEqual(receipt['argv'], [
+            'omp', '--model', 'provider/model', '--thinking', 'medium',
+            '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
+            '@' + receipt['prompt']])
+
     def test_plan_and_override_launches_keep_next_launch_default(self):
         self.c['builder'].update(
             plan_models={'PLAN-1': {'model': 'other/planned', 'thinking': 'high'}},

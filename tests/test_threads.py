@@ -305,6 +305,17 @@ class ReadyTests(unittest.TestCase):
               'from_handle': 'term_builder'}], self.c['coordinator'])
         self.assertEqual(classified[0]['classification'], 'builder_decision_request')
 
+    def test_ready_adds_selection_without_changing_legacy_report_lines(self):
+        report = threads.ready(self.c, 'TASK-2', 'Ready to retire.')
+        legacy_lines = [line for line in report['body'].splitlines()
+                        if not line.startswith('Next model ')]
+        self.assertEqual(legacy_lines, [
+            'Pad-Ref: TASK-1', 'FRESH-READY TASK-2',
+            'Handoff: TASK-2 comment handoff-1', 'Published: https://example/pr/1',
+            'Ready to retire.'])
+        for key in ('next_ref', 'handoff', 'pr', 'status', 'body', 'message_id', 'at', 'recorded'):
+            self.assertIn(key, report)
+
     def test_existing_status_ready_receipt_remains_valid_without_resend(self):
         ledger = state.read(self.c, 'threads-TASK-1')
         ledger['TASK-1']['attempts']['one']['ready'] = {

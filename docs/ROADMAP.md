@@ -138,8 +138,13 @@ the explicit override. Main approved this acceptance adjustment in
 `msg_9bb55171233c` and notified project-gamma Main. By the live probe TASK-49 had
 been moved to unmapped PLAN-50 and correctly resolved Sol by default.
 No config/Pad/service/terminal mutations were made by these probes.
-All 238 focused model-selection/launcher/restart/thread/supervisor/session-model/
+All 240 focused model-selection/launcher/restart/thread/supervisor/session-model/
 platform regressions pass; CLI launch/restart help exposes paired overrides.
+Project Alpha's compatibility conditions (`msg_9971a65932a5`) are covered by
+`test_unset_model_policy_preserves_default_omp_argv` and
+`test_ready_adds_selection_without_changing_legacy_report_lines`.
+A frozen `git archive origin/main` replay and candidate launch, using identical
+artifact paths and nonce, produced byte-identical default OMP argv.
 
 Publication requires runtime resolution evidence, independent final-head
 Sol-medium review, green CI and Main's exact-head GO. Main reports Actions
