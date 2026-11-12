@@ -143,6 +143,59 @@ class ReviewBotTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'permissions'):
                     verify_app(c, 'review', Client())
 
+    def test_recorded_app_extras_require_exact_live_permissions(self):
+        extras = {'actions': 'read', 'checks': 'read', 'statuses': 'read', 'workflows': 'write'}
+        for role, recorded in (('builder', extras), ('review', {'discussions': 'read'})):
+            with self.subTest(role=role):
+                self.raw['review_bot']['apps'][role]['extra_permissions'] = recorded
+                c = self.load()
+                app = c['review_bot']['apps'][role]
+                app.update(id=1007, slug='project-' + role)
+                payload = manifest(app, role, c['review_bot']['webhook_url'], 'http://127.0.0.1/callback')
+                self.assertTrue(set(recorded).isdisjoint(payload['default_permissions']))
+                remote = {'id': app['id'], 'slug': app['slug'], 'name': app['name'],
+                          'owner': {'login': 'owner', 'type': 'Organization'},
+                          'permissions': {**payload['default_permissions'], 'metadata': 'read'},
+                          'events': payload['default_events']}
+
+                class Client:
+                    def request(self, method, path):
+                        return deepcopy(remote) if path == '/app' else {'url': c['review_bot']['webhook_url']}
+
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    verify_app(c, role, Client())
+                remote['permissions'].update(recorded)
+                self.assertEqual(verify_app(c, role, Client()), remote)
+                app.pop('extra_permissions')
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    verify_app(c, role, Client())
+                for permission in recorded:
+                    remote['permissions'].pop(permission)
+                self.assertEqual(verify_app(c, role, Client()), remote)
+
+    def test_extra_permission_policy_is_enforced_at_config_load(self):
+        forbidden = ({'administration': 'read'}, {'organization_projects': 'read'},
+                     {'organization_custom': 'write'}, {'members': 'read'},
+                     {'secrets': 'read'}, {'environments': 'read'}, {'actions': 'write'},
+                     {'metadata': 'write'})
+        for role in ('review', 'builder'):
+            for extras in forbidden:
+                with self.subTest(role=role, extras=extras):
+                    self.raw['review_bot']['apps'][role]['extra_permissions'] = extras
+                    with self.assertRaisesRegex(ValueError, 'forbidden extra permission'):
+                        self.load()
+            for extras in (None, [], {'checks': 'admin'}, {'Bad-Key': 'read'},
+                           {'pull_requests': 'read'}):
+                with self.subTest(role=role, extras=extras):
+                    self.raw['review_bot']['apps'][role]['extra_permissions'] = extras
+                    with self.assertRaises(ValueError):
+                        self.load()
+            self.raw['review_bot']['apps'][role].pop('extra_permissions')
+        for permission in ('contents', 'workflows', 'discussions', 'issues', 'statuses'):
+            self.raw['review_bot']['apps']['review']['extra_permissions'] = {permission: 'write'}
+            with self.subTest(permission=permission), self.assertRaisesRegex(ValueError, 'forbidden'):
+                self.load()
+
     def test_manifest_callback_rejects_wrong_state_and_never_logs_one_use_code(self):
         flow = ManifestCallback({'name': 'project-review'}, 'review', 'owner', 'organization',
                                 'https://review.example/github')

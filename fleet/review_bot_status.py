@@ -112,6 +112,9 @@ def status(c, *, github=None):
     result = {'operation': 'status', 'healthy': False, 'pin_verified': False,
               'containers': None, 'health': None, 'installations': {}, 'deliveries': None, 'blockers': []}
     result['expected_source'] = bot.get('source')
+    result['extra_permissions'] = {
+        role: bot.get('apps', {}).get(role, {}).get('extra_permissions', {})
+        for role in ('review', 'builder')}
     requested_mode = bot.get('deployment', {}).get('mode', 'advisory')
     result['requested_mode'] = requested_mode
     if not bot:

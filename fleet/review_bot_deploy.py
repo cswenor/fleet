@@ -192,6 +192,8 @@ def plan(c):
     if not bot.get('webhook_url'):
         blockers.append('configure public HTTPS webhook ingress')
     return {'operation': 'deploy', 'apply': False, 'ready': False, 'blockers': blockers,
+            'extra_permissions': {role: bot.get('apps', {}).get(role, {}).get('extra_permissions', {})
+                                  for role in ('review', 'builder')},
             'target_paths_verified': False, 'compose': topology(c), 'prerequisites': [
                 'Separate owner/Main host rollout authorization is required before --apply.',
                 'Existing HTTPS reverse proxy must join ingress and route the configured origin to control:8080; no ports are published.',
