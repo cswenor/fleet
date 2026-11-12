@@ -119,16 +119,40 @@ publication:
   # auto_merge arming: main requires exact-head Main RELEASE (default).
   # none: builder arms immediately after independent final-head PASS posted on PR,
   # before CI/App completion; GitHub still enforces exact-head App approval,
-  # required checks and merge-gate. No bypass; builder never changes hold.
+  # required checks and App-owned app-approval. No bypass; builder never changes hold.
   # Before any push after arming: disarm/dequeue and verify removal, then push,
   # obtain/post new exact-head PASS and rearm (main also needs fresh RELEASE).
   # Record arming actor; watch until actual merge/close, not just queue entry.
   # Owner/Main stop: hold plus disarm/dequeue with verified removal.
+  # Arm ONLY through: fleet --config CONFIG review-bot arm N --head FULL_SHA
+  # auto_merge requires review_bot receipts + a live-verified no-bypass ruleset.
+  # Operator gh auth must expose bypass_actors; Builder has no administration.
   release: main # main | none
   # Required App slug in auto_merge; not a check name or human reviewer login.
   review_app: ''
   hold_label: hold
   merge_method: squash # merge | squash | rebase
+# Optional Review Bot bootstrap; keep publication manual until init activates it.
+# Copy source {repository, version, commit, image} from a verified release.json;
+# never use a mutable image tag or invent App/installation receipts.
+# review_bot:
+#   apps:
+#     owner: owner # must match repo owner
+#     owner_type: organization # organization | user
+#     review:
+#       name: project-fleet-review # owner chooses globally unique App names
+#       env_file: /home/fleet/.config/fleet/project/review-app.env
+#     builder:
+#       name: project-fleet-builder
+#       env_file: /home/fleet/.config/fleet/project/builder-app.env
+#   webhook_url: https://review.example.invalid/github # replace with approved public HTTPS ingress
+#   ruleset:
+#     name: fleet-review-bot
+#     branch: main
+#     required_checks: [] # configure real project CI contexts + producer integration_id
+#     merge_queue: false
+# Existing App slug/id/installation_id and ruleset.id are verified receipts,
+# not guessed replacement targets. See docs/MAIN.md Review Bot onboarding.
 # Urgency is advisory, never authentication or additional authority.
 # Native Orca delivers these as question with an explicit [urgent] subject.
 urgent:

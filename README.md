@@ -54,13 +54,16 @@ publication:
 `merge_method` accepts `merge`, `squash` or `rebase`; `hold_label` is compared
 case-insensitively. This is publication policy, not automatic dispatch or bot
 installation. The generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
-publishes the `codex-review` check and exact-head APPROVE; its separate
-`merge-gate` status enforces hold/draft/unticked Gate boxes, including synthetic
-queue heads. Require those protections in the live ruleset, with App-bound
-review authority, stale-review dismissal, last-push approval and no bypass.
-Pin a reviewed bot source/image; installing or deploying it is separate work.
-If you change `hold_label`, the live merge gate must enforce that same label;
-the stock bot gate uses `hold`. A watcher-only custom label is not a merge veto.
+publishes `codex-review` and the separate **App-owned `app-approval` check**.
+The latter revalidates exact-head Review App APPROVE, hold/draft/Gate boxes and
+every synthetic queue member. Both checks require the Review App integration ID;
+project CI requires its own producer ID. The generic Actions `merge-gate`
+workflow remains hold-only, not bot-approval authority.
+Auto mode requires a pinned, verified `review_bot` installation and explicit live
+ruleset: active, main-only, no bypass, strict checks, stale dismissal and last-push
+approval. Unknown protection withholds launch and arming. The supported bot uses
+`hold`; a watcher-only custom label cannot substitute for its enforced gate.
+See [App/pin/ruleset onboarding](docs/MAIN.md#review-bot-apps-pins-and-live-protection).
 
 In `auto_merge` mode builders never merge directly or with `--admin`, and never
 add/remove the hold label. `publication.release` selects the arming policy:
@@ -73,11 +76,13 @@ add/remove the hold label. `publication.release` selects the arming policy:
 - `none`: immediately after an independent final-head **PASS is posted on the
   PR**, the builder arms native auto-merge, before CI/App completion, without a
   Main ruling. GitHub still enforces the configured Review App's exact-head
-  APPROVE, required checks and `merge-gate`; arming is not permission to bypass.
+  APPROVE, required checks and `app-approval`; arming is not permission to bypass.
 
-Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (substitute
-the configured method), recording actual actor and PR/head on Pad, plus RELEASE
-for `main`. Before **any push after arming**, disable auto-merge/dequeue and
+Arm only with `fleet --config CONFIG review-bot arm N --head FULL_SHA`, recording
+the observed actor and PR/head on Pad, plus RELEASE for `main`. It rechecks live
+protection with operator auth and invokes native auto-merge using only the separate
+Builder App token and configured merge method. Never substitute raw GitHub arming.
+Before **any push after arming**, disable auto-merge/dequeue and
 verify removal; unknown evidence blocks the push. Then push, obtain a new
 independent exact-head PASS and post it on the PR before rearming. With `main`,
 also obtain fresh CI/App gates and a new RELEASE; a push invalidates the old one.

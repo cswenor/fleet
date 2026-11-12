@@ -468,11 +468,14 @@ including its current PR, still requires exact-head Main GO.
 - `none`: immediately after independent final-head **PASS is posted on the PR**,
   the builder arms native auto-merge before CI/App completion, without a Main
   ruling. GitHub still enforces configured Review App exact-head APPROVE,
-  required checks and `merge-gate`; no bypass is authorized.
+  required checks and the App-owned `app-approval` gate; no bypass is authorized.
 
-Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash`,
-substituting `--merge`/`--rebase` for `publication.merge_method`. Record the actual
-actor and PR/head on Pad, plus the RELEASE ruling for `main`.
+Arm only with `fleet --config CONFIG review-bot arm N --head FULL_SHA`.
+Fleet revalidates live protection using operator gh authentication with ruleset
+bypass visibility, then arms as the separate Builder App using the configured
+merge method. Missing protection/visibility blocks launch and arming; never
+substitute raw GitHub arming. Record the observed actor and PR/head on Pad,
+plus the RELEASE ruling for `main`; an unknown actor is not identity evidence.
 Before **any push after arming**, the builder must disable auto-merge/dequeue and
 verify removal; unknown evidence blocks the push. Then push, obtain a new
 independent exact-head PASS and post it on the PR before rearming. For `main`,
@@ -481,10 +484,14 @@ ruling. Keep `watch-pr` armed through actual merge or closure; arming and queue
 entry never qualify as completion or retirement evidence.
 
 The optional generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
-publishes `codex-review` and exact-head reviews; its separate `merge-gate` status
-enforces hold/draft/Gate boxes on PR and synthetic queue heads. Require live
-ruleset protection, App-bound reviews and no builder/admin bypass. Installation,
-tested source/image pinning and rollout need separate approval; this setting
+publishes `codex-review`, exact-head reviews and the App-owned `app-approval`
+check, which enforces Review App approval and hold/draft/Gate boxes on PR and
+synthetic queue heads. Require both checks bound to the Review App, project CI
+bound to its producer, stale dismissal/last-push approval and visibly no bypass.
+The generic Actions `merge-gate` is hold-only, not bot-approval authority.
+Initialize Apps and review/apply live rules with `review-bot init` and
+`review-bot ruleset`; rerun init to activate publication only after protection
+verifies. Tested source/image pinning and rollout need separate approval; this setting
 does not install a service or authorize deployment. Owner/Main stop publication
 with hold plus, after arming, disable auto-merge/dequeue and verified removal.
 Builders never change hold. Asynchronous checks cannot undo a completed merge.

@@ -113,6 +113,64 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-129 — Review Bot release, project Apps and guarded publication
+
+The public service is [cswenor/fleet-review-bot](https://github.com/cswenor/fleet-review-bot).
+Bot PRs [#1](https://github.com/cswenor/fleet-review-bot/pull/1),
+[#2](https://github.com/cswenor/fleet-review-bot/pull/2) and
+[#3](https://github.com/cswenor/fleet-review-bot/pull/3) merged after independent
+unadvised Sol-medium review, final-head CI and Main GO. Annotated `v0.1.0`
+targets `33920d4b414509014ec77ed65d3b1e5b71a2cbc8`; release
+[43264092925](https://github.com/cswenor/fleet-review-bot/actions/runs/43264092925)
+passed verification and awaits owner approval of the protected publication job.
+No published digest, public-package visibility or anonymous-pull proof is claimed.
+
+Fleet's onboarding candidate separates read-only planning from explicit apply.
+It pins the public source version, full commit and immutable image digest; creates
+separate minimal Review/Builder Apps through owner-confirmed manifests; verifies
+the unrestricted installation grant selects exactly the target repository; stores
+role-separated credentials only in owned private files outside Git; and records
+App/installation receipts before proceeding. Unknown/ambiguous creation never
+permits a duplicate. Private-repository ruleset capability is checked before any
+App creation. Explicit ruleset IDs, additive preservation, fresh plan matching,
+strict producer-bound CI and Review App checks, stale-dismissal/last-push approval,
+active literal-main scope and visibly empty bypass actors precede activation.
+Init preserves existing publication until the installed protection passes.
+
+Main rulings `msg_204d4eeafb8e`, `msg_2fed55f81d4c` and `msg_ca452b1c44bd`
+require launch/status admission and the sole arming command
+`fleet --config CONFIG review-bot arm PR --head FULL_SHA` to verify live
+protection. Owner `gh` authentication must expose bypass actors; hidden actors
+are unknown, never empty. Only the arming subprocess receives a narrowly scoped
+Builder installation token, never Review/operator credentials. Stock native
+head matching plus rechecked hold/draft/Gates/human vetoes constrain arming;
+pending CI remains allowed under `release: none`. Report observed native state
+and actor, not command success as merge/arming proof. No atomic merge lock is
+claimed. Main confirmed all four existing private project configs remain manual;
+this opt-in cutover withholds none of their current launches.
+
+Candidate verification: 95 focused tests passed; the one wording-only failure
+was removed and its behavioral refusal/no-side-effect test passed separately.
+Real CLI help, loopback manifest form rendering (without GitHub submission) and
+an actual RSA JWT signature/role-isolation smoke passed. Isolated read-only
+`My-Palate/mp-web-app` init/ruleset CLI plans exited 2 with explicit GitHub 403
+private-ruleset capability, missing verified pin/App receipts and missing CI
+producer inputs; repository auto-merge is disabled. No project/App/ruleset/service
+was mutated. Proposed names and a reserved `.invalid` webhook were planning
+fixtures, not configured ingress.
+
+Remaining: publish the Fleet onboarding/arming slice through fresh review and CI;
+finish deployment/status integration and its separate publication; obtain owner
+release approval/public GHCR visibility and prove anonymous immutable pull plus
+source/release receipt agreement. Rollout is separately owner-gated. Approved
+deployment design (`msg_917423c699c1`, `msg_109f1305b804`): explicit authenticated
+Docker context, four services on one pinned image, ingress network on control
+only, no raw ports/socket, native/advisory forced, client-local private role env
+files and streamed compose. Owner prepares target-host runtime/config/auth
+directories for UID/GID 10010; apply verifies them with a read-only nonroot
+same-image/no-network probe, never privileged initialization.
+
+
 ### TASK-128 — Per-project native auto-merge publication
 
 Main's task brief approves `publication.mode: manual | auto_merge`, with default
@@ -149,12 +207,14 @@ At observation only draft PR2495/2477 remained open and neither was queued.
 Historical replay is not a claimed new live enqueue/merge drill. Private source
 captures are in `/tmp/fleet-task128-evidence/`.
 
-The public generic bot source publishes `codex-review` and the separate
-`merge-gate` commit status. Require live ruleset enforcement on PR/synthetic heads;
-review approval alone does not enforce hold. Bot installation/image rollout is
-separate from this policy change. Shared installation remains Main-owned and
-publication waits for independent final-head Sol-medium review, green CI and
-Main's exact-head GO.
+At the TASK-128 observation the public generic bot published `codex-review` and
+the separate hold-only Actions `merge-gate`. TASK-129 supersedes that authority:
+live rules require Review-App-bound `codex-review` and App-owned `app-approval`,
+plus project CI bound to its producer. Signed events and periodic reconciliation
+recheck live exact-head approvals and every native queue member. Workflow-owned
+statuses cannot grant App approval. Installation/image rollout remains separate
+and owner-gated; Fleet publication still requires independent final-head
+Sol-medium review, green CI and Main's exact-head GO.
 
 Verification: 368 focused config/launcher/GitHub/watcher/supervisor/completion
 tests passed after the release-none and carrier additions, including arming timing,
