@@ -13,7 +13,10 @@ from .display import duration
 def _github(c, result):
     with github_api.Session(c, persistent=True) as session:
         try:
-            return github.collect(c)
+            collected = github.collect(c)
+            if collected.get('repo_move_error'):
+                result['errors'].append(collected['repo_move_error'])
+            return collected
         finally:
             result['github_requests'] = dict(session.stats)
             if session.budget:

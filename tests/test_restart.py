@@ -80,6 +80,7 @@ class RetirementTests(unittest.TestCase):
                         patch.object(restart, 'orca', side_effect=self.orca),
                         patch.object(restart, 'json_run', side_effect=self.pad),
                         patch.object(restart, 'gh', side_effect=lambda *a: self.search_page(self.prs)),
+                        patch.object(restart.github, 'gh', return_value={'full_name': self.c['repo']}),
                         patch.object(restart.snapshot, 'collect', side_effect=lambda c: {
                             'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True},
                             'publication': {'verified': True}, 'disk': {'low': False}}),

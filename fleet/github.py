@@ -9,6 +9,19 @@ _workflow_check_cache = {}
 _pr_group_cache = {}
 
 
+def repo_move_error(c, repository=None):
+    """Diagnose redirects without treating unavailable identity as a move."""
+    try:
+        live = (repository if repository is not None else
+                gh(c, 'api', f'repos/{c["repo"]}'))['full_name']
+        if isinstance(live, str) and live.casefold() != c['repo'].casefold():
+            return (f'repo moved/renamed: config {c["repo"]}, GitHub {live}; '
+                    'follow the MAIN.md repo-move procedure')
+    except (CommandError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
 def _permission_unknown(error, unavailable):
     if (getattr(error, 'status', None) in (403, 404) or
             'Resource not accessible by integration' in str(error)):
@@ -385,7 +398,8 @@ def collect(c, pr_number=None):
         return {'prs': result, 'merge_group_runs': runs, 'unavailable': unavailable,
                 'merge_group_unknown': merge_group_unknown}
     owner, name = repo.split('/')
-    default_branch = gh(c, 'api', f'repos/{repo}')['default_branch']
+    repo_metadata = gh(c, 'api', f'repos/{repo}')
+    default_branch = repo_metadata['default_branch']
     query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{position state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
     queue_unknown = False
     try:
@@ -408,6 +422,7 @@ def collect(c, pr_number=None):
             'merge_queue_unknown': queue_unknown,
             'merge_group_runs': runs, 'merge_group_unknown': merge_group_unknown,
             'default_branch': default_branch, 'unavailable': unavailable,
+            'repo_move_error': repo_move_error(c, repo_metadata),
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
 
 
