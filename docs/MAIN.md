@@ -581,12 +581,15 @@ state and webhook destination belong to this project only.
 
 | App | Native-mode repository permissions |
 |---|---|
-| Review | contents read, pull_requests write, checks write, actions read, issues read, statuses read, implicit metadata read |
+| Review | contents read, pull_requests write, checks write, actions read, issues read, statuses read, merge_queues read, implicit metadata read |
 | Builder | contents write, pull_requests write, implicit metadata read |
 
 Review subscribes to pull_request, pull_request_review,
 pull_request_review_comment, issue_comment, check_run, check_suite, status,
 push, workflow_run and merge_group. Builder has no webhook subscriptions.
+The `merge_group` subscription requires `merge_queues: read` even when the
+project has not enabled merge queue publication. Existing Review Apps must grant
+it before verification succeeds; Builder permissions are unchanged.
 Neither has administration, Actions write or legacy direct-merger permissions.
 Workflow-file publication needs separately approved workflows permission.
 

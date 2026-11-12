@@ -113,6 +113,24 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-136 — Review App merge-group manifest permission
+
+Review App manifests and live App verification require `merge_queues: read`
+alongside the existing `merge_group` subscription, including projects not yet
+using queues. Builder permissions are unchanged. All init, ruleset, deployment
+and status App checks reuse the same permission contract.
+
+Verification: 21 focused onboarding tests passed, including manifest coverage
+and rejection of missing or write-level merge-queue grants. An isolated candidate
+CLI `review-bot init --dry-run` generated a plan covering all ten default events;
+exit 2 was the expected missing source-pin apply blocker. The actual loopback
+manifest form returned HTTP 200 with `merge_queues: read` and `merge_group`.
+No form was submitted to GitHub, App created or shared runtime changed.
+GitHub's webhook documentation requires at least read-level Merge queues access
+for that event. The bot repository README still omits this permission from its
+minimal native App table; its documentation fix is a separate follow-up.
+Publication and immediate shared deployment remain Main-gated.
+
 ### TASK-135 — Moved/renamed repository diagnostics
 
 Snapshots compare GitHub REST `full_name` with configured `repo`, ignoring case,

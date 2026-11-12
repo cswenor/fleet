@@ -19,7 +19,8 @@ from .review_bot_files import create_environment, private_parent, read_config, s
 
 PERMISSIONS = {
     'review': {'contents': 'read', 'pull_requests': 'write', 'checks': 'write',
-               'actions': 'read', 'issues': 'read', 'statuses': 'read'},
+               'actions': 'read', 'issues': 'read', 'statuses': 'read',
+               'merge_queues': 'read'},
     'builder': {'contents': 'write', 'pull_requests': 'write'},
 }
 EVENTS = {'review': ['pull_request', 'pull_request_review', 'pull_request_review_comment',
