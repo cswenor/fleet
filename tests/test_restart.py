@@ -940,11 +940,18 @@ class RetirementTests(unittest.TestCase):
 
     def test_shell_timeout_and_launch_failure_preserve_receipts(self):
         self.orca_original = self.orca
+        clock = [0]
+
+        def advance(seconds):
+            clock[0] += seconds
+
         def no_shell(c, *args):
             result = self.orca_original(c, *args)
             self.exited = False
             return result
-        with patch.object(restart, 'orca', side_effect=no_shell), patch.object(restart.time, 'monotonic', side_effect=[0, 16]):
+        with patch.object(restart, 'orca', side_effect=no_shell), \
+                patch.object(restart.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(restart.time, 'sleep', side_effect=advance):
             with self.assertRaisesRegex(ValueError, 'timed out'):
                 self.run_restart()
         self.assertEqual(state.read(self.c, 'retirements')[self.slot]['stage'], 'exit-sent')
