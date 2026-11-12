@@ -1288,3 +1288,7 @@ push intervals. This indicates missing freshness, not proof of a network cause.
 An unavailable app never disables local supervision; failed pushes retry on
 subsequent daemon cycles. Back up SQLite with the service stopped or SQLite's
 backup API, not a partial live file copy.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
