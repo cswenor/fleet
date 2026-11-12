@@ -60,8 +60,9 @@ every synthetic queue member. Both checks require the Review App integration ID;
 project CI requires its own producer ID. The generic Actions `merge-gate`
 workflow remains hold-only, not bot-approval authority.
 Auto mode requires a pinned, verified `review_bot` installation and explicit live
-ruleset: active, main-only, no bypass, strict checks, stale dismissal and last-push
-approval. Unknown protection withholds launch and arming. The supported bot uses
+ruleset: active, main-only, no bypass and strict App-bound checks. The App-owned
+`app-approval` gate is approval authority; planned human approval count is 0.
+Unknown protection withholds launch and arming. The supported bot uses
 `hold`; a watcher-only custom label cannot substitute for its enforced gate.
 See [App/pin/ruleset onboarding](docs/MAIN.md#review-bot-apps-pins-and-live-protection).
 

@@ -647,13 +647,22 @@ The merge method is preserved. Enable repository auto-merge explicitly too;
 Fleet does not silently change that repository setting.
 
 Ruleset planning preserves unrelated protections and refuses ambiguous
-replacement, producer changes, multi-branch replacement or approval-count
-downgrade. Choose a separately named additive ruleset rather than weakening one.
+replacement, producer changes and multi-branch replacement. Approval-count
+downgrades refuse except 1→0 on the explicitly selected ruleset whose name
+matches `review_bot.ruleset.name` (default `fleet-review-bot`), with a verified
+Review App ID and the desired App-bound checks. Higher counts and unrelated
+rulesets remain protected; choose a separately named additive ruleset instead.
+The plan states `approval authority: app-approval (Review App <id>), human approval count 0`.
 Require strict checks: project CI bound to its producer, plus `codex-review`
-and `app-approval` bound to the Review App ID; one approval, stale dismissal,
-last-push approval and no bypass. Ordinary GitHub approval alone cannot name an
-App; the App-owned gate supplies that authority. Dry-run records only a private
-plan receipt when apply-ready; live/config drift invalidates it before mutation.
+and `app-approval` bound to the Review App ID, and no bypass. The Review App
+keeps contents read: GitHub does not count its APPROVE toward the ordinary
+approval requirement, which cannot name an App anyway. The App-owned
+`app-approval` check supplies authority by requiring a non-dismissed exact-head
+Review App APPROVE, including every merge-group member. Stale dismissal and
+last-push approval are not required with count 0. Other project rulesets can
+still block on human approval counts; the project must change those itself,
+not Fleet. Dry-run records only a private plan receipt when apply-ready;
+live/config drift invalidates it before mutation.
 
 Auto-merge launches and `review-bot arm` fail closed without live protection.
 The operator token never enters Review services or the arming child process:
@@ -681,9 +690,9 @@ capabilities and no-new-privileges. `review_bot.deployment.mode` accepts `adviso
 remain forced off. Approve plans report live-protection blockers; approve apply
 rechecks the same operator-visible protection as `review-bot arm` immediately
 before Compose mutation: repository-owned active literal-main ruleset, visibly
-empty bypass actors, stale dismissal/last-push approval, Review App-bound
-`codex-review`/`app-approval` and producer-bound project CI. Missing or unknown
-protection refuses deployment; pin and App verification remain required.
+empty bypass actors, Review App-bound `codex-review`/`app-approval`,
+producer-bound project CI and an explicit nonnegative human approval count.
+Missing or unknown protection refuses deployment; pin and App verification remain required.
 
 Target-host paths are not resolved against the client filesystem:
 

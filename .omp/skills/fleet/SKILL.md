@@ -487,7 +487,9 @@ The optional generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-
 publishes `codex-review`, exact-head reviews and the App-owned `app-approval`
 check, which enforces Review App approval and hold/draft/Gate boxes on PR and
 synthetic queue heads. Require both checks bound to the Review App, project CI
-bound to its producer, stale dismissal/last-push approval and visibly no bypass.
+bound to its producer and visibly no bypass. Plan human approval count 0:
+the read-only Review App's APPROVE does not satisfy GitHub's ordinary count;
+`app-approval` is the exact-head approval authority.
 The generic Actions `merge-gate` is hold-only, not bot-approval authority.
 Initialize Apps and review/apply live rules with `review-bot init` and
 `review-bot ruleset`; rerun init to activate publication only after protection

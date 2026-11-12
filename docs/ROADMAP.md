@@ -113,6 +113,29 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-139 — App-owned approval authority
+
+Ruleset plans use human approval count 0, strict producer-bound CI and
+Review App-bound `codex-review` plus `app-approval`, with no bypass.
+The Review App retains contents read: its APPROVE does not satisfy GitHub's
+ordinary approval count. The App-owned gate requires a non-dismissed exact-head
+Review App APPROVE, including each merge-group member. Live verification keeps
+both App bindings mandatory regardless of human count; stale/last-push approval
+requirements are no longer prerequisites.
+
+The 1→0 migration is limited to the explicitly selected repository-owned,
+literal-main ruleset whose name matches the configured Fleet ruleset, with a
+known Review App ID and desired App-bound checks. Higher counts and unrelated
+protections refuse downgrade. Other project rulesets can still block publication;
+their approval-count changes remain project-owned.
+
+Verification: 41 focused Review Bot tests passed. Fixture-only candidate CLI
+`review-bot ruleset --dry-run` returned exit 0, the explicit App approval-authority
+line and the protected 1→0 migration with all three producer-bound checks.
+No live ruleset, App, project config or shared runtime was changed.
+Publication requires independent final-head review, green CI and Main's exact-head GO.
+
+
 ### TASK-138 — Recorded owner-approved App permission extras
 
 Private `review_bot.apps.<role>.extra_permissions` records approved read/write

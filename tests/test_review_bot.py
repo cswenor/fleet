@@ -291,8 +291,9 @@ class ReviewBotTests(unittest.TestCase):
         return {**desired, 'id': 1009, 'source_type': 'Repository', 'source': c['repo']}
 
     def test_existing_protection_cannot_be_weakened_by_ruleset_replacement(self):
-        c = self.load()
+        c = self.installed()
         existing = self.existing(c)
+        c['review_bot']['ruleset']['id'] = existing['id']
         pull = existing['rules'][0]['parameters']
         pull['required_approving_review_count'] = 2
         with self.assertRaisesRegex(ValueError, 'reduce'):
@@ -303,6 +304,22 @@ class ReviewBotTests(unittest.TestCase):
         planned = desired_ruleset(c, existing)
         self.assertTrue(planned['rules'][0]['parameters']['require_code_owner_review'])
         self.assertIn({'type': 'required_signatures'}, planned['rules'])
+        self.assertEqual(planned['rules'][0]['parameters']['required_approving_review_count'], 0)
+        checks = planned['rules'][1]['parameters']
+        self.assertTrue(checks['strict_required_status_checks_policy'])
+        for context in ('codex-review', 'app-approval'):
+            self.assertIn({'context': context, 'integration_id': 1007}, checks['required_status_checks'])
+        unrelated = deepcopy(existing)
+        unrelated['name'] = 'owner-protection'
+        with self.assertRaisesRegex(ValueError, 'reduce'):
+            desired_ruleset(c, unrelated)
+        c['review_bot']['ruleset'].pop('id')
+        with self.assertRaisesRegex(ValueError, 'reduce'):
+            desired_ruleset(c, existing)
+        c['review_bot']['ruleset']['id'] = existing['id']
+        c['review_bot']['apps']['review'].pop('id')
+        with self.assertRaisesRegex(ValueError, 'reduce'):
+            desired_ruleset(c, existing)
         existing['conditions']['ref_name']['include'].append('refs/heads/release')
         with self.assertRaisesRegex(ValueError, 'only literal'):
             desired_ruleset(c, existing)
@@ -486,7 +503,7 @@ class ReviewBotTests(unittest.TestCase):
                                       'review_app': 'project-review', 'hold_label': 'hold',
                                       'merge_method': 'rebase'})
 
-    def test_live_authority_rejects_invisible_bypass_wrong_app_and_weakened_approvals(self):
+    def test_live_authority_rejects_invisible_bypass_wrong_app_and_missing_checks(self):
         c = self.installed()
         live = self.existing(c)
         c['review_bot']['ruleset']['id'] = live['id']
@@ -497,9 +514,6 @@ class ReviewBotTests(unittest.TestCase):
             lambda value: value.update(bypass_actors=[{'actor_type': 'RepositoryRole', 'actor_id': 5, 'bypass_mode': 'always'}]),
             lambda value: value.update(enforcement='evaluate'),
             lambda value: value['conditions']['ref_name']['include'].append('refs/heads/release'),
-            lambda value: value['rules'][0]['parameters'].update(dismiss_stale_reviews_on_push=False),
-            lambda value: value['rules'][0]['parameters'].update(require_last_push_approval=False),
-            lambda value: value['rules'][0]['parameters'].update(required_approving_review_count=0),
             lambda value: value['rules'][1]['parameters']['required_status_checks'][-1].update(integration_id=1234),
             lambda value: value['rules'][1]['parameters'].update(strict_required_status_checks_policy=False),
         )
@@ -508,6 +522,24 @@ class ReviewBotTests(unittest.TestCase):
             mutation(changed)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 verify_live_ruleset(c, self.client(c, changed))
+
+    def test_app_checks_are_required_independently_of_human_approval_count(self):
+        c = self.installed()
+        live = self.existing(c)
+        c['review_bot']['ruleset']['id'] = live['id']
+        for count in (0, 1):
+            live['rules'][0]['parameters'] = {'required_approving_review_count': count}
+            self.assertTrue(verify_live_ruleset(c, self.client(c, live))['verified'])
+            for context in ('CI', 'codex-review', 'app-approval'):
+                for missing in (True, False):
+                    changed = deepcopy(live)
+                    checks = changed['rules'][1]['parameters']['required_status_checks']
+                    if missing:
+                        checks[:] = [check for check in checks if check['context'] != context]
+                    else:
+                        next(check for check in checks if check['context'] == context)['integration_id'] = 1234
+                    with self.subTest(count=count, context=context, missing=missing), self.assertRaises(ValueError):
+                        verify_live_ruleset(c, self.client(c, changed))
 
 
     def test_ruleset_creation_accepts_server_defaults_but_never_an_added_bypass(self):

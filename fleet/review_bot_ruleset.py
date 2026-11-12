@@ -57,12 +57,17 @@ def desired_ruleset(c, existing=None):
         indexed[rule['type']] = rule
     pull = indexed.get('pull_request', {'type': 'pull_request', 'parameters': {}})
     pull_parameters = pull.get('parameters', {})
-    if pull_parameters.get('required_approving_review_count', 0) > 1:
-        raise ValueError('refusing to reduce an existing approval count; choose a separate additive ruleset')
+    approval_count = pull_parameters.get('required_approving_review_count', 0)
+    if approval_count and not (
+            approval_count == 1
+            and existing.get('id') == config.get('id')
+            and before.get('name') == config.get('name', 'fleet-review-bot')
+            and type(app_id) is int and app_id > 0):
+        raise ValueError('refusing to reduce an existing approval count outside the selected Fleet-owned ruleset; choose a separate additive ruleset')
     pull_parameters.setdefault('require_code_owner_review', False)
     pull_parameters.setdefault('required_review_thread_resolution', False)
-    pull_parameters.update(required_approving_review_count=1, dismiss_stale_reviews_on_push=True,
-                           require_last_push_approval=True)
+    pull_parameters.update(required_approving_review_count=0, dismiss_stale_reviews_on_push=True,
+                           require_last_push_approval=False)
     pull['parameters'] = pull_parameters
     required = indexed.get('required_status_checks', {'type': 'required_status_checks', 'parameters': {}})
     parameters = required.get('parameters', {})
@@ -156,10 +161,8 @@ def verify_live_ruleset(c, github=None, *, require_publication=False):
         rules[rule['type']] = parameters
     pull = rules.get('pull_request', {})
     if (type(pull.get('required_approving_review_count')) is not int
-            or pull['required_approving_review_count'] < 1
-            or pull.get('dismiss_stale_reviews_on_push') is not True
-            or pull.get('require_last_push_approval') is not True):
-        raise ValueError('auto-merge blocked: required approval, stale dismissal and last-push approval must be enforced')
+            or pull['required_approving_review_count'] < 0):
+        raise ValueError('auto-merge blocked: an explicit nonnegative human approval count is required')
     parameters = rules.get('required_status_checks', {})
     if parameters.get('strict_required_status_checks_policy') is not True:
         raise ValueError('auto-merge blocked: strict required checks must be enforced')
@@ -239,6 +242,7 @@ def ruleset(c, *, apply=False, github=None):
     result['existing'] = _body(existing) if existing else None
     result['desired'] = desired
     app_id = bot.get('apps', {}).get('review', {}).get('id')
+    result['approval authority'] = f'app-approval (Review App {app_id}), human approval count 0'
     if not app_id:
         result['blockers'].append('Verified Review App id/slug/installation receipts are required before --apply')
     if not config.get('required_checks'):
