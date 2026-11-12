@@ -351,6 +351,11 @@ Wake takes a nonblocking per-slot lease before its task lock; a busy lease skips
 the slot until the next cycle. It holds that lease across native proof, final
 launch/question revalidation, journaling and send. Launch/restart hold the same
 lease across terminal mutation, so retirement/reuse cannot race wake input.
+Main-invoked `launch`, `restart` and `relaunch` wait up to 15 seconds for this
+slot lease. A still-held lease exits **4** (retryable) with the readable slot
+path and holder PID, operation and UTC start; retry later, never loop tightly.
+Supervisor wake/PARK remain nonblocking. Reconcile and `thread stop` do not
+take a slot lease; their existing lock behavior is unchanged.
 Wake lock order is slot → `thread-wait-TERMINAL` → task. The shared
 terminal decision lease is nonblocking for wake: an active wait skips that cycle.
 It spans proof/journaling/send and is released immediately after native send,

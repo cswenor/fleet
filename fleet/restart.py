@@ -459,7 +459,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
     slot = str(Path(slot).expanduser().resolve())
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
-    with state.lock(c, 'launcher', operation=operation), state.slot_lock(c, slot):
+    with state.lock(c, 'launcher', operation=operation), state.slot_lock(
+            c, slot, wait_seconds=15, operation=operation):
         launch_config = c
         c = launcher.resolve_model(c, ref, model=model, thinking=thinking)
         tree, target = _target(c, slot)

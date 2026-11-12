@@ -113,6 +113,21 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-132 — Bounded slot-lease contention
+
+Candidate Main-invoked launch/restart/relaunch slot acquisition waits at most
+15 seconds; supervisor wake/PARK keep nonblocking acquisition. Contention is
+retryable exit 4 with the slot path and holder PID, operation and UTC start.
+No new leases are added to reconcile or thread stop, which do not currently
+take one; other locks retain their existing semantics.
+
+Real candidate CLI with isolated scratch config/state and a helper-held lease:
+a 3-second holder released and launch proceeded to its model-pair validation
+after 3.07 seconds (exit 2, deliberately incomplete model flags); a 20-second
+holder produced the detailed busy diagnostic after 15.13 seconds (exit 4).
+No live lane, terminal, receipt or shared installation was mutated.
+Publication requires independent final-head review, green CI and Main GO.
+
 ### TASK-129 — Review Bot release, project Apps and guarded publication
 
 The public service is [cswenor/fleet-review-bot](https://github.com/cswenor/fleet-review-bot).

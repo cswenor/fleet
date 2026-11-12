@@ -48,16 +48,20 @@ class LauncherBusy(ValueError):
     """Lock contention is retryable, not an ownership/admission failure."""
 
 
-def slot_lock(c, slot):
-    """Nonblocking terminal-mutation lease shared by launch, retirement and wake."""
+def slot_lock(c, slot, wait_seconds=0, *, operation='slot terminal lease'):
+    """Terminal-mutation lease; interactive callers may wait, supervisors never do."""
     return lock(c, 'slot-' + hashlib.sha256(os.fsencode(slot)).hexdigest(),
-                operation='slot terminal lease')
+                wait_seconds=wait_seconds, operation=operation, display_name=f'slot {slot}')
 
 
-def _busy(c, name):
-    if name not in ('launcher', 'launch-publication') and not name.startswith(('threads-', 'thread-wait-')):
+def _busy(c, name, display_name=None):
+    if name not in ('launcher', 'launch-publication') and not name.startswith(('threads-', 'thread-wait-', 'slot-')):
         return ValueError(f'fleet {name} already running')
     holder = read(c, name + '-holder', {}) or {}
+    if name.startswith('slot-'):
+        return LauncherBusy(
+            f"{display_name or name} busy: held by pid {holder.get('pid', 'unknown')} "
+            f"({holder.get('op', 'unknown')}) since {holder.get('start', 'unknown')}; retry in ~60s")
     if name.startswith(('threads-', 'thread-wait-')):
         return LauncherBusy(
             f"thread busy: held by pid {holder.get('pid', 'unknown')} "
@@ -72,7 +76,7 @@ def _busy(c, name):
 
 
 @contextmanager
-def lock(c, name, wait_seconds=None, *, operation=None):
+def lock(c, name, wait_seconds=None, *, operation=None, display_name=None):
     with (directory(c) / (name + '.lock')).open('a') as f:
         if wait_seconds is None:
             wait_seconds = 15 if name.startswith(('threads-', 'thread-wait-')) else 0
@@ -80,7 +84,7 @@ def lock(c, name, wait_seconds=None, *, operation=None):
             wait_seconds = min(wait_seconds, 15)
         elif name == 'launch-publication':
             wait_seconds = min(wait_seconds, 5)
-        elif name.startswith(('threads-', 'thread-wait-')):
+        elif name.startswith(('threads-', 'thread-wait-', 'slot-')):
             wait_seconds = min(wait_seconds, 15)
         deadline = time.monotonic() + wait_seconds if wait_seconds > 0 else None
         while True:
@@ -89,10 +93,10 @@ def lock(c, name, wait_seconds=None, *, operation=None):
                 break
             except BlockingIOError as e:
                 if deadline is None:
-                    raise _busy(c, name) from e
+                    raise _busy(c, name, display_name) from e
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise _busy(c, name) from e
+                    raise _busy(c, name, display_name) from e
                 time.sleep(min(0.1, remaining))
         write(c, name + '-holder', {
             'pid': os.getpid(), 'op': operation or name,

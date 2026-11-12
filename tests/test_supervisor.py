@@ -94,14 +94,14 @@ class DeliveryTests(unittest.TestCase):
                      'park': True, 'recipients': ['builder'], 'attempt': attempt}
             with state.slot_lock(c, attempt['path']), patch.object(
                     supervisor, 'orca', side_effect=AssertionError('busy PARK lease native I/O')):
-                with self.assertRaisesRegex(ValueError, 'slot-'):
+                with self.assertRaises(state.LauncherBusy):
                     supervisor.enqueue(c, event, 'builder')
             for replaced in (False, True):
                 with self.subTest(replaced=replaced):
                     state.write(c, 'launches', {'/slot': {'id': 'launch'}})
                     deliveries = []
                     def native(c, *args):
-                        with self.assertRaisesRegex(ValueError, 'slot-'):
+                        with self.assertRaises(state.LauncherBusy):
                             with state.slot_lock(c, attempt['path']):
                                 self.fail('PARK proof/send must exclude terminal reuse')
                         with state.lock(c, 'launcher', operation='test native checkpoint'):

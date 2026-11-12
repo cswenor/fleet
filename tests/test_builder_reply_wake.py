@@ -277,14 +277,17 @@ class BuilderWakeTests(unittest.TestCase):
         original = self.native
         def native(c, *args):
             if args[:2] == ('terminal', 'send'):
-                with patch.object(restart.sys, 'platform', 'linux'), self.assertRaisesRegex(ValueError, 'slot-'):
+                with patch.object(restart.sys, 'platform', 'linux'), \
+                        patch.object(state.time, 'monotonic', side_effect=[0, 15]), \
+                        self.assertRaises(state.LauncherBusy):
                     restart.restart(c, 'TASK-2', '/lane', 'TASK-1')
                 with patch.object(launcher.snapshot, 'collect', return_value={
                         'errors': [], 'inventory': {}}), patch.object(
                         launcher.snapshot, 'may_start', return_value={'may_start': True, 'reasons': []}), patch.object(
                         launcher, 'orca', return_value={}), patch.object(
                         launcher.dispatcher, 'check_launch', return_value={}):
-                    with self.assertRaisesRegex(ValueError, 'slot-'):
+                    with patch.object(state.time, 'monotonic', side_effect=[0, 15]), \
+                            self.assertRaises(state.LauncherBusy):
                         launcher.launch(c, 'TASK-2', '/lane')
             return original(c, *args)
         with patch.object(supervisor, 'orca', side_effect=native):
