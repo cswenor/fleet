@@ -159,6 +159,14 @@ producer inputs; repository auto-merge is disabled. No project/App/ruleset/servi
 was mutated. Proposed names and a reserved `.invalid` webhook were planning
 fixtures, not configured ingress.
 
+CI caught a native-merge retirement fixture missing the new protection evidence;
+the fixture now supplies it and the named behavior passes without weakening the
+guard. Independent review then found protection drift during slow App/release
+verification could overwrite an owner's newer ruleset. Apply now refreshes
+attachment and the complete protection body immediately before mutation, refusing
+changes or a newly appeared same-name create target. A regression exercises both
+update strengthening and concurrent creation without any remote write.
+
 Remaining: publish the Fleet onboarding/arming slice through fresh review and CI;
 finish deployment/status integration and its separate publication; obtain owner
 release approval/public GHCR visibility and prove anonymous immutable pull plus

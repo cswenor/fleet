@@ -278,6 +278,18 @@ def ruleset(c, *, apply=False, github=None):
         pending = state.read(c, 'review-bot-ruleset-create')
         if selected is None and pending:
             raise ValueError('ruleset creation is unconfirmed; reconcile live rules and record the explicit ID, never retry blindly')
+        # Remote verification can take time; never overwrite a newer protection
+        # document observed after the reviewed plan was admitted under our lock.
+        refreshed_inventory = _pages(github, root + '/rulesets?includes_parents=true')
+        if selected is not None:
+            if not any(row['id'] == selected for row in refreshed_inventory):
+                raise ValueError('ruleset attachment changed; review a fresh dry-run before apply')
+            refreshed = github.request('GET', root + f'/rulesets/{selected}')
+            if (not isinstance(refreshed, dict) or refreshed.get('id') != selected
+                    or _body(refreshed) != result['existing']):
+                raise ValueError('live protection changed during verification; review a fresh dry-run before apply')
+        elif any(row.get('name') == desired['name'] for row in refreshed_inventory):
+            raise ValueError('a same-name ruleset appeared during verification; reconcile its explicit ID before apply')
         if selected is None:
             state.write(c, 'review-bot-ruleset-create', {'digest': digest})
         response = github.request('PUT' if selected else 'POST',

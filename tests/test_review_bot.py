@@ -226,6 +226,42 @@ class ReviewBotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'current diff'):
             ruleset(c, apply=True, github=Client())
 
+    def test_protection_drift_during_remote_verification_never_overwrites_owner_changes(self):
+        for creating in (False, True):
+            with self.subTest(creating=creating):
+                c = self.installed()
+                c['_state'] = str(self.private / ('create-drift' if creating else 'update-drift'))
+                live = None if creating else self.existing(c)
+                if live:
+                    c['review_bot']['ruleset']['id'] = live['id']
+                class Client:
+                    def request(self, method, path, body=None):
+                        if method != 'GET':
+                            raise AssertionError('concurrent owner protection must not be overwritten')
+                        if path == '/repos/owner/project':
+                            return {'full_name': c['repo'], 'default_branch': 'main',
+                                    'permissions': {'admin': True}}
+                        if '/rulesets?' in path:
+                            return [{'id': live['id'], 'name': live['name']}] if live else []
+                        return deepcopy(live)
+                github = Client()
+                ruleset(c, github=github)
+                before = self.path.read_bytes()
+                def owner_change(*args):
+                    nonlocal live
+                    if creating:
+                        live = self.existing(c)
+                    else:
+                        live['rules'].append({'type': 'required_signatures'})
+                        live['rules'][0]['parameters']['required_approving_review_count'] = 2
+                with (patch('fleet.review_bot_ruleset.verify_pin', side_effect=owner_change),
+                      patch('fleet.review_bot_ruleset.app_client'),
+                      patch('fleet.review_bot_ruleset.verify_app'),
+                      patch('fleet.review_bot_ruleset.verify_installation')):
+                    with self.assertRaises(ValueError):
+                        ruleset(c, apply=True, github=github)
+                self.assertEqual(self.path.read_bytes(), before)
+
     def installed(self):
         self.raw['review_bot']['source'] = self.source()
         for index, role in enumerate(('review', 'builder')):
