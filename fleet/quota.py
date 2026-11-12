@@ -18,6 +18,20 @@ def collect(c):
     return result
 
 
+def bound_provider(c, builder, launches):
+    """Return only the provider of an exact current launch, never a pane label."""
+    record = launches.get(builder.get('path'), {})
+    if (record.get('terminal') != builder.get('terminal')
+            or not builder.get('incarnation_id')
+            or record.get('terminal_incarnation_id') != builder['incarnation_id']
+            or record.get('ref') != builder.get('task')):
+        return None
+    model = record.get('resolved_model')
+    if not model and not record.get('model_source'):
+        model = c['builder']['resolved_model']
+    return model.split('/')[0] if isinstance(model, str) and '/' in model else None
+
+
 def evaluate(data, config, now):
     provider = config['provider']
     reserve = config['reserve_percent']

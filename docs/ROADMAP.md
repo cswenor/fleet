@@ -113,6 +113,59 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-121 — Plan-scoped and one-shot builder model selection
+
+Main ruling `msg_f906ee6f0153` approves `builder.allowed_models` as resolved
+model IDs → thinking-level lists, with the default pair implicitly allowed;
+`builder.plan_models` maps PLAN refs to `{model, thinking}`. Paired one-shot
+`--model`/`--thinking` on launch/restart precedes the nearest PLAN mapping,
+then project defaults. Unmapped nearer plans do not inherit outer mappings.
+Ancestry and pair failures refuse before terminal mutation. Config is unchanged
+between launches; quota follows the selected provider and health expectations
+remain receipt-bound. Launch receipts/prompt/output and next-task FRESH-READY
+name model, thinking and source. Reviewer policy is unchanged.
+
+The same ruling requests a bounded pre-receipt startup grace: persisted exact
+slot/ref `launch-attempted` preparation proof anchors the existing 120-second
+unknown-model/progress relay grace to preparation start. Raw flags, other
+health relays and admission are unchanged.
+
+Read-only candidate resolution against an in-memory copy of real project-gamma
+config proves live TASK-34 → Fable/xhigh (`plan:PLAN-32`, anthropic quota);
+TASK-44 → Sol/medium (`default`, openai-codex quota). TASK-49 initially had
+PLAN-32 as parent; its captured Pad task resolves Fable by plan, or Sol with
+the explicit override. Main approved this acceptance adjustment in
+`msg_9bb55171233c` and notified project-gamma Main. By the live probe TASK-49 had
+been moved to unmapped PLAN-50 and correctly resolved Sol by default.
+No config/Pad/service/terminal mutations were made by these probes.
+All 240 focused model-selection/launcher/restart/thread/supervisor/session-model/
+platform regressions pass; CLI launch/restart help exposes paired overrides.
+Project Alpha's compatibility conditions (`msg_9971a65932a5`) are covered by
+`test_unset_model_policy_preserves_default_omp_argv` and
+`test_ready_adds_selection_without_changing_legacy_report_lines`.
+A frozen `git archive origin/main` replay and candidate launch, using identical
+artifact paths and nonce, produced byte-identical default OMP argv.
+
+Resume fixed the wake-lease regression: explicit-slot launch now acquires its
+lease before Pad/model resolution, so an in-flight wake refuses reuse before
+external I/O. The existing wake/send race regression passes (18 wake tests).
+Merged current main and integrated paired overrides into `relaunch`, including
+selected-provider preflight and Pad/retirement source evidence; project defaults
+and old-session identity remain unchanged. Source CLI exposes both flags and
+refuses a non-Main caller before mutation.
+Publication requires fresh final-head Sol-medium review, green CI and Main's
+exact-head GO; shared deployment remains Main-owned.
+Independent review of `492b8ac` found a P2: supervision still used only default
+quota, allowing a healthy alternate-provider builder to be parked for another
+pool's exhaustion. Main approved receipt-bound per-provider collection and
+exhausted-pool candidate filtering in `msg_1a36bd798d9f`. Mixed-provider snapshots
+add `quota_by_provider`; selected-provider admission stays isolated, unknown
+usage never authorizes PARK, and only one unresolved PARK is permitted globally.
+Queued PARK delivery also survives returning to a default-only inventory, while
+refusing a different provider's quota. Read-only real mp-web-app usage evaluation
+found both configured provider pools known and available; mixed-pool exhaustion
+is covered deterministically, not claimed as a live deployment drill.
+
 ### TASK-120 — Bound task inbox indexes and shorten wake task locks
 
 Task-ledger writes lazily compact inbox indexes in active and archived attempts.
@@ -158,8 +211,8 @@ wait skipping wake and a wait blocking at wake send, then recording the decision
 Candidate `fleet relaunch REF --slot S --reason TEXT [--keep-uncommitted]` is
 Main-only and same-ref-only. It reuses guarded retirement/preflight/slot leasing,
 without publication proof: Main's explicit reason is recorded on Pad before exit
-and in the receipt with old launch/session/actual model/thinking and new project
-default model/thinking/source. A running session refuses with the `thread stop`
+and in the receipt with old launch/session/actual model/thinking and new selected
+model/thinking/source. A running session refuses with the `thread stop`
 hint; a completed stop journal can authorize an otherwise unfinished log only
 with matching session/process and fresh positive idle/empty-composer proof.
 Verified retirement settles the old task attempt without marking the task done.
@@ -167,8 +220,8 @@ Verified retirement settles the old task attempt without marking the task done.
 Tracked/staged WIP refuses and lists files unless explicitly preserved; preservation
 retains branch/index/worktree and adds a fixed previous-session WIP prompt notice.
 Untracked user files remain untouched. Partial failures retain restart's one-exit
-journal and explicit recovery diagnostics. TASK-121 is not merged, so per-launch
-model flags are intentionally absent under Main's dependency ruling.
+journal and explicit recovery diagnostics. TASK-121 adds paired one-shot model
+flags with the same allowlist/nearest-PLAN/default rules as launch/restart.
 
 All 166 focused retirement/launcher/stop regressions pass (3.078s); real candidate
 CLI rejects a non-Main caller before mutation. Main's TASK-123 scratch drill on

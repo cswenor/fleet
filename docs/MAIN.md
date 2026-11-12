@@ -136,8 +136,8 @@ the slot's exact current ref and either a final assistant stop or a completed
 `thread stop` journal matching the now-idle session/process. It never interrupts
 or bypasses foreground/session/identity proof. No merged PR or handoff is needed:
 Main's nonempty reason authorizes replacement, recorded on Pad before exit and
-in the retirement receipt with old launch/session/model/thinking, new project
-default model/thinking/source, branch and time. The old attempt settles after
+in the retirement receipt with old launch/session/model/thinking, new selected
+model/thinking/source, branch and time. The old attempt settles after
 verified retirement. This path does not mark the Pad task done.
 
 Tracked/staged changes refuse before retirement and list their paths.
@@ -147,7 +147,40 @@ Preflight runs before exit; the slot lease spans retirement and launch.
 After partial failure, inspect retirement and launch-preparation receipts and
 the explicit recovery line; never repeat retirement or blindly launch. If
 tracked WIP was preserved, normal `launch` still refuses dirt: coordinate recovery
-without discarding or stashing it. Per-launch model flags await TASK-121.
+without discarding or stashing it. Paired `--model`/`--thinking` flags use the
+same one-shot allowlist and nearest-PLAN precedence as launch/restart.
+
+
+### Per-launch builder model selection (TASK-121)
+
+`builder.model`, `resolved_model` and `thinking` remain project defaults.
+Optional `builder.plan_models` maps a PLAN ref to `{model: provider/model,
+thinking: level}`. Only the nearest PLAN ancestor applies; an unmapped nearer
+PLAN uses defaults, never an outer mapping. Missing, unreadable or cyclic
+ancestry refuses before terminal mutation.
+
+`builder.allowed_models` maps fully resolved model IDs to lists of allowed
+thinking levels. The default resolved-model/thinking pair is implicitly allowed.
+Every plan/override pair must be allowed; aliases are supported only by the
+existing default `builder.model`/`resolved_model` contract.
+
+`launch`, `restart` and `relaunch` accept paired `--model provider/model --thinking level`.
+Both are required for a one-shot override; precedence is override > nearest
+PLAN mapping > default. Choices never rewrite config or carry into later
+launches. Main approves the pair; this is not permission to change budgets.
+Admission checks the selected provider, including restart preflight before exit.
+Old-session identity remains pinned to its original receipt.
+Ongoing supervision also collects each active receipt-bound provider's quota.
+Mixed-provider snapshots add `quota_by_provider`; the existing `quota` field
+still describes the default (or launch-selected) pool. Unknown alternate quota
+does not block starts on a healthy selected pool. PARK ranks only builders bound
+to known-exhausted pools; one unresolved PARK remains the global limit.
+
+Receipts, launch prompt headers and launch output retain `model_description`,
+`model_source` (`default`, `plan:PLAN-N`, `override`) and `plan_ref`.
+FRESH-READY includes the next task's model/thinking and source as a proposal;
+Main's later launch resolves again, without inheriting the finished launch's
+override. Reviewer selection and publication gates are unchanged.
 
 
 On withheld/error: inspect reasons, state and `~/.local/state/fleet/cswenor--fleet/last-launch.json`.

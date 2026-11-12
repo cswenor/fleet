@@ -10,6 +10,53 @@ import time
 import yaml
 from . import dispatcher, health, snapshot, state
 from .commands import CommandError, gh, orca, run
+from .config import model_allowed
+
+
+def resolve_model(c, ref, *, model=None, thinking=None, item=None):
+    """Resolve one launch without changing project defaults or persisting a choice."""
+    if (model is None) != (thinking is None):
+        raise ValueError('--model and --thinking must be supplied together')
+    item = dispatcher.pad(c, 'item', 'show', ref) if item is None else item
+    if not isinstance(item, dict) or item.get('ref') != ref:
+        raise ValueError('model selection: unreadable task')
+    seen = set()
+    plan = None
+    for _ in range(21):
+        current = item.get('ref')
+        if not current or current in seen:
+            raise ValueError('model selection: unreadable or cyclic task ancestry')
+        seen.add(current)
+        if current.startswith('PLAN-'):
+            plan = current
+            break
+        parent = item.get('parent_ref')
+        if not parent:
+            raise ValueError('model selection: task ancestry has no PLAN')
+        item = dispatcher.pad(c, 'item', 'show', parent)
+        if not isinstance(item, dict) or item.get('ref') != parent:
+            raise ValueError('model selection: unreadable task ancestry')
+    if plan is None:
+        raise ValueError('model selection: task ancestry exceeds 20 parent links')
+    builder = c['builder']
+    mapped = builder.get('plan_models', {}).get(plan)
+    source = 'default'
+    selected = {key: builder[key] for key in ('model', 'resolved_model', 'thinking')}
+    if mapped is not None:
+        selected = {'model': mapped['model'], 'resolved_model': mapped['model'],
+                    'thinking': mapped['thinking']}
+        source = 'plan:' + plan
+    if model is not None:
+        selected = {'model': model, 'resolved_model': model, 'thinking': thinking}
+        source = 'override'
+    if source != 'default' and not model_allowed(builder, selected['resolved_model'], selected['thinking']):
+        raise ValueError('model selection: model/thinking pair is not allowed by builder.allowed_models')
+    description = f"model {selected['resolved_model']} {selected['thinking']} ({source})"
+    selection = {**selected, 'model_source': source, 'plan_ref': plan,
+                 'model_description': description}
+    return {**c, 'builder': {**builder, **selected},
+            'quota': {**c['quota'], 'provider': selected['resolved_model'].split('/')[0]},
+            '_model_selection': selection}
 
 
 @contextmanager
@@ -199,12 +246,20 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False
     return branch
 
 
-def launch(c, ref, slot=None, *, _locked=False, _keep_uncommitted=False):
+def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     if _keep_uncommitted and not _locked:
         raise ValueError('keeping uncommitted work requires guarded same-task relaunch')
     with nullcontext() if _locked else state.lock(c, 'launcher', operation='launch'), ExitStack() as lease, _preparation_receipt(c, ref) as preparation:
+        preparation_started_at = time.time()
+        if slot:
+            slot = str(Path(slot).expanduser().resolve())
+            if slot not in c['builder']['slots']:
+                raise ValueError('requested slot is not in builder.slots')
+            if not _locked:
+                lease.enter_context(state.slot_lock(c, slot))
+        c = resolve_model(c, ref, model=model, thinking=thinking)
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
         occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
@@ -232,7 +287,7 @@ def launch(c, ref, slot=None, *, _locked=False, _keep_uncommitted=False):
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
-        if not _locked and chosen:
+        if not _locked and chosen and not slot:
             lease.enter_context(state.slot_lock(c, chosen))
         shells = []
         skipped = []
@@ -320,6 +375,7 @@ def launch(c, ref, slot=None, *, _locked=False, _keep_uncommitted=False):
                                      'thread', 'parked', ref])
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
+{c['_model_selection']['model_description']}
 Prepared task branch: {branch}. Publish this task from this branch.
 {untracked_notice}
 {preserved_notice}Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
@@ -383,14 +439,16 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                 handle = candidate
             else:
                 skipped.append({'terminal': candidate, 'binding': binding})
+        preparation.update(ref=ref, stage='launch-attempted', started_at=preparation_started_at)
+        preparations = state.read(c, 'launch-preparations', {})
+        preparations[w['path']] = preparation
+        state.write(c, 'launch-preparations', preparations)
         if handle is not None:
             reason = 'ready_unbound_shell'
-            preparation['stage'] = 'launch-attempted'
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')
         else:
             if skipped:
                 reason = 'run_bound' if any(t['binding']['state'] == 'bound' for t in skipped) else 'binding_unknown'
-            preparation['stage'] = 'launch-attempted'
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
         receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'branch': branch, 'worktree': w,
@@ -399,7 +457,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
                    'terminal_selection': {'action': 'reuse' if handle is not None else 'create',
                                           'reason': reason, 'skipped_terminals': skipped},
                    'session_dir': str(session_dir),
-                   'argv': argv, 'resolved_model': b['resolved_model'], 'thinking': b['thinking'],
+                   'argv': argv, **c['_model_selection'],
                    'orca_status_extension': b.get('orca_status_extension'),
                    'untracked_files': untracked_files, 'untracked_count': untracked_count,
                    'preserved_tracked_files': tracked_files,
@@ -412,6 +470,7 @@ On a durable PARK request: finish your current step, commit and push WIP to this
             launches[w['path']] = receipt
             state.write(c, 'launches', launches)
         preparation['stage'] = 'launched'
+        state.write(c, 'launch-preparations', preparations)
         orca(c, 'worktree', 'set', '--worktree', 'id:' + w['id'], '--workspace-status', 'in-progress', '--comment', ref + ': fresh pinned builder launched')
         if c['hooks'].get('after_launch'):
             run(c['hooks']['after_launch'], w['path'])

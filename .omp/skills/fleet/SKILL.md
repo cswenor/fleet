@@ -273,12 +273,24 @@ it against actual Git. Main does not switch a live OLD session's branch. Explici
 fleet --config /private/project/fleet.yml launch TASK-N --slot /path/to/lane
 ```
 
-Require a fresh omp session per task, pinned Sol medium, no model fallback,
-no auto-resume, extended context off, fixed `f200000` compaction and fail-closed
-reserve. Verify actual `model_change` / `thinking_level_change` session events,
-not requested argv or launch.effective. Ambiguous receipt/input acceptance forbids
-another launch; inspect launch/preparation receipts, terminal incarnation and
-session first. Never bypass withheld admission or silently change providers.
+Require a fresh omp session per task, pinned to the resolved launch selection
+(project default unless a plan mapping or paired one-shot override applies),
+no model fallback, no auto-resume, extended context off, fixed `f200000`
+compaction and fail-closed reserve. `builder.plan_models` maps the nearest
+PLAN ancestor to `{model: provider/model, thinking: level}`; unmapped nearer
+plans use defaults, never outer mappings. `builder.allowed_models` maps resolved
+IDs to allowed thinking-level lists; the project default pair is implicitly
+allowed. `launch`/`restart`/`relaunch --model ID --thinking LEVEL` requires both flags
+and an allowed pair, overrides the plan for this launch only, and never rewrites
+config. Main approves model/cost decisions; budget/reset approval stays owner-only.
+Quota follows the selected provider; receipts, prompt headers and FRESH-READY
+state model/thinking/source. Ready predicts the next selection; Main's later
+launch resolves again, never inheriting the finished launch's override.
+Verify actual `model_change` / `thinking_level_change` session events against
+the receipt, not requested argv or launch.effective. Ambiguous receipt/input
+acceptance forbids another launch; inspect launch/preparation receipts, terminal
+incarnation and session first. Never bypass withheld admission or silently
+change providers. Reviewer model and both publication gates remain unchanged.
 
 ## Builder execution and decisions
 

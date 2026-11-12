@@ -4,7 +4,7 @@ import math
 import os
 import time
 import uuid
-from . import health, state
+from . import health, quota, state
 from .commands import json_run, CommandError
 
 CONSENT = 'Saved resets require explicit owner approval recorded as a Pad DECISION comment BEFORE spend; Fleet never spends resets.'
@@ -110,6 +110,12 @@ def advance(c, s, ledger, now=None):
     g = ledger.setdefault('governor', {'episode': None, 'active': None, 'parked': []})
     events = []
     q = s.get('quota', {})
+    pools = s.get('quota_by_provider')
+    exhausted = ({provider for provider, pool in pools.items()
+                  if pool.get('known') and not pool.get('may_start')} if pools else None)
+    if pools:
+        q = {'known': bool(exhausted) or all(pool.get('known') for pool in pools.values()),
+             'may_start': not exhausted}
     inventory = s.get('inventory')
     builders = inventory.get('builders', []) if inventory else []
     def report(key, subject, body):
@@ -169,6 +175,8 @@ def advance(c, s, ledger, now=None):
         matching = (launch.get('terminal') == b['terminal'] and launch.get('ref') == b.get('task')
                     and bool(b.get('incarnation_id'))
                     and launch.get('terminal_incarnation_id') == b['incarnation_id'])
+        if pools and quota.bound_provider(c, b, launches) not in exhausted:
+            continue
         launch_id = launch['id'] if matching else b['terminal'] + ':' + str(b.get('task'))
         if matching and _settled(c, launch, b['path']):
             continue
@@ -209,6 +217,8 @@ def advance(c, s, ledger, now=None):
                    'terminal': b['terminal'], 'branch': b['branch'], 'at': now, 'status': 'requested'}
     g['active'].update(path=b['path'], incarnation_id=b['incarnation_id'], worktree=b['worktree'],
                        launch_record_id=launches.get(b['path'], {}).get('id'))
+    if pools:
+        g['active']['provider'] = quota.bound_provider(c, b, launches)
     body = (f"PARK {b['task']} (request {key}). Finish your current step, commit and push WIP to your task branch, "
             f"write a concrete Pad resume comment in workspace {c['pad_workspace']}, then run "
             f"fleet --config CONFIG thread parked {b['task']} --resume-note COMMENT_ID using your launch config. "
@@ -230,7 +240,12 @@ def deliverable(c, event, s, ledger):
         return True
     active = ledger['governor']['active']
     inventory = s.get('inventory')
+    q = (s.get('quota_by_provider', {}).get(active.get('provider'), {})
+         if active and active.get('provider') else s.get('quota', {}))
+    if (active and active.get('provider') and not q
+            and s.get('quota', {}).get('provider') == active['provider']):
+        q = s['quota']
     return bool(active and active['key'] == event['park'] and inventory and not inventory.get('errors')
                 and health.owner(inventory, active['branch']) == active['terminal']
                 and same_attempt(c, active, inventory['builders'])
-                and s.get('quota', {}).get('known') and not s['quota'].get('may_start'))
+                and q.get('known') and not q.get('may_start'))

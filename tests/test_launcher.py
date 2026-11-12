@@ -37,6 +37,10 @@ class RestartTests(unittest.TestCase):
         self.binding = {'run': None}
         self.calls = []
         self.incarnation = 'inc'
+        ancestry = patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {
+            'ref': args[2], 'parent_ref': 'PLAN-1'} if args[2] != 'PLAN-1' else {'ref': 'PLAN-1'})
+        ancestry.start()
+        self.addCleanup(ancestry.stop)
 
     def orca(self, config, *args):
         self.calls.append(args)
@@ -63,9 +67,44 @@ class RestartTests(unittest.TestCase):
             return subprocess.run(argv, cwd=cwd, check=True, capture_output=True).stdout
         return ''
 
-    def launch(self, snapshots=None, automatic=False, preparation=None):
+    def launch(self, snapshots=None, automatic=False, preparation=None, **selection):
         with patch.object(launcher, '_prepare_branch', return_value='task-123-test', side_effect=preparation), patch.object(launcher.snapshot, 'collect', side_effect=snapshots or [self.s, self.s]), patch.object(launcher, 'orca', side_effect=self.orca), patch.object(health, 'orca', side_effect=self.orca), patch.object(launcher, 'run', side_effect=self.command), patch.object(dispatcher, 'status_policy', return_value=dispatcher.config.STATUS_DEFAULTS), patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {'ref': args[2], 'title': 'Test', 'fields': {'status': 'active' if args[2] == 'PLAN-1' else 'open'}, 'parent_ref': 'PLAN-1'} if args[1] == 'show' else []), patch.object(dispatcher, 'run', return_value='task-123'):
-            return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot)
+            return launcher.launch(self.c, 'TASK-123', None if automatic else self.slot, **selection)
+
+    def test_unset_model_policy_preserves_default_omp_argv(self):
+        receipt = self.launch()
+        self.assertEqual(receipt['argv'], [
+            'omp', '--model', 'provider/model', '--thinking', 'medium',
+            '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
+            '@' + receipt['prompt']])
+
+    def test_plan_and_override_launches_keep_next_launch_default(self):
+        self.c['builder'].update(
+            plan_models={'PLAN-1': {'model': 'other/planned', 'thinking': 'high'}},
+            allowed_models={'other/planned': ['high'], 'third/override': ['low']})
+        planned = self.launch()
+        self.assertEqual(planned['resolved_model'], 'other/planned')
+        self.assertEqual(planned['model_source'], 'plan:PLAN-1')
+        self.assertIn('model other/planned high (plan:PLAN-1)', Path(planned['prompt']).read_text())
+        settings = yaml.safe_load(Path(planned['overlay']).read_text())
+        self.assertEqual(settings['compaction']['modelThresholds'], {'other/planned': 'f200000'})
+        self.c['_state'] = str(Path(self.directory.name) / 'override-state')
+        self.prompt = 'user@host:~/slot$ '
+        overridden = self.launch(model='third/override', thinking='low')
+        self.assertEqual(overridden['model_source'], 'override')
+        self.assertEqual(overridden['argv'][1:5], ['--model', 'third/override', '--thinking', 'low'])
+        self.assertEqual(self.c['builder']['resolved_model'], 'provider/model')
+        self.c['builder']['plan_models'] = {}
+        self.c['_state'] = str(Path(self.directory.name) / 'default-state')
+        self.prompt = 'user@host:~/slot$ '
+        default = self.launch()
+        self.assertEqual((default['resolved_model'], default['thinking'], default['model_source']),
+                         ('provider/model', 'medium', 'default'))
+
+    def test_disallowed_override_sends_no_terminal_input(self):
+        with self.assertRaises(ValueError):
+            self.launch(model='other/model', thinking='high')
+        self.assertEqual((self.sent, self.created), ([], 0))
 
     def test_launch_preserves_and_reports_user_files(self):
         user = Path(self.slot) / 'user\nnotes'

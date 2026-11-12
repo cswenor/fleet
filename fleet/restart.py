@@ -435,20 +435,22 @@ def _exited_shell(process, handle):
 
 
 
-def relaunch(c, ref, slot, reason, *, keep_uncommitted=False):
+def relaunch(c, ref, slot, reason, *, keep_uncommitted=False, model=None, thinking=None):
     """Main explicitly replaces an unfinished same-task session, never interrupts."""
     if (not isinstance(reason, str) or not reason.strip() or len(reason) > 2000
             or any(not char.isprintable() for char in reason)):
         raise ValueError('relaunch reason must be a non-empty printable single line (at most 2000 characters)')
     steering._main(c)
-    return _replace(c, ref, slot, ref, reason=reason, keep_uncommitted=keep_uncommitted)
+    return _replace(c, ref, slot, ref, reason=reason, keep_uncommitted=keep_uncommitted,
+                    model=model, thinking=thinking)
 
 
-def restart(c, ref, slot, finished_ref):
-    return _replace(c, ref, slot, finished_ref)
+def restart(c, ref, slot, finished_ref, *, model=None, thinking=None):
+    return _replace(c, ref, slot, finished_ref, model=model, thinking=thinking)
 
 
-def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False):
+def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
+             model=None, thinking=None):
     operation = 'relaunch' if reason is not None else 'restart'
     if not sys.platform.startswith('linux'):
         raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
@@ -458,6 +460,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False)
     if slot not in c['builder']['slots']:
         raise ValueError('requested slot is not in builder.slots')
     with state.lock(c, 'launcher', operation=operation), state.slot_lock(c, slot):
+        launch_config = c
+        c = launcher.resolve_model(c, ref, model=model, thinking=thinking)
         tree, target = _target(c, slot)
         record = state.read(c, 'launches', {}).get(slot, {})
         if (not record.get('id') or record.get('ref') != finished_ref or
@@ -525,7 +529,9 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False)
                 'old_model': proof.get('model'), 'old_thinking': proof.get('thinking'),
                 'old_model_source': 'session_events',
                 'new_model': c['builder']['resolved_model'],
-                'new_thinking': c['builder']['thinking'], 'new_model_source': 'project_default',
+                'new_thinking': c['builder']['thinking'],
+                'new_model_source': c['_model_selection']['model_source'],
+                'plan_ref': c['_model_selection']['plan_ref'],
                 'branch': branch, 'keep_uncommitted': keep_uncommitted,
                 'tracked_files': tracked_files}
             # Pad failure refuses before retirement; the user keeps their live session.
@@ -609,7 +615,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False)
                         state.write(c, name, ledger)
             receipt['stage'] = 'launch-attempted'
             state.write(c, 'retirements', retirements)
-            launched = launcher.launch(c, ref, slot, _locked=True, **(
+            launched = launcher.launch(launch_config, ref, slot, model=model, thinking=thinking,
+                                       _locked=True, **(
                 {'_keep_uncommitted': True} if keep_uncommitted else {}))
             receipt['next_launch_id'] = launched['id']
             receipt['stage'] = 'launched'
@@ -631,10 +638,13 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False)
                 if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
             if receipt.get('retired'):
-                recovery = shlex.join([
+                recovery_argv = [
                     'fleet', '--config',
                     str(c.get('_path') or Path(c['root']) / 'fleet.yml'),
-                    'launch', ref, '--slot', slot])
+                    'launch', ref, '--slot', slot]
+                if model is not None:
+                    recovery_argv.extend(['--model', model, '--thinking', thinking])
+                recovery = shlex.join(recovery_argv)
                 if keep_uncommitted:
                     receipt['retry_guidance'] += (
                         '; preserved tracked work still requires a coordinated relaunch recovery; '

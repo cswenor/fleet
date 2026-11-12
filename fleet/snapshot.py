@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 import shutil
 import time
-from . import github, github_api, health, quota
+from . import github, github_api, health, quota, state
 from .commands import CommandError
 from .display import duration
 
@@ -66,6 +66,24 @@ def collect(c):
         result['drill'] = True
         result['real_quota'] = result.get('quota', {})
         result['quota'] = quota.evaluate(json.loads(Path(c['_drill_usage_file']).read_text()), c['quota'], time.time())
+    # Keep the legacy single-pool snapshot unchanged when no alternate is active.
+    launches = state.read(c, 'launches', {})
+    providers = {quota.bound_provider(c, b, launches)
+                 for b in (result.get('inventory') or {}).get('builders', [])
+                 if health.active(b)}
+    providers.discard(None)
+    default = c['builder']['resolved_model'].split('/')[0] if providers else None
+    providers.discard(default)
+    if providers:
+        pools = result['quota_by_provider'] = {default: result.get('quota', {})}
+        for provider in sorted(providers):
+            selected = {**c, 'builder': {**c['builder'], 'resolved_model': provider + '/selected'}}
+            try:
+                pools[provider] = quota.collect(selected)
+            except (CommandError, ValueError, KeyError, TypeError) as error:
+                pools[provider] = {'provider': provider, 'known': False, 'may_start': False,
+                                   'reason': provider + ' usage unavailable or stale',
+                                   'error': _collection_reason(error)}
     try:
         free = shutil.disk_usage(c['disk']['path']).free / 1_000_000_000
         result['disk'] = {'path': c['disk']['path'], 'free_gb': round(free, 2), 'min_free_gb': c['disk']['min_free_gb'], 'low': free < c['disk']['min_free_gb']}

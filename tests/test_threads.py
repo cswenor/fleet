@@ -285,6 +285,16 @@ class ReadyTests(unittest.TestCase):
     def setUp(self):
         ThreadTests.setUp(self)
         from fleet import restart
+        from fleet import dispatcher
+        self.c['builder'].update(model='provider/default', resolved_model='provider/default',
+                                 thinking='medium', plan_models={
+                                     'PLAN-2': {'model': 'other/model', 'thinking': 'high'}},
+                                 allowed_models={'other/model': ['high']})
+        self.c['quota'] = {}
+        ancestry = patch.object(dispatcher, 'pad', side_effect=lambda c, *args: {
+            'ref': args[2], 'parent_ref': 'PLAN-2'} if args[2] != 'PLAN-2' else {'ref': 'PLAN-2'})
+        ancestry.start()
+        self.addCleanup(ancestry.stop)
         self.launch = state.read(self.c, 'launches')[self.temp.name]
         self.launch['at'] = 1767225599
         self.launch['terminal_incarnation_id'] = 'builder-incarnation'
@@ -324,6 +334,9 @@ class ReadyTests(unittest.TestCase):
                     self.assertEqual(cli.main(), 0)
                 receipts.append(json.loads(output.getvalue()))
         self.assertEqual(receipts[0]['message_id'], receipts[1]['message_id'])
+        self.assertEqual(receipts[0]['resolved_model'], 'other/model')
+        self.assertEqual(receipts[0]['model_source'], 'plan:PLAN-2')
+        self.assertIn('model other/model high (plan:PLAN-2)', receipts[0]['body'])
         self.assertEqual(len(self.sent), 1)
         flags = dict(zip(self.sent[0][::2], self.sent[0][1::2]))
         self.assertEqual(flags['--type'], 'question')
@@ -338,6 +351,17 @@ class ReadyTests(unittest.TestCase):
               'subject': flags['--subject'], 'body': flags['--body'],
               'from_handle': 'term_builder'}], self.c['coordinator'])
         self.assertEqual(classified[0]['classification'], 'builder_decision_request')
+
+    def test_ready_adds_selection_without_changing_legacy_report_lines(self):
+        report = threads.ready(self.c, 'TASK-2', 'Ready to retire.')
+        legacy_lines = [line for line in report['body'].splitlines()
+                        if not line.startswith('Next model ')]
+        self.assertEqual(legacy_lines, [
+            'Pad-Ref: TASK-1', 'FRESH-READY TASK-2',
+            'Handoff: TASK-2 comment handoff-1', 'Published: https://example/pr/1',
+            'Ready to retire.'])
+        for key in ('next_ref', 'handoff', 'pr', 'status', 'body', 'message_id', 'at', 'recorded'):
+            self.assertIn(key, report)
 
     def test_existing_status_ready_receipt_remains_valid_without_resend(self):
         ledger = state.read(self.c, 'threads-TASK-1')

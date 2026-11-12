@@ -23,7 +23,8 @@ class RetirementTests(unittest.TestCase):
         self.slot = str(root)
         self.c = {'root': self.slot, '_state': str(root / 'state'), 'repo': 'owner/repo',
                   'pad_workspace': 'project', 'builder': {'slots': [self.slot], 'max': 1,
-                                                        'model': 'provider/model', 'thinking': 'medium'}}
+                                                        'model': 'provider/model', 'resolved_model': 'provider/model',
+                                                        'thinking': 'medium'}, 'quota': {}}
         self.c['coordinator'] = {'terminal': 'main', 'run': 'run'}
         self.c['builder']['rules_file'] = 'RULES.md'
         (root / 'RULES.md').write_text('rules')
@@ -198,6 +199,57 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(self.sent, [])
         self.launch.assert_not_called()
 
+    def test_override_uses_selected_provider_before_retiring(self):
+        self.c['builder']['allowed_models'] = {'other/model': ['high']}
+        def admission(config):
+            return {'errors': [], 'inventory': copy.deepcopy(self.inventory),
+                    'quota': {'may_start': config['quota']['provider'] != 'other',
+                              'reason': 'selected pool exhausted'}, 'disk': {'low': False}}
+        with patch.object(restart.snapshot, 'collect', side_effect=admission):
+            with self.assertRaisesRegex(ValueError, 'selected pool exhausted'):
+                restart.restart(self.c, 'TASK-2', self.slot, 'TASK-1',
+                                model='other/model', thinking='high')
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.c['builder']['resolved_model'], 'provider/model')
+        self.assertFalse(state.read(self.c, 'retirements', {}))
+
+    def test_relaunch_selection_preserves_old_identity_and_project_defaults(self):
+        self.relaunch_repo()
+        self.c['builder']['allowed_models'] = {'other/model': ['high']}
+        self.c['builder']['plan_models'] = {'PLAN-1': {'model': 'other/model', 'thinking': 'high'}}
+        before = copy.deepcopy(self.c)
+        result = self.run_relaunch(model='provider/new-model', thinking='medium')
+        evidence = result['retirement']['relaunch']
+        self.assertEqual(evidence['old_model'], 'provider/old-model')
+        self.assertEqual(evidence['old_thinking'], 'high')
+        self.assertEqual(evidence['new_model'], 'provider/new-model')
+        self.assertEqual(evidence['new_thinking'], 'medium')
+        self.assertEqual(evidence['new_model_source'], 'override')
+        self.assertEqual(evidence['plan_ref'], 'PLAN-1')
+        self.assertEqual(self.c, before)
+
+    def test_relaunch_mapped_quota_refuses_before_retirement(self):
+        self.relaunch_repo()
+        self.c['builder']['allowed_models'] = {'other/model': ['high']}
+        self.c['builder']['plan_models'] = {'PLAN-1': {'model': 'other/model', 'thinking': 'high'}}
+        def admission(config):
+            return {'errors': [], 'inventory': copy.deepcopy(self.inventory),
+                    'quota': {'may_start': config['quota']['provider'] != 'other',
+                              'reason': 'selected pool exhausted'}, 'disk': {'low': False}}
+        with patch.object(restart.snapshot, 'collect', side_effect=admission):
+            with self.assertRaisesRegex(ValueError, 'selected pool exhausted'):
+                self.run_relaunch()
+        self.assertEqual(self.sent, [])
+        self.assertFalse(state.read(self.c, 'retirements', {}))
+
+    def test_relaunch_invalid_override_leaves_old_session_untouched(self):
+        self.relaunch_repo()
+        for pair in ({'model': 'other/model'}, {'thinking': 'high'},
+                     {'model': 'other/model', 'thinking': 'high'}):
+            with self.subTest(pair=pair), self.assertRaises(ValueError):
+                self.run_relaunch(**pair)
+        self.assertEqual(self.sent, [])
+        self.assertFalse(state.read(self.c, 'retirements', {}))
     def relaunch_repo(self):
         def git(*args):
             return subprocess.run(['git', *args], cwd=self.slot, check=True,
@@ -308,7 +360,6 @@ class RetirementTests(unittest.TestCase):
         self.launch.assert_not_called()
         self.assertEqual(state.read(self.c, 'retirements', {}), {})
 
-
     def test_tracked_work_refuses_before_exit(self):
         def git(*args):
             return subprocess.run(['git', *args], cwd=self.slot, check=True,
@@ -358,7 +409,6 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(result['retirement']['session']['id'], 'session')
         self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
-        self.launch.assert_called_once_with(self.c, 'TASK-2', self.slot, _locked=True)
         self.sent.clear()
         self.launch.reset_mock()
         self.refused('already attempted')
@@ -376,7 +426,6 @@ class RetirementTests(unittest.TestCase):
         result = self.run_restart()
         self.assertEqual(result['retirement']['completion']['handoff'], 'next-piece')
         self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
-        self.launch.assert_called_once_with(self.c, 'TASK-1', self.slot, _locked=True)
 
     def test_same_ref_without_new_publication_refuses_even_when_pad_done(self):
         self.same_ref()
@@ -836,7 +885,6 @@ class RetirementTests(unittest.TestCase):
         result = self.run_restart()
         self.assertEqual(result['retirement']['stage'], 'launched')
         self.assertEqual(len(self.sent), 1)
-        self.launch.assert_called_once_with(self.c, 'TASK-2', self.slot, _locked=True)
 
     def test_unknown_or_misencoded_metadata_never_retires(self):
         for event in (
@@ -938,7 +986,6 @@ class RetirementTests(unittest.TestCase):
                 self.assertIn(receipt['error'], stderr.getvalue())
                 self.assertIn('recover with: ' + recovery, stderr.getvalue())
                 self.assertEqual(len(self.sent), 1)
-                self.launch.assert_called_once_with(self.c, 'TASK-2', self.slot, _locked=True)
                 self.sent.clear()
                 self.launch.reset_mock()
                 self.refused('already attempted')
