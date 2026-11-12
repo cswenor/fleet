@@ -142,7 +142,7 @@ def main():
     p.add_argument('--environment-file', required=True, help='private service token file (macOS: literal KEY=value)')
     p = sub.add_parser('review-bot', help='plan or explicitly apply a pinned per-project Review Bot installation')
     bot_commands = p.add_subparsers(dest='review_bot_command', required=True)
-    for name in ('init', 'ruleset'):
+    for name in ('init', 'ruleset', 'deploy'):
         p = bot_commands.add_parser(name)
         p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
         action = p.add_mutually_exclusive_group()
@@ -155,6 +155,8 @@ def main():
     p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
     p.add_argument('pr', type=int)
     p.add_argument('--head', required=True, help='independently reviewed full current commit SHA')
+    p = bot_commands.add_parser('status', help='observe exact deployed image, HTTPS health, Apps and webhook delivery metadata')
+    p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
     args = parser.parse_args()
     try:
         if args.command == 'wait' and args.summary and not args.save:
@@ -176,6 +178,12 @@ def main():
             elif args.review_bot_command == 'ruleset':
                 from .review_bot_ruleset import ruleset
                 result = ruleset(c, apply=args.apply)
+            elif args.review_bot_command == 'deploy':
+                from .review_bot_deploy import deploy
+                result = deploy(c, apply=args.apply)
+            elif args.review_bot_command == 'status':
+                from .review_bot_status import status
+                result = status(c)
             else:
                 from .publication import arm
                 result = arm(c, args.pr, args.head)

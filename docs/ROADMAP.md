@@ -175,16 +175,50 @@ credential persistence and publication activation. Arming now reuses the native
 queue query: an entry with null REST auto-merge reports `queued`, while unavailable
 queue visibility remains unknown and blocks blind retry/push.
 
-Remaining: publish the Fleet onboarding/arming slice through fresh review and CI;
-finish deployment/status integration and its separate publication; obtain owner
+Fleet onboarding/guarded arming merged as
+[#6](https://github.com/cswenor/fleet/pull/6), squash
+`41e40dc6fdb48e0e68d46f539cc83b96fc905991`, after final-head
+`ab9871031edeaa9cc611ad19178f6aa2f9d87892` unadvised Sol-medium reviewer
+`01a1d0f4` PASS, both CI jobs
+[43277129972](https://github.com/cswenor/fleet/actions/runs/43277129972)
+green, and Main exact-head GO `msg_4e98f2cb1934`. Main owns deployment;
+Email Sherpa's Apps/rulesets remain untouched.
+
+Deployment/status candidate follows approved rulings `msg_917423c699c1` and
+`msg_109f1305b804`: explicit local/SSH Docker context, four services on one pinned
+image, ingress network on control only, no raw ports/socket, native/advisory forced,
+client-local private role env files and streamed Compose. Owner prepares target
+runtime/auth roots for UID/GID 10010 and separately operator-owned read-only runner
+policy. Nonoverlapping mount roots keep the provider vault out of reviewed work;
+apply probes metadata/read access with read-only mounts, no network/capabilities
+and no privileged initialization. Status requires observed digests/revision,
+singleton Docker health, HTTPS readiness, verified App installations and bounded
+delivery metadata, never secret environments or payloads.
+
+All 31 focused deployment/status/onboarding tests passed. Real Compose 5.1.1
+parsing accepted the isolated four-service topology without daemon mutation.
+Actual installed omp 18.18.6 broker/gateway wrappers served HTTP 200 from isolated
+empty-vault homes; no provider request or reset spend, fixtures/processes removed.
+This is not proof of the released 18.17.0 image or a deployed project. Real CLI
+mp-web-app deployment dry-run/cold status explicitly reported missing pin, App,
+host and health evidence using an isolated bootstrap copy; no private project
+config/runtime changes. Owner preparation and secret boundaries are documented
+in Main's onboarding runbook.
+Independent review `01a1d0fe` (actual Sol medium, no fallback/advisors) found a
+target-host symlink vault alias and empty/failed webhook history being treated as
+healthy. Fixes compare kernel bind-root/device identity, including nested mounts,
+and require the latest successful delivery for verified repository/installation
+IDs. Actual local Docker, pinned public Node base, UID 10010/no network/caps:
+separate bind roots accepted and a host symlink into reviewed work rejected.
+Only disposable fixtures mounted; no host permissions changed or secrets read.
+Fourteen focused deployment/status tests, including both regressions, passed.
+Docker required explicit `bind-propagation=rprivate` with recursive read-only
+binds; actual smoke established that prerequisite. Final-head gates still apply.
+
+Remaining: independently review and publish deployment/status; obtain owner
 release approval/public GHCR visibility and prove anonymous immutable pull plus
-source/release receipt agreement. Rollout is separately owner-gated. Approved
-deployment design (`msg_917423c699c1`, `msg_109f1305b804`): explicit authenticated
-Docker context, four services on one pinned image, ingress network on control
-only, no raw ports/socket, native/advisory forced, client-local private role env
-files and streamed compose. Owner prepares target-host runtime/config/auth
-directories for UID/GID 10010; apply verifies them with a read-only nonroot
-same-image/no-network probe, never privileged initialization.
+source/release receipt agreement. Rollout and calibration remain separately
+owner-gated.
 
 
 ### TASK-128 — Per-project native auto-merge publication
