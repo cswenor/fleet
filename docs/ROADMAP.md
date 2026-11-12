@@ -129,11 +129,14 @@ known Review App ID and desired App-bound checks. Higher counts and unrelated
 protections refuse downgrade. Other project rulesets can still block publication;
 their approval-count changes remain project-owned.
 
-Verification: 41 focused Review Bot tests passed. Fixture-only candidate CLI
+Verification: 42 focused Review Bot tests passed. Fixture-only candidate CLI
 `review-bot ruleset --dry-run` returned exit 0, the explicit App approval-authority
 line and the protected 1→0 migration with all three producer-bound checks.
 No live ruleset, App, project config or shared runtime was changed.
 Publication requires independent final-head review, green CI and Main's exact-head GO.
+Independent review caught unrelated count-0 last-push protection being disabled.
+It is now preserved unless the same verified Fleet-owned selection applies;
+a regression covers both preservation and the selected migration.
 
 
 ### TASK-138 — Recorded owner-approved App permission extras

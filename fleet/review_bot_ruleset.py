@@ -58,16 +58,19 @@ def desired_ruleset(c, existing=None):
     pull = indexed.get('pull_request', {'type': 'pull_request', 'parameters': {}})
     pull_parameters = pull.get('parameters', {})
     approval_count = pull_parameters.get('required_approving_review_count', 0)
-    if approval_count and not (
-            approval_count == 1
-            and existing.get('id') == config.get('id')
-            and before.get('name') == config.get('name', 'fleet-review-bot')
-            and type(app_id) is int and app_id > 0):
+    fleet_owned = (before is not None
+                   and existing.get('id') == config.get('id')
+                   and before.get('name') == config.get('name', 'fleet-review-bot')
+                   and type(app_id) is int and app_id > 0)
+    if approval_count and not (approval_count == 1 and fleet_owned):
         raise ValueError('refusing to reduce an existing approval count outside the selected Fleet-owned ruleset; choose a separate additive ruleset')
     pull_parameters.setdefault('require_code_owner_review', False)
     pull_parameters.setdefault('required_review_thread_resolution', False)
-    pull_parameters.update(required_approving_review_count=0, dismiss_stale_reviews_on_push=True,
-                           require_last_push_approval=False)
+    pull_parameters.update(required_approving_review_count=0, dismiss_stale_reviews_on_push=True)
+    if fleet_owned:
+        pull_parameters['require_last_push_approval'] = False
+    else:
+        pull_parameters.setdefault('require_last_push_approval', False)
     pull['parameters'] = pull_parameters
     required = indexed.get('required_status_checks', {'type': 'required_status_checks', 'parameters': {}})
     parameters = required.get('parameters', {})

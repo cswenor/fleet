@@ -324,6 +324,18 @@ class ReviewBotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'only literal'):
             desired_ruleset(c, existing)
 
+    def test_unrelated_zero_count_ruleset_preserves_last_push_protection(self):
+        c = self.installed()
+        existing = self.existing(c)
+        c['review_bot']['ruleset']['id'] = existing['id']
+        existing['name'] = 'owner-protection'
+        existing['rules'][0]['parameters']['require_last_push_approval'] = True
+        planned = desired_ruleset(c, existing)
+        self.assertTrue(planned['rules'][0]['parameters']['require_last_push_approval'])
+        existing['name'] = 'fleet-review-bot'
+        migrated = desired_ruleset(c, existing)
+        self.assertFalse(migrated['rules'][0]['parameters']['require_last_push_approval'])
+
     def test_ruleset_403_is_a_capability_blocker_not_absence(self):
         c = self.load()
         class Client:
