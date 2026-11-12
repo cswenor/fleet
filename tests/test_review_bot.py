@@ -14,7 +14,7 @@ import yaml
 
 from fleet import config
 from fleet.review_bot_api import APIError, GitHub
-from fleet.review_bot_apps import ManifestCallback, initialize, verify_installation
+from fleet.review_bot_apps import ManifestCallback, initialize, manifest, verify_app, verify_installation
 from fleet.review_bot_files import create_environment, private_parent, read_config, save_config
 from fleet.review_bot_ruleset import desired_ruleset, ruleset, verify_live_ruleset
 
@@ -112,6 +112,36 @@ class ReviewBotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'):
             save_config(c, document, encoded)
         self.assertEqual(self.path.read_bytes(), owner_edit)
+
+    def test_merge_group_manifest_has_required_merge_queue_permission(self):
+        payload = manifest({'name': 'project-review'}, 'review',
+                           'https://review.example/github', 'http://127.0.0.1/callback')
+        self.assertIn('merge_group', payload['default_events'])
+        self.assertEqual(payload['default_permissions']['merge_queues'], 'read')
+
+    def test_review_app_requires_read_only_merge_queue_grant(self):
+        c = self.load()
+        app = c['review_bot']['apps']['review']
+        app.update(id=1007, slug='project-review')
+        payload = manifest(app, 'review', c['review_bot']['webhook_url'], 'http://127.0.0.1/callback')
+        remote = {'id': app['id'], 'slug': app['slug'], 'name': app['name'],
+                  'owner': {'login': 'owner', 'type': 'Organization'},
+                  'permissions': {**payload['default_permissions'], 'metadata': 'read'},
+                  'events': payload['default_events']}
+        class Client:
+            def request(self, method, path):
+                if path == '/app':
+                    return deepcopy(remote)
+                return {'url': c['review_bot']['webhook_url']}
+        self.assertEqual(verify_app(c, 'review', Client()), remote)
+        for grant in (None, 'write'):
+            with self.subTest(grant=grant):
+                if grant is None:
+                    remote['permissions'].pop('merge_queues')
+                else:
+                    remote['permissions']['merge_queues'] = grant
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    verify_app(c, 'review', Client())
 
     def test_manifest_callback_rejects_wrong_state_and_never_logs_one_use_code(self):
         flow = ManifestCallback({'name': 'project-review'}, 'review', 'owner', 'organization',
