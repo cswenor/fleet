@@ -121,10 +121,12 @@ def validate(c):
     deploy = bot.get('deployment', {})
     _mapping(deploy, ('backend', 'docker_context', 'directory', 'health_url', 'control_env_file',
                      'runner_env_file', 'broker_env_file', 'gateway_env_file', 'runner_config_dir',
-                     'broker_auth_dir', 'ingress_network'),
+                     'broker_auth_dir', 'ingress_network', 'mode'),
              'review_bot.deployment')
     if 'backend' in deploy and deploy['backend'] != 'compose':
         raise ValueError('review_bot.deployment.backend must be compose')
+    if deploy.get('mode', 'advisory') not in ('advisory', 'approve'):
+        raise ValueError('review_bot.deployment.mode must be advisory or approve')
     if 'docker_context' in deploy:
         _text(deploy['docker_context'], 'review_bot.deployment.docker_context', r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
     if 'ingress_network' in deploy:

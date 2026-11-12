@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fleet.review_bot_deploy import _BIND_ISOLATION, deploy, docker, topology
+from fleet.review_bot_ruleset import desired_ruleset
 
 
 class DeploymentTests(unittest.TestCase):
@@ -51,6 +52,42 @@ class DeploymentTests(unittest.TestCase):
         with patch('fleet.review_bot_deploy.docker', side_effect=AssertionError('daemon access')):
             with self.assertRaises(ValueError):
                 deploy(self.config(), apply=True)
+
+    def test_approve_plan_and_apply_refuse_missing_live_protection(self):
+        c = self.config()
+        c['review_bot']['deployment']['mode'] = 'approve'
+        result = deploy(c, github=object())
+        self.assertEqual(result['mode'], 'approve')
+        self.assertTrue(any('approve deployment blocked' in item for item in result['blockers']))
+        with patch('fleet.review_bot_deploy.docker', side_effect=AssertionError('daemon access')):
+            with self.assertRaises(ValueError):
+                deploy(c, apply=True, github=object())
+        c['review_bot']['deployment']['mode'] = 'off'
+        with self.assertRaises(ValueError):
+            deploy(c)
+
+    def test_anonymous_pull_ignores_credentials_preserves_endpoint_and_removes_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / 'credentials'
+            credentials.mkdir()
+            (credentials / 'config.json').write_text('{"auths":{"ghcr.io":{"auth":"bogus"}}}')
+            executable = root / 'docker'
+            executable.write_text(
+                '#!/usr/bin/env python3\nimport json, os, sys\nfrom pathlib import Path\n'
+                'if sys.argv[1:3] == ["--context", "owned-context"]:\n'
+                ' print("ssh://configured-target")\n'
+                'else:\n'
+                ' p = Path(os.environ["DOCKER_CONFIG"])\n'
+                ' assert not list(p.iterdir())\n'
+                ' assert sys.argv[1:3] == ["--host", "ssh://configured-target"]\n'
+                ' print(str(p))\n')
+            executable.chmod(0o700)
+            with patch.dict(os.environ, {'PATH': directory + os.pathsep + os.environ['PATH'],
+                                         'DOCKER_CONFIG': str(credentials)}):
+                temporary = docker('owned-context', ['image', 'pull', 'public-pin'], anonymous=True).strip()
+            self.assertFalse(Path(temporary).exists())
+            self.assertEqual(json.loads((credentials / 'config.json').read_text())['auths']['ghcr.io']['auth'], 'bogus')
 
     def test_overlapping_target_mounts_cannot_expose_the_provider_vault(self):
         for key, value in (('broker_auth_dir', '/private/instance/work/auth'),
@@ -131,6 +168,17 @@ class DeploymentTests(unittest.TestCase):
                       'gateway': {'OMP_AUTH_BROKER_TOKEN': 'broker-private', 'OMP_GATEWAY_TOKEN': 'gateway-private'}}
             for role, env in values.items():
                 deployment[role + '_env_file'] = environment(role + '-runtime', env)
+            deployment['mode'] = 'approve'
+            bot['ruleset'] = {'id': 99, 'required_checks': [{'context': 'CI', 'integration_id': 123}]}
+            live = {**desired_ruleset(c), 'id': 99, 'source_type': 'Repository', 'source': c['repo']}
+            class Owner:
+                def request(self, method, path):
+                    if path.endswith('/rulesets/99'):
+                        return live
+                    if '/rulesets?' in path:
+                        return [{'id': 99}] if 'page=1' in path else []
+                    return {'full_name': c['repo'], 'default_branch': 'main', 'allow_auto_merge': True}
+            owner = Owner()
             documents = []
             def daemon(context, args, *, input=None):
                 if args[0] == 'context':
@@ -146,7 +194,7 @@ class DeploymentTests(unittest.TestCase):
                     patch('fleet.review_bot_deploy.verify_app'), \
                     patch('fleet.review_bot_deploy.verify_installation'), \
                     patch('fleet.review_bot_deploy._probe_target'):
-                result = deploy(c, apply=True, github=object())
+                result = deploy(c, apply=True, github=owner)
                 self.assertTrue(result['deployed'])
                 self.assertNotIn('gateway-private', json.dumps(result))
                 self.assertNotIn('review-key-private', json.dumps(result))
@@ -155,8 +203,14 @@ class DeploymentTests(unittest.TestCase):
                 self.assertNotIn('GITHUB_APP_PRIVATE_KEY_B64', services['runner']['environment'])
                 self.assertNotIn('TYPESAFE_API_KEY', services['gateway']['environment'])
                 self.assertEqual(services['runner']['environment']['OMP_GATEWAY_TOKEN'], 'gateway-private')
-                self.assertEqual(services['control']['environment']['REVIEW_BOT_MODE'], 'advisory')
+                self.assertEqual(services['control']['environment']['REVIEW_BOT_MODE'], 'approve')
+                self.assertEqual(services['control']['environment']['MERGE_LANE_ENABLED'], 'false')
+                self.assertEqual(services['control']['environment']['MERGE_BATCH_ENABLED'], 'false')
+                live['bypass_actors'] = [{'actor_id': 1, 'actor_type': 'Integration', 'bypass_mode': 'always'}]
+                with self.assertRaises(ValueError):
+                    deploy(c, apply=True, github=owner)
+                live['bypass_actors'] = []
                 environment('runner-runtime', {**values['runner'], 'BUILDER_GITHUB_APP_PRIVATE_KEY_B64': 'builder-private'})
                 with self.assertRaises(ValueError):
-                    deploy(c, apply=True, github=object())
+                    deploy(c, apply=True, github=owner)
             self.assertEqual(len(documents), 1)

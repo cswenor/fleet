@@ -153,6 +153,7 @@ publication:
 #     merge_queue: false
 #   deployment:
 #     backend: compose
+#     mode: advisory # approve requires verified live main ruleset on every apply
 #     docker_context: project-review-host # explicit existing local or SSH context
 #     directory: /srv/fleet-review/project # TARGET-host root; owner prepares its subdirs
 #     runner_config_dir: /etc/fleet-review/project # TARGET-host read-only model policy
