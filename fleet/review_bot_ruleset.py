@@ -272,7 +272,6 @@ def ruleset(c, *, apply=False, github=None):
             client = app_client(app, role)
             verify_app(c, role, client)
             verify_installation(c, role, client)
-        document, encoded = read_config(c)
         selected = config.get('id')
         # Preserve a durable create intent across an ambiguous POST response.
         pending = state.read(c, 'review-bot-ruleset-create')
@@ -290,6 +289,9 @@ def ruleset(c, *, apply=False, github=None):
                 raise ValueError('live protection changed during verification; review a fresh dry-run before apply')
         elif any(row.get('name') == desired['name'] for row in refreshed_inventory):
             raise ValueError('a same-name ruleset appeared during verification; reconcile its explicit ID before apply')
+        document, encoded = read_config(c)
+        if document.get('review_bot') != bot:
+            raise ValueError('Review Bot configuration changed during verification; reload and review a fresh dry-run before apply')
         if selected is None:
             state.write(c, 'review-bot-ruleset-create', {'digest': digest})
         response = github.request('PUT' if selected else 'POST',

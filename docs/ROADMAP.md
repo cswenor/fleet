@@ -166,6 +166,10 @@ verification could overwrite an owner's newer ruleset. Apply now refreshes
 attachment and the complete protection body immediately before mutation, refusing
 changes or a newly appeared same-name create target. A regression exercises both
 update strengthening and concurrent creation without any remote write.
+A later independent review found the analogous owner-config race. The final
+pre-mutation read now compares the entire Review Bot configuration with the
+loaded/reviewed snapshot; concurrent CI additions refuse without remote writes
+or overwriting the owner's edit.
 
 Remaining: publish the Fleet onboarding/arming slice through fresh review and CI;
 finish deployment/status integration and its separate publication; obtain owner

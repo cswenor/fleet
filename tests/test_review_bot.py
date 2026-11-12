@@ -229,11 +229,14 @@ class ReviewBotTests(unittest.TestCase):
     def test_protection_drift_during_remote_verification_never_overwrites_owner_changes(self):
         for creating in (False, True):
             with self.subTest(creating=creating):
+                self.raw['review_bot']['ruleset'].pop('id', None)
                 c = self.installed()
                 c['_state'] = str(self.private / ('create-drift' if creating else 'update-drift'))
                 live = None if creating else self.existing(c)
                 if live:
                     c['review_bot']['ruleset']['id'] = live['id']
+                    self.raw['review_bot']['ruleset']['id'] = live['id']
+                    self.path.write_text(yaml.safe_dump(self.raw))
                 class Client:
                     def request(self, method, path, body=None):
                         if method != 'GET':
@@ -261,6 +264,25 @@ class ReviewBotTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         ruleset(c, apply=True, github=github)
                 self.assertEqual(self.path.read_bytes(), before)
+
+    def test_config_drift_during_remote_verification_preserves_owner_ci_and_never_mutates(self):
+        c = self.installed()
+        github = self.client(c, None)
+        ruleset(c, github=github)
+        extra = {'context': 'owner-security-scan', 'integration_id': 15368}
+        def owner_change(*args):
+            document = yaml.safe_load(self.path.read_text())
+            document['review_bot']['ruleset']['required_checks'].append(extra)
+            self.path.write_text(yaml.safe_dump(document))
+        with (patch('fleet.review_bot_ruleset.verify_pin', side_effect=owner_change),
+              patch('fleet.review_bot_ruleset.app_client'),
+              patch('fleet.review_bot_ruleset.verify_app'),
+              patch('fleet.review_bot_ruleset.verify_installation')):
+            with self.assertRaises(ValueError):
+                ruleset(c, apply=True, github=github)
+        persisted = yaml.safe_load(self.path.read_text())['review_bot']['ruleset']
+        self.assertIn(extra, persisted['required_checks'])
+        self.assertNotIn('id', persisted)
 
     def installed(self):
         self.raw['review_bot']['source'] = self.source()
