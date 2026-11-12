@@ -81,6 +81,15 @@ class GovernorTests(unittest.TestCase):
         pools['alternate']['may_start'] = False
         self.assertTrue(all(not event.get('park') for event in self.advance(1)))
         self.assertEqual(self.ledger['governor']['active']['terminal'], 'a')
+
+    def test_pending_default_park_survives_return_to_single_pool(self):
+        pools = self.mixed_pools()
+        event, = self.advance()
+        self.s.pop('quota_by_provider')
+        self.s['quota'] = {**pools['default'], 'provider': 'default'}
+        self.assertTrue(governor.deliverable(self.c, event, self.s, self.ledger))
+        self.s['quota']['provider'] = 'alternate'
+        self.assertFalse(governor.deliverable(self.c, event, self.s, self.ledger))
     def test_priority_alone_selects_lowest_without_history(self):
         events = self.advance()
         self.assertEqual(events[0]['recipients'], ['b', 'run:scratch', 'pad:TASK-2'])

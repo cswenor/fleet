@@ -242,6 +242,9 @@ def deliverable(c, event, s, ledger):
     inventory = s.get('inventory')
     q = (s.get('quota_by_provider', {}).get(active.get('provider'), {})
          if active and active.get('provider') else s.get('quota', {}))
+    if (active and active.get('provider') and not q
+            and s.get('quota', {}).get('provider') == active['provider']):
+        q = s['quota']
     return bool(active and active['key'] == event['park'] and inventory and not inventory.get('errors')
                 and health.owner(inventory, active['branch']) == active['terminal']
                 and same_attempt(c, active, inventory['builders'])
