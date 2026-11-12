@@ -10,6 +10,15 @@ from fleet.metrics import MeasurementError, merged_prs, tally, utc
 
 
 class MetricsTests(unittest.TestCase):
+    def test_malformed_header_refuses_instead_of_dropping_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'session.jsonl'
+            for text in ('', '{invalid', '{"type":"title"}\n{invalid'):
+                path.write_text(text)
+                with self.assertRaisesRegex(MeasurementError, 'unreadable session header'):
+                    tally([path], [('p', Path('/p'))], utc('2026-11-01T00:00:00Z'),
+                          utc('2026-11-02T00:00:00Z'))
+
     def test_merge_pagination_uses_updated_time_and_exact_boundaries(self):
         pages = [
             {'nodes': [
@@ -97,12 +106,16 @@ class MetricsTests(unittest.TestCase):
             events = [dict(type='session', id='s', cwd='/p')]
             for n, usage in enumerate([None, dict(input=0, output=0, cacheRead=0, cacheWrite=0)]):
                 events.append(dict(type='message', id=str(n), timestamp='2026-11-01T00:00:00Z',
-                                   message=dict(role='assistant', provider='p', model='m', usage=usage)))
+                                   message=dict(role='assistant', provider='p', model='m',
+                                                stopReason='error' if usage is None else 'stop', usage=usage)))
             path.write_text('\n'.join(map(json.dumps, events)))
             result = tally([path], [('p', Path('/p'))], utc('2026-11-01T00:00:00Z'),
                            utc('2026-11-02T00:00:00Z'))
             self.assertEqual(result['coverage']['missing_usage'], 1)
-            self.assertEqual(result['usage'][0]['unpriced_calls'], 1)
+            self.assertEqual(result['usage'][0]['calls'], 2)
+            self.assertEqual(result['usage'][0]['errors'], 1)
+            self.assertEqual(result['usage'][0]['missing_usage'], 1)
+            self.assertEqual(result['usage'][0]['unpriced_calls'], 2)
 
 
 if __name__ == '__main__':

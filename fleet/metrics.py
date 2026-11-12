@@ -77,8 +77,7 @@ def tally(files, projects, start, end):
                 while isinstance(header, dict) and header.get('type') == 'title':
                     header = json.loads(next(stream))
             except (ValueError, StopIteration):
-                counts['non_session_files'] += 1
-                continue
+                raise MeasurementError('unreadable session header') from None
             if not isinstance(header, dict) or header.get('type') != 'session':
                 counts['non_session_files'] += 1
                 continue
@@ -129,17 +128,19 @@ def tally(files, projects, start, end):
                 if not project:
                     counts['unattributed_calls'] += 1
                     continue
-                if not isinstance(usage, dict):
-                    counts['missing_usage'] += 1
-                    continue
                 provider, model = message.get('provider'), message.get('model')
                 if not isinstance(provider, str) or not isinstance(model, str):
                     raise MeasurementError('usage lacks provider/model')
                 group = groups.setdefault((project, provider, model, kind), dict(
                     calls=0, errors=0, input=0, output=0, cache_read=0,
-                    cache_write=0, recorded_list_usd=0, unpriced_calls=0))
+                    cache_write=0, recorded_list_usd=0, unpriced_calls=0, missing_usage=0))
                 group['calls'] += 1
                 group['errors'] += message.get('stopReason') == 'error'
+                if not isinstance(usage, dict):
+                    counts['missing_usage'] += 1
+                    group['missing_usage'] += 1
+                    group['unpriced_calls'] += 1
+                    continue
                 for source, target in [('input', 'input'), ('output', 'output'),
                                        ('cacheRead', 'cache_read'), ('cacheWrite', 'cache_write')]:
                     if source not in usage:

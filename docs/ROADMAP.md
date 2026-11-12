@@ -2925,8 +2925,12 @@ for Project Gamma, using adoption-date midnight cutoffs. After: exactly
 **Nov 13–20 UTC**, collected on/after 2026-11-20T00:00:00Z.
 Project Beta's pre-adoption Mac sessions are unavailable; Project Gamma has no
 local pre-adoption sessions, and Fleet has no established pre-Fleet baseline.
-Publish observed local totals but **N/A per-PR rates wherever matching coverage
-is absent/unproven**, never zero usage inferred from missing sources.
+Publish observed totals and labelled **partial local-only Alpha/Fleet rates**,
+excluding remote review-bot/off-host usage (Main `msg_b1deb784cbd0`). Main attests
+Alpha's before Main/lanes ran on this host. Beta/Gamma before rates remain N/A
+where sources are unavailable; never infer zero usage from missing sources.
+Fleet's retained private predecessor supplies historical GitHub merge timestamps
+(0 before / 103 checkpoint); use the current repo for AFTER.
 
 [Procedure, source inventory, field contract and results](metrics.md).
 TASK-18 remains **open**, waiting for the after window; no causal claim or

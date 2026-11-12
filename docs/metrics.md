@@ -58,19 +58,20 @@ path-component prefix wins. Repository renames need both old/new local aliases.
 Unmapped calls are counted separately, never silently assigned to a project.
 Keep host paths, real project bindings and raw source evidence private.
 
-Fleet's current GitHub repository was created on 2026-11-12T11:55:59Z after
-repository recreation. It returns zero merges for earlier windows; this is
-**missing historical denominator coverage**, not proof of zero delivery.
-Imported Git history does not reconstruct GitHub `mergedAt` events. No per-PR
-baseline for Fleet is claimed.
+Fleet's public repository was recreated on Nov 12. Main identified its retained
+private predecessor: old PR numbers and `mergedAt` timestamps are intact there
+(`msg_b1deb784cbd0`). Historical windows query that archive, not the new repo.
+The read-only archive query returned **0 before / 103 checkpoint merges**.
+Use the current public repository for the Nov 13–20 after window. Private
+repository bindings stay in the manifest/Pad, not public documentation.
 
 
 ## Tally contract
 
 - Read-only UTF-8 `.jsonl` and `.jsonl.gz`; optional leading stock `title` records
-  precede the `session` header. Non-session files in mixed scratch trees are
-  counted and skipped. Invalid records inside a session refuse the measurement;
-  no partial aggregate is emitted on a parse/GitHub error.
+  precede the `session` header. Valid non-session JSON files are counted and
+  skipped; malformed/empty headers or invalid records inside a session refuse
+  the measurement. No partial aggregate is emitted on a parse/GitHub error.
 - Calls are recorded assistant `message` events and internal `model_usage` events
   (for example title generation), reported separately by event type, provider and
   model. Sum both event types for total recorded model calls. Recorded error
@@ -80,8 +81,9 @@ baseline for Fleet is claimed.
   event ID/timestamp/model/provider/usage fingerprints count once globally;
   cross-project attribution conflicts refuse rather than guessing an owner.
 - Input, output, cache-read and cache-write are the four recorded token counters.
-  Missing usage has an explicit counter, not fabricated zeros. Missing cost is
-  counted as unpriced. List-equivalent USD sums recorded `usage.cost.total` only:
+  Missing usage has explicit global/per-model counters; the call and error still
+  count, but unavailable tokens are not invented and cost counts as unpriced.
+  List-equivalent USD sums recorded `usage.cost.total` only:
   no repricing, subscription-spend or invoice claim. Historical omp/catalog and
   service-tier differences can change this estimate.
 - GitHub GraphQL paginates **repository** merged PRs, then filters exact
@@ -91,9 +93,12 @@ baseline for Fleet is claimed.
   Concurrent updates can move pagination boundaries: retain collection time and
   investigate differing counts on a later rerun.
 - Per-PR rates default to **null/N/A**. `--complete-project NAME` is an explicit
-  operator assertion of independently verified matching source coverage; never
-  pass it merely because the tally succeeded. Missing usage suppresses rates;
-  unpriced calls suppress cost/PR. Missing/zero PR denominator gives N/A.
+  operator assertion of independently verified matching **declared source scope**;
+  never pass it merely because the tally succeeded. A local-only scope must be
+  labelled partial and explicitly exclude remote bot/client usage. Missing usage
+  suppresses rates; unpriced calls suppress cost/PR. Missing/zero PR denominator
+  gives N/A. The partial rates below divide the displayed observed totals by
+  GitHub merges; they are not account-wide rates.
 - Once BOTH windows have matching complete scope, calculate
   `100 * (after_per_pr / before_per_pr - 1)`; unknown/zero before rate gives N/A.
   Recorded totals from an incomplete source remain useful lower bounds, not a
@@ -133,6 +138,12 @@ print environment values or publish a raw configuration. Run the same procedure
 with each BEFORE interval above. A completed increasing interval is mandatory;
 future endpoints refuse. A source root or indexed source file missing also
 refuses, rather than silently shrinking the measurement.
+
+For Fleet windows before the public cutover, set `repos.fleet` in a separate
+private before/checkpoint manifest to the retained predecessor repository.
+The after manifest uses `cswenor/fleet`. This is repository identity continuity,
+not a change in the counting procedure.
+
 
 For a durable private inventory, `--manifest /private/task18-sources.json`
 replaces the repeated bindings. Its JSON shape is:
@@ -180,15 +191,15 @@ The one additional inventory file appeared during collection, outside the
 completed windows. Recorded runtime versions: 18.13.1 for Oct 30–Nov 6;
 18.13.1/18.17.0/18.18.1 for the wider Gamma diagnostic.
 
-| Project / approved before interval | Current-repo merged PRs | Observed usage / per-PR coverage |
+| Project / approved before interval | Exact merged PRs | Observed usage / per-PR coverage |
 |---|---:|---|
-| Alpha / Oct 30–Nov 6 | 336 | Model totals below; per-PR N/A: complete client coverage unproven |
+| Alpha / Oct 30–Nov 6 | 336 | Local-host partial rates below; excludes remote review-bot/off-host usage |
 | Beta / Oct 30–Nov 6 | 157 | No local events; per-PR N/A: Mac usage unavailable |
 | Gamma / Nov 3–10 | 0 | No local events; per-PR N/A: no pre-adoption source |
-| Fleet / Oct 30–Nov 6 | 0 | No local events; per-PR N/A: no baseline, historical merge events unavailable |
+| Fleet / Oct 30–Nov 6 | 0 | No local events; per-PR N/A: project began Nov 6; archive queried |
 
-**No local events never means zero actual usage.** No BEFORE per-PR rate or
-percentage change is accepted.
+**No local events never means zero actual usage.** No percentage change is
+accepted before the after window closes and scopes match.
 The Oct 30–Nov 6 run also observed 27,236 unattributed calls outside the supplied
 project prefixes; they are excluded, not silently assigned to Alpha.
 
@@ -201,6 +212,18 @@ events. All recorded cost rows were priced; 109 Sol error calls are included.
 | anthropic / claude-sonnet-5-5 | 29,045 | 5,366,832 | 19,002,054 | 2,480,010,360 | 96,559,917 | 834.994908 |
 | openai-codex / gpt-6.1-sol | 120,120 | 269,128,224 | 81,172,844 | 22,552,713,344 | 0 | 3,605.2562224 |
 
+Main attests that Alpha's pre-adoption Main and lanes ran on this host
+(`msg_d23185b95551`). This inventory includes their default sessions and nested
+helpers; it excludes the remote review-bot's model calls and any other off-host
+clients. The resulting **partial local-host Sol usage per merged PR** is:
+
+| Observed Sol scope / window | Calls/PR | Cache-read tokens/PR | Recorded list USD/PR |
+|---|---:|---:|---:|
+| Alpha local Main/builders/helpers/reviewers, excluding remote review-bot and off-host clients / Oct 30–Nov 6 | 357.5 | 67,121,170.666667 | 10.729929 |
+| Alpha, same observed local scope / six-day Nov 6–12 checkpoint (not AFTER) | 706.043716 | 73,342,591.300546 | 13.365421 |
+| Fleet / same observed local scope / six-day Nov 6–12 checkpoint, archive denominator 103 | 100.951456 | 9,202,625.864078 | 1.677386 |
+
+
 ## Day-zero checkpoint — six completed days, NOT AFTER
 
 Main corrected the cutoff in `msg_b95c9f064f00`: use the completed
@@ -211,12 +234,12 @@ events deduplicated, two non-session files skipped, 130 unattributed calls,
 zero missing-usage events and zero unpriced recorded calls. Runtime events
 reported 18.13.1, 18.17.0, 18.18.1 and 18.18.6.
 
-| Project | Exact current-repo merged PRs in checkpoint | Per-PR rates |
+| Project | Exact merged PRs in checkpoint | Per-PR rates |
 |---|---:|---|
-| Alpha | 183 | N/A: full client/bot coverage unproven |
+| Alpha | 183 | Partial local-only rates above; excludes remote review-bot/off-host usage |
 | Beta | 198 | N/A: full client/bot coverage unproven |
 | Gamma | 66 | N/A: full client/bot coverage unproven |
-| Fleet | 0 | N/A: pre-recreation GitHub merge history absent |
+| Fleet | 103 | Partial local-only rates above; excludes remote bot/off-host usage |
 
 Observed provider/model totals (assistant + internal events), list USD rounded
 to six decimals for display; the numeric JSON retains recorded precision:
@@ -256,5 +279,6 @@ TASK-18's private Pad handoff binds the actual mode-0600 manifest path. Refresh
 custom session roots and cwd aliases first; retain old roots and investigate any
 that disappeared rather than dropping them silently. Include bot-container and
 other-host sources only through an approved read-only inventory. Missing
-historical sources cannot be repaired by inventing totals or reconstructing
-`mergedAt` from Git commit times. Keep rates/change N/A until coverage is proven.
+historical usage cannot be repaired by inventing totals; use the retained
+predecessor's GitHub merge timestamps, never Git commit times. Keep full-scope
+rates/change N/A until coverage is proven; distinguish labelled partial rates.
