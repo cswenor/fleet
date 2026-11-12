@@ -151,6 +151,18 @@ publication:
 #     branch: main
 #     required_checks: [] # configure real project CI contexts + producer integration_id
 #     merge_queue: false
+#   deployment:
+#     backend: compose
+#     docker_context: project-review-host # explicit existing local or SSH context
+#     directory: /srv/fleet-review/project # TARGET-host root; owner prepares its subdirs
+#     runner_config_dir: /etc/fleet-review/project # TARGET-host read-only model policy
+#     broker_auth_dir: /srv/fleet-review-auth/project # TARGET-host private provider vault
+#     ingress_network: existing-https-proxy # only control joins; no raw published ports
+#     health_url: https://review.example.invalid/health # same approved origin as webhook
+#     control_env_file: /home/fleet/.config/fleet/project/control.env # CLIENT-local 0600
+#     runner_env_file: /home/fleet/.config/fleet/project/runner.env
+#     broker_env_file: /home/fleet/.config/fleet/project/broker.env
+#     gateway_env_file: /home/fleet/.config/fleet/project/gateway.env
 # Existing App slug/id/installation_id and ruleset.id are verified receipts,
 # not guessed replacement targets. See docs/MAIN.md Review Bot onboarding.
 # Urgency is advisory, never authentication or additional authority.

@@ -588,6 +588,89 @@ inspect native history before recording identity. After a timeout, head race or
 unconfirmed token cleanup, inspect native auto-merge/queue state before retrying.
 No deployment, calibration approval or project adoption is authorized by init.
 
+### Review Bot deployment and observed status
+
+`review-bot deploy` defaults to a read-only Compose plan. Missing pins, App
+receipts or host inputs remain explicit blockers; a plan never claims a running
+service. Configure the commented `review_bot.deployment` example with an existing
+local/SSH Docker context and owner-approved host/HTTPS ingress. Only control
+joins the existing external bridge network; the proxy routes the configured
+origin to control port 8080. No service publishes raw ports or mounts a Docker
+socket. Runner has only the internal review network; broker/provider egress goes
+through the separate gateway/broker boundary. All four services use the same
+immutable source-bound image, UID/GID 10010, read-only root filesystems, dropped
+capabilities and no-new-privileges. Native/advisory mode is forced; deploy cannot
+turn on the merge lane or approval mode.
+
+Target-host paths are not resolved against the client filesystem:
+
+- `directory`: private runtime root with `state`, `work`, `sessions`, `gateway`.
+- `broker_auth_dir`: separate private provider vault, never under runtime/work.
+- `runner_config_dir`: separate operator-owned model policy, mounted read-only.
+
+These roots must not overlap. Client-local App/runtime env files must remain
+outside Git, outside target mount roots, in owned 0700 parents with files 0600.
+They are not bind-mounted. Compose receives values over stdin and the explicitly
+selected authenticated Docker context; no persistent generated config, secret
+argv or daemon output is emitted. Never share a provider vault or runtime root
+between projects.
+
+**Owner action on the intended Docker host, only after rollout authorization:**
+set `RUNTIME_ROOT`, `BROKER_AUTH_DIR`, `RUNNER_CONFIG_DIR` to the configured
+nonoverlapping paths and `PINNED_SOURCE` to the verified public source checkout.
+These commands prepare directories/policy, not credentials or services:
+
+```sh
+sudo install -d -o 10010 -g 10010 -m 0700 \
+  "$RUNTIME_ROOT" "$RUNTIME_ROOT/state" "$RUNTIME_ROOT/work" \
+  "$RUNTIME_ROOT/sessions" "$RUNTIME_ROOT/gateway" "$BROKER_AUTH_DIR"
+sudo install -d -o root -g root -m 0755 "$RUNNER_CONFIG_DIR"
+sudo install -o root -g root -m 0444 \
+  "$PINNED_SOURCE/bot/config/reviewer-models.yml" "$RUNNER_CONFIG_DIR/reviewer-models.yml"
+sudo install -o root -g root -m 0444 \
+  "$PINNED_SOURCE/bot/config/reviewer-overlay.yml" "$RUNNER_CONFIG_DIR/reviewer-overlay.yml"
+```
+
+Owner provisions broker logins privately for UID 10010 with HOME equal to
+`broker_auth_dir`; never copy another project's vault, print stored credentials
+or spend saved resets. Runner policy must preserve no fallback/advisors/reset
+spending. The CLI does not SSH, create target directories or run a privileged
+initialization container. Apply first pulls the pinned image, then probes only
+directory/file metadata and read access through read-only mounts as UID 10010,
+with no network/capabilities and no-new-privileges. Only aggregate validity is
+reported; dry-run explicitly leaves target paths unverified.
+
+| Client-local env file | Allowed authority |
+|---|---|
+| `control_env_file` | Verified Review App ID/key/webhook secret, optional client ID; `OMP_GATEWAY_TOKEN`, `TYPESAFE_API_KEY`, bot login/user-ID pairs and `REVIEW_APPROVERS`; optional model/thinking/concurrency/retention/reconcile settings |
+| `runner_env_file` | `OMP_GATEWAY_TOKEN` only |
+| `broker_env_file` | `OMP_AUTH_BROKER_TOKEN` only |
+| `gateway_env_file` | Both runtime bearer tokens only |
+
+Runtime tokens must agree across services. Control Review credentials must match
+the verified App file. Builder credentials never enter any service; only the
+guarded arming subprocess uses them. Obtain bot user IDs/approver identities from
+live GitHub evidence, not guessed App IDs. Do not put credentials in config,
+Compose files, Pad, PRs, shell tracing or logs.
+
+```sh
+fleet --config /absolute/private/project.yml review-bot deploy --dry-run
+# Only after separate owner/Main host rollout authorization:
+fleet --config /absolute/private/project.yml review-bot deploy --apply
+fleet --config /absolute/private/project.yml review-bot status
+```
+
+Status observes all four singleton containers' actual image IDs, repository
+digests, OCI source revisions and Docker health, plus bounded HTTPS `/health`,
+verified selected-only-this-repository installations and recent webhook delivery
+metadata. It never retrieves container environments, delivery payloads, broker
+accounts or provider credentials. A configured pin is not deployed-version proof;
+missing/unknown/drifting evidence makes status unhealthy. Empty recent delivery
+history is not webhook delivery proof. Deployment request success is not readiness
+or scratch-PR/calibration acceptance. Rollback requires a separately approved,
+verified compatible immutable pin and owner-approved state handling; never infer
+database downgrade safety or automatically retry a partial deployment.
+
 
 ### Guarded retirement
 

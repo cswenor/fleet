@@ -1,6 +1,6 @@
 """Validation for the opt-in, per-project Review Bot installation."""
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 
@@ -120,21 +120,37 @@ def validate(c):
         contexts.add(check['context'])
     deploy = bot.get('deployment', {})
     _mapping(deploy, ('backend', 'docker_context', 'directory', 'health_url', 'control_env_file',
-                     'broker_env_file', 'gateway_env_file', 'runner_config_dir', 'broker_auth_dir'),
+                     'runner_env_file', 'broker_env_file', 'gateway_env_file', 'runner_config_dir',
+                     'broker_auth_dir', 'ingress_network'),
              'review_bot.deployment')
     if 'backend' in deploy and deploy['backend'] != 'compose':
         raise ValueError('review_bot.deployment.backend must be compose')
     if 'docker_context' in deploy:
         _text(deploy['docker_context'], 'review_bot.deployment.docker_context', r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
+    if 'ingress_network' in deploy:
+        _text(deploy['ingress_network'], 'review_bot.deployment.ingress_network', r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
     if 'health_url' in deploy:
         _url(deploy['health_url'], 'review_bot.deployment.health_url', '/health')
         if 'webhook_url' in bot and urlsplit(deploy['health_url']).netloc != urlsplit(bot['webhook_url']).netloc:
             raise ValueError('Review Bot health and webhook must use the same HTTPS origin')
-    for key in ('directory', 'control_env_file', 'broker_env_file', 'gateway_env_file',
-                'runner_config_dir', 'broker_auth_dir'):
+    for key in ('control_env_file', 'runner_env_file', 'broker_env_file', 'gateway_env_file'):
         if key in deploy:
             private_path(deploy[key], f'review_bot.deployment.{key}')
     for index, (path, name) in enumerate(paths):
         for previous, _ in paths[:index]:
             if path == previous:
                 raise ValueError(f'{name} must not share another credential/state path')
+    targets = []
+    for key in ('directory', 'runner_config_dir', 'broker_auth_dir'):
+        if key not in deploy:
+            continue
+        value = deploy[key]
+        _text(value, f'review_bot.deployment.{key}')
+        path = PurePosixPath(value)
+        if not path.is_absolute() or '..' in path.parts or ',' in value:
+            raise ValueError(f'review_bot.deployment.{key} requires an absolute target-host path without traversal or commas')
+        if any(path.is_relative_to(previous) or previous.is_relative_to(path) for previous in targets):
+            raise ValueError('target runtime, runner configuration and broker vault roots must not overlap')
+        if any(PurePosixPath(local).is_relative_to(path) for local, _ in paths):
+            raise ValueError('client credential files must be outside all target mount roots')
+        targets.append(path)
