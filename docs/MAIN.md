@@ -405,6 +405,42 @@ the carried thread alone does not free it. Restart still retires the primary
 ref. Replacement sessions require new approval; no fake Dispatch or Run binding.
 
 
+### Repo moved or renamed
+
+REST follows GitHub repository redirects; completion searches using `repo:` do
+not. `status` reports `repo moved/renamed` when GitHub's `full_name` differs
+from configured `repo` (case-insensitive); restart reports the same diagnosis
+when its merged-PR search misses. Unavailable identity is not proof of a move.
+Fleet never rewrites configuration or re-keys state automatically.
+
+Main coordinates this Linux migration with the project's Main and obtains any
+required service-restart approval. Pause launches and commands that write Fleet
+state during the move; do not interrupt builders:
+
+1. Stop and disable only the old supervisor:
+   `systemctl --user disable --now fleet-OLDOWNER-NAME.service`.
+2. Move the real state directory under `${XDG_STATE_HOME:-$HOME/.local/state}/fleet/`
+   from `OLDOWNER--NAME` to `NEWOWNER--NAME` with `mv`; refuse an existing
+   destination rather than merging state. Immediately create a compatibility
+   symlink at the old path pointing to the new real directory. Launch receipts
+   retain absolute session/overlay/prompt paths, and running omp sessions still
+   write to their original session directories. Keep the compat symlink until
+   every launch recorded before the move is retired. Fleet refuses symlinks
+   only for the configured state directory: the new path must remain real.
+3. Edit only `repo:` in the private config to the canonical GitHub full name;
+   retain permissions and other project settings.
+4. Run `fleet --config CONFIG install-service --deliver`, retaining the existing
+   `--environment-file PATH` if used. The new repo produces a new unit name.
+   Confirm it is active; remove only the old unit file from
+   `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/`, then run
+   `systemctl --user daemon-reload`. Never run both supervisors against the state.
+5. Run `git remote set-url origin NEW_URL` in the project root and each configured
+   lane, preserving the existing SSH/HTTPS transport and unrelated remotes.
+6. Verify `fleet --config CONFIG status --json` has `errors: []`, the new unit
+   is active and state/receipts survived. At the next eligible finished lane,
+   verify a normal guarded `fleet --config CONFIG restart NEXT --slot SLOT
+   --finished-ref OLD` succeeds. A move does not waive retirement or launch gates.
+
 ### Independent review
 
 Use stock omp, not an improvised reviewer agent/runner. From the task checkout,

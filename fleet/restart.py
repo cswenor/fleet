@@ -7,7 +7,7 @@ import re
 import shlex
 import sys
 import time
-from . import dispatcher, health, launcher, snapshot, state, steering, threads
+from . import dispatcher, github, health, launcher, snapshot, state, steering, threads
 from .commands import CommandError, gh, json_run, orca
 from .process_identity import omp_executable
 
@@ -240,6 +240,9 @@ def _completion(c, ref, finished, record, *, require_handoff=False):
     if not prs and not same_ref:
         prs = matches(_merged_prs(c, finished, '<' + boundary))
     if not prs:
+        moved = github.repo_move_error(c)
+        if moved:
+            raise ValueError(moved)
         raise ValueError('finished task has no merged PR carrying its Pad ref')
     if same_ref or require_handoff:
         prs = [p for p in prs if _timestamp(p['mergedAt']) > launched]

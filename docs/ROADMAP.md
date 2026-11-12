@@ -113,6 +113,27 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-135 — Moved/renamed repository diagnostics
+
+Snapshots compare GitHub REST `full_name` with configured `repo`, ignoring case,
+and surface an explicit repo-move error pointing to the Main migration procedure.
+The existing cached repository metadata read supplies this identity; no extra
+snapshot request is added. A restart completion search miss checks identity once
+before reporting a missing merged PR. Unavailable identity never proves a move;
+configuration/state are never rewritten automatically.
+
+The Main runbook covers old-unit retirement, real state-directory migration,
+the compatibility symlink required by absolute launch/session paths, private
+config and root/lane origin updates, new-unit installation and guarded restart.
+An isolated filesystem smoke accepted the old session path through the symlink
+while still refusing that symlink as the configured state directory.
+All 119 focused identity/snapshot/restart tests passed. Real candidate
+`status --json` against `cswenor/email-sherpa` reported the explicit move to
+`swenor-consulting/email-sherpa` with seven GitHub requests; the isolated config
+also reported the expected unknown Orca inventory (deliberately nonexistent repo
+ID). No project config/state, service or remote was changed.
+Publication and shared deployment remain Main-gated.
+
 ### TASK-132 — Bounded slot-lease contention
 
 Candidate Main-invoked launch/restart/relaunch slot acquisition waits at most
