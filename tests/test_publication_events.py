@@ -225,17 +225,53 @@ class PublicationEventTests(unittest.TestCase):
                     self.assertEqual(self.transitions(before, after), [])
             self.assertIsNone(github.initial_event(unavailable))
 
-    def test_initial_observation_exposes_active_states_without_fabricating_absence(self):
+    def test_initial_observation_reports_hold_and_draft_even_when_armed_and_queued(self):
         current = self.pr(labels=['RELEASE-HOLD'], draft=True,
                           auto_merge={'enabled_by': {'login': 'owner'}},
                           merge_queue_entry={'id': 'queue-entry'})
         event = github.initial_event(current)
-        for detail in ('hold active', 'draft', 'auto_merge armed', 'merge_queue entered'):
+        for detail in ('hold active', 'draft'):
             self.assertIn(detail, event['body'])
         self.assertEqual(github.events({}, history(current)), [event])
         self.assertEqual(watcher._initial_events(history(current), 7), [event])
         self.assertEqual(self.transitions(current, current), [])
         self.assertIsNone(github.initial_event(self.pr()))
+
+
+    def test_armed_and_queued_initial_state_waits_for_check_outcome(self):
+        pending = {'id': 1, 'name': 'CI', 'status': 'in_progress', 'conclusion': None}
+        for publication in ({'auto_merge': {'enabled_by': {'login': 'owner'}}},
+                            {'merge_queue_entry': {'id': 'q'}},
+                            {'auto_merge': {'enabled_by': {'login': 'owner'}},
+                             'merge_queue_entry': {'id': 'q'}}):
+            before = self.pr(checks=[pending], **publication)
+            self.assertIsNone(github.initial_event(before))
+            for conclusion in ('success', 'failure'):
+                after = before | {'checks': [pending | {
+                    'status': 'completed', 'conclusion': conclusion}]}
+                with self.subTest(publication=publication, conclusion=conclusion), \
+                        tempfile.TemporaryDirectory() as directory, \
+                        patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''}), \
+                        patch.object(github, 'collect', side_effect=[
+                            history(before),
+                            history(before | {'updated_at': '2026-11-06T00:01:00Z'}),
+                            history(after)]) as collect, \
+                        patch.object(watcher.time, 'sleep'):
+                    result = watcher.watch({'repo': 'owner/repo', '_state': directory},
+                                           7, timeout=60, include_seen=True)
+                self.assertEqual(collect.call_count, 3)
+                self.assertEqual([event['key'].split(':')[2] for event in result['events']],
+                                 ['checks'])
+                self.assertIn(conclusion, result['events'][0]['body'])
+
+    def test_armed_initial_state_still_reports_attention_states(self):
+        armed = self.pr(auto_merge={'enabled_by': {'login': 'owner'}})
+        for changes in ({'labels': ['release-hold']}, {'draft': True},
+                        {'merge_state': 'DIRTY'},
+                        {'checks': [{'name': 'CI', 'conclusion': 'failure'}]},
+                        {'state': 'merged'}, {'state': 'closed'}):
+            with self.subTest(changes=changes):
+                self.assertIsNotNone(github.initial_event(armed | changes))
 
     def test_label_reordering_and_case_only_hold_change_do_not_spam(self):
         before = self.pr(labels=['bug', 'Release-Hold'])

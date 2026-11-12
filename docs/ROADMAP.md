@@ -113,6 +113,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-133 — Armed/queued initial-watch regression
+
+Initial attention now covers only merged/closed, DIRTY, failing checks, hold
+active and draft. Already armed/queued PRs remain watched across timestamp-only
+updates; check outcomes and actual arm/disarm or queue-entry/exit transitions
+still emit change events. Initial-event dedup keys label their failing-check
+evidence `failing=[]`, distinct from the PR's complete check inventory; readable
+subjects/bodies do not show the empty evidence list.
+
+Verification: 39 focused publication/initial-event tests passed, including
+armed-at-open and queued-at-open pending checks changing to success/failure,
+timestamp-only updates, attention states and existing disarm/queue transitions.
+Real read-only source CLI against Evermore PR2562 with `--timeout 20 --include-seen`
+returned `{"pr": 2562, "event": "timeout", "seconds": 20}` after 20.43 seconds,
+not an initial armed-state event. No remote state or shared installation changed.
+Shared installation and merge remain Main-gated.
+
 ### TASK-129 — Review Bot release, project Apps and guarded publication
 
 The public service is [cswenor/fleet-review-bot](https://github.com/cswenor/fleet-review-bot).
