@@ -237,6 +237,14 @@ replacement changes a private generation receipt; older watches return
 collection. No process is signalled or killed. Do not re-arm a superseded job:
 its newer watch owns the wait.
 
+TASK-133 limits initial-state attention to merged/closed, DIRTY, failing checks,
+hold active and draft. An already armed or queued PR keeps waiting, including
+when only its update timestamp changes. Actual armed/disarmed and queue
+entry/exit transitions still wake the watch. Initial-event keys label their
+dedup evidence `failing=[]`: an empty list means no failing-check evidence,
+not that the PR has no checks. Human-readable subject/body omit that list.
+
+
 Stale builder inbox assessment is **read-only**, Main-only and restricted to a
 current configured lane:
 `fleet --config CONFIG relays clear-stale --terminal TERMINAL --dry-run`.
