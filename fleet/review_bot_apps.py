@@ -164,6 +164,10 @@ def verify_installation(c, role, client):
         raise ValueError(f'{role} App requires an active selected-repository installation for this project owner')
     if app.get('installation_id') is not None and app['installation_id'] != installation['id']:
         raise ValueError(f'{role} App installation receipt differs from live installation')
+    permissions = {**PERMISSIONS[role], **app.get('extra_permissions', {}), 'metadata': 'read'}
+    actual = installation.get('permissions')
+    if not isinstance(actual, dict) or {**actual, 'metadata': actual.get('metadata', 'read')} != permissions:
+        raise ValueError(f'{role} App installation permissions differ from the private project manifest; accept the owner-approved installation update')
     # Deliberately do not restrict the minted token: that would conceal extra
     # repositories selected on a broad installation.
     issued = client.request('POST', f'/app/installations/{installation["id"]}/access_tokens', {})

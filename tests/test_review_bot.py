@@ -240,6 +240,9 @@ class ReviewBotTests(unittest.TestCase):
         c['review_bot']['apps']['review']['id'] = 1007
         installation = {'id': 1008, 'app_id': 1007, 'repository_selection': 'selected',
                         'account': {'login': 'owner'}, 'suspended_at': None}
+        installation['permissions'] = manifest(
+            {'name': 'project-review'}, 'review', c['review_bot']['webhook_url'],
+            'http://127.0.0.1/callback')['default_permissions']
         class Client:
             def request(self, method, path, body=None):
                 return deepcopy(installation) if method == 'GET' else {'token': 'synthetic-installation-token'}
@@ -254,6 +257,34 @@ class ReviewBotTests(unittest.TestCase):
         installation['repository_selection'] = 'all'
         with self.assertRaisesRegex(ValueError, 'selected-repository'):
             verify_installation(c, 'review', Client())
+
+    def test_recorded_extras_require_owner_accepted_installation_grants(self):
+        self.raw['review_bot']['apps']['builder']['extra_permissions'] = {'workflows': 'write'}
+        c = self.load()
+        c['review_bot']['apps']['builder']['id'] = 1007
+        installation = {'id': 1008, 'app_id': 1007, 'repository_selection': 'selected',
+                        'account': {'login': 'owner'}, 'suspended_at': None,
+                        'permissions': {'contents': 'write', 'pull_requests': 'write'}}
+
+        class Client:
+            def request(self, method, path, body=None):
+                if method == 'GET':
+                    return deepcopy(installation)
+                return {'token': 'synthetic-installation-token'}
+
+        class Scoped:
+            def request(self, method, path, body=None):
+                return None if method == 'DELETE' else {
+                    'total_count': 1, 'repositories': [{'full_name': 'owner/project'}]}
+
+        with patch('fleet.review_bot_apps.GitHub', return_value=Scoped()):
+            with self.assertRaisesRegex(ValueError, 'installation permissions'):
+                verify_installation(c, 'builder', Client())
+            installation['permissions']['workflows'] = 'write'
+            self.assertEqual(verify_installation(c, 'builder', Client()), 1008)
+            installation['permissions']['issues'] = 'read'
+            with self.assertRaisesRegex(ValueError, 'installation permissions'):
+                verify_installation(c, 'builder', Client())
 
     def existing(self, c):
         desired = desired_ruleset(c)
