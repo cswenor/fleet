@@ -230,6 +230,11 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
     verify_pin(bot['source'], github)
     with state.lock(c, 'review-bot-install', operation='Review Bot installation'):
         document, encoded = read_config(c)
+        if document.get('review_bot') != bot:
+            raise ValueError('Review Bot configuration changed during pin verification; reload before init')
+        def unchanged():
+            if read_config(c)[1] != encoded:
+                raise ValueError('configuration changed during initialization; reconcile preserved Apps before retrying')
         # Resolve all known prerequisites before creating either new App.
         for role in ('review', 'builder'):
             app = bot['apps'][role]
@@ -248,6 +253,7 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
                         raise
         for role in ('review', 'builder'):
             app = bot['apps'][role]
+            unchanged()
             private_parent(app['env_file'])
             receipt = state.read(c, 'review-bot-create-' + role)
             if not app.get('id'):
@@ -257,6 +263,7 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
                 state.write(c, 'review-bot-create-' + role, {'repo': c['repo'], 'name': app['name'], 'stage': 'owner_creation_pending'})
                 notify(f'{role} App: open {flow.start_url} in your own browser on this host (forward its loopback port if remote).')
                 code = flow.wait(timeout)
+                unchanged()
                 converted = GitHub().request('POST', '/app-manifests/' + code + '/conversions')
                 if (not isinstance(converted, dict) or type(converted.get('id')) is not int or converted['id'] < 1
                         or not all(isinstance(converted.get(key), str) and converted[key]
@@ -273,6 +280,7 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
                 app.update(id=converted['id'], slug=converted['slug'])
                 client = app_client(app, role, values=values)
                 verify_app(c, role, client)
+                unchanged()
                 create_environment(app['env_file'], values)
                 document['review_bot']['apps'][role].update(id=app['id'], slug=app['slug'])
                 encoded = save_config(c, document, encoded)
@@ -297,6 +305,7 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
             plan['blockers'] = [str(exc) + '; Apps are preserved, publication is unchanged. Run ruleset --dry-run, ruleset --apply, then rerun init --apply']
             return plan
         publication = document.setdefault('publication', {})
+        unchanged()
         publication.update(mode='auto_merge', release=release, hold_label='hold', review_app=bot['apps']['review']['slug'])
         save_config(c, document, encoded)
         plan['publication']['applied'] = True

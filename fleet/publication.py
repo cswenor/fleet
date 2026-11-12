@@ -7,6 +7,8 @@ import subprocess
 from .review_bot_api import APIError, GitHub, app_client
 from .review_bot_apps import verify_app, verify_installation
 from .review_bot_ruleset import verify_live_ruleset
+from .github import _queued
+from .commands import CommandError
 
 
 # Match the Review App's merge-gate semantics, including quoted/nested items,
@@ -94,6 +96,15 @@ def _eligible(client, c, pr, head):
         raise ValueError('arming withheld: human changes-requested veto is active')
 
 def _observed(c, pr, head, pull):
+    queue = None
+    if pull.get('state') == 'open' and pull.get('merged') is not True:
+        try:
+            entry = _queued(c, pr, details=True)
+            if entry is not None and (not isinstance(entry, dict) or not isinstance(entry.get('id'), str) or not entry['id']):
+                raise ValueError('invalid queue entry')
+            queue = entry is not None
+        except (CommandError, ValueError, KeyError, TypeError):
+            pass
     auto = pull.get('auto_merge')
     enabled_by = auto.get('enabled_by') if isinstance(auto, dict) else None
     actor = enabled_by.get('login') if isinstance(enabled_by, dict) else None
@@ -101,10 +112,11 @@ def _observed(c, pr, head, pull):
         actor = None
     state = ('merged' if pull.get('merged') is True else
              'closed' if pull.get('state') == 'closed' else
-             'armed' if isinstance(auto, dict) else 'not_armed' if auto is None and 'auto_merge' in pull else 'unknown')
+             'queued' if queue is True else 'armed' if isinstance(auto, dict) else
+             'not_armed' if queue is False and auto is None and 'auto_merge' in pull else 'unknown')
     return {'operation': 'arm', 'repository': c['repo'], 'pr': pr, 'head': head,
             'observed_head': pull.get('head', {}).get('sha'),
-            'state': state, 'arming_actor': actor}
+            'state': state, 'arming_actor': actor, 'merge_queue': queue}
 
 
 def arm(c, pr, head):
@@ -166,8 +178,10 @@ def arm(c, pr, head):
             observed['blockers'] = ['PR head changed during arming; inspect native auto-merge and queue state before any retry or push']
         elif failed and observed['state'] not in ('merged', 'closed'):
             observed['blockers'] = ['Builder auto-merge command failed or timed out; observed native state is not proof this command succeeded; inspect before retrying']
-        elif observed['state'] not in ('armed', 'merged', 'closed'):
+        elif observed['state'] not in ('armed', 'queued', 'merged', 'closed'):
             observed['blockers'] = ['GitHub did not confirm auto-merge arming; inspect native PR state before retrying']
+        if observed['state'] not in ('merged', 'closed') and observed['merge_queue'] is None:
+            observed.setdefault('blockers', []).append('Native queue visibility unavailable; inspect before retrying or pushing')
         return observed
     finally:
         try:

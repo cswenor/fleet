@@ -41,6 +41,7 @@ class ArmingTests(unittest.TestCase):
         self.protection = self.stack.enter_context(patch.object(
             publication, 'verify_live_ruleset', return_value={'verified': True}))
         self.stack.enter_context(patch.object(publication.subprocess, 'run', side_effect=self.execute))
+        self.queue = self.stack.enter_context(patch.object(publication, '_queued', return_value=None))
         self.exit_code = 0
         self.process_error = None
         self.after_process = None
@@ -169,6 +170,23 @@ class ArmingTests(unittest.TestCase):
         result = self.arm()
         self.assertEqual(result['state'], 'not_armed')
         self.assertTrue(result['blockers'])
+
+    def test_native_queue_entry_without_auto_merge_is_successful_queued_observation(self):
+        self.after_process = lambda: None
+        self.queue.return_value = {'id': 'native-entry'}
+        result = self.arm()
+        self.assertEqual(result['state'], 'queued')
+        self.assertTrue(result['merge_queue'])
+        self.assertIsNone(result['arming_actor'])
+        self.assertNotIn('blockers', result)
+
+    def test_unavailable_queue_visibility_is_unknown_not_not_armed(self):
+        self.after_process = lambda: None
+        self.queue.side_effect = ValueError('private queue diagnostic')
+        result = self.arm()
+        self.assertEqual(result['state'], 'unknown')
+        self.assertIsNone(result['merge_queue'])
+        self.assertNotIn('private queue diagnostic', json.dumps(result))
 
     def test_ruleset_removed_during_authentication_prevents_arming(self):
         self.protection.side_effect = [{'verified': True}, ValueError('disabled protection')]

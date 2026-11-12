@@ -170,6 +170,10 @@ A later independent review found the analogous owner-config race. The final
 pre-mutation read now compares the entire Review Bot configuration with the
 loaded/reviewed snapshot; concurrent CI additions refuse without remote writes
 or overwriting the owner's edit.
+Further independent findings extended drift refusal to init before App creation,
+credential persistence and publication activation. Arming now reuses the native
+queue query: an entry with null REST auto-merge reports `queued`, while unavailable
+queue visibility remains unknown and blocks blind retry/push.
 
 Remaining: publish the Fleet onboarding/arming slice through fresh review and CI;
 finish deployment/status integration and its separate publication; obtain owner

@@ -284,6 +284,26 @@ class ReviewBotTests(unittest.TestCase):
         self.assertIn(extra, persisted['required_checks'])
         self.assertNotIn('id', persisted)
 
+    def test_init_rejects_config_drift_before_creation_or_activation(self):
+        for during in ('pin', 'app'):
+            with self.subTest(during=during):
+                c = self.installed()
+                before_publication = yaml.safe_load(self.path.read_text()).get('publication')
+                def owner_change(*args):
+                    document = yaml.safe_load(self.path.read_text())
+                    document['review_bot']['apps']['review']['installation_id'] = 9876
+                    self.path.write_text(yaml.safe_dump(document))
+                with (patch('fleet.review_bot_apps.verify_pin', side_effect=owner_change if during == 'pin' else None),
+                      patch('fleet.review_bot_apps.app_client'),
+                      patch('fleet.review_bot_apps.verify_app', side_effect=owner_change if during == 'app' else None),
+                      patch('fleet.review_bot_apps.verify_installation'),
+                      patch('fleet.review_bot_apps.ManifestCallback', side_effect=AssertionError('creation forbidden'))):
+                    with self.assertRaises(ValueError):
+                        initialize(c, apply=True, github=self.client(c, None))
+                persisted = yaml.safe_load(self.path.read_text())
+                self.assertEqual(persisted['review_bot']['apps']['review']['installation_id'], 9876)
+                self.assertEqual(persisted.get('publication'), before_publication)
+
     def installed(self):
         self.raw['review_bot']['source'] = self.source()
         for index, role in enumerate(('review', 'builder')):
