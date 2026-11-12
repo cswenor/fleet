@@ -79,7 +79,7 @@ class DeploymentTests(unittest.TestCase):
                 ' print("ssh://configured-target")\n'
                 'else:\n'
                 ' p = Path(os.environ["DOCKER_CONFIG"])\n'
-                ' assert not list(p.iterdir())\n'
+                ' assert json.loads((p / "config.json").read_text()) == {"auths": {"ghcr.io": {}}}\n'
                 ' assert sys.argv[1:3] == ["--host", "ssh://configured-target"]\n'
                 ' print(str(p))\n')
             executable.chmod(0o700)

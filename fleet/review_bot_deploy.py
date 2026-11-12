@@ -66,6 +66,10 @@ def docker(context, args, *, input=None, anonymous=False):
         with ExitStack() as stack:
             if anonymous:
                 environment['DOCKER_CONFIG'] = stack.enter_context(tempfile.TemporaryDirectory(prefix='fleet-public-pull-'))
+                # A present, empty registry entry suppresses Docker's automatic
+                # native credential-store discovery without supplying credentials.
+                (Path(environment['DOCKER_CONFIG']) / 'config.json').write_text(
+                    '{"auths":{"ghcr.io":{}}}\n')
             process = stack.enter_context(subprocess.Popen(
                 command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment))
             with selectors.DefaultSelector() as selector:

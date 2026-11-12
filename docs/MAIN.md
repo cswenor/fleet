@@ -694,9 +694,10 @@ Owner provisions broker logins privately for UID 10010 with HOME equal to
 or spend saved resets. Runner policy must preserve no fallback/advisors/reset
 spending. The CLI does not SSH, create target directories or run a privileged
 initialization container. Apply first pulls the public pinned image anonymously,
-using a temporary empty Docker configuration and the selected context's local/SSH
+using a temporary credential-free Docker configuration and the selected context's local/SSH
 endpoint; stored registry logins/helpers never affect the pull. An anonymous
 failure blocks deployment. Compose reuses that pulled pin without repulling.
+An explicit empty ghcr.io auth entry suppresses Docker's native helper autodiscovery.
 Apply then probes only directory/file metadata and read access through recursively
 read-only mounts as
 UID 10010, with no network/capabilities and no-new-privileges. Kernel bind-root
