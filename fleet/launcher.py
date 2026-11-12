@@ -236,6 +236,12 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     with nullcontext() if _locked else state.lock(c, 'launcher', operation='launch'), ExitStack() as lease, _preparation_receipt(c, ref) as preparation:
         preparation_started_at = time.time()
+        if slot:
+            slot = str(Path(slot).expanduser().resolve())
+            if slot not in c['builder']['slots']:
+                raise ValueError('requested slot is not in builder.slots')
+            if not _locked:
+                lease.enter_context(state.slot_lock(c, slot))
         c = resolve_model(c, ref, model=model, thinking=thinking)
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
@@ -264,7 +270,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False):
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
-        if not _locked and chosen:
+        if not _locked and chosen and not slot:
             lease.enter_context(state.slot_lock(c, chosen))
         shells = []
         skipped = []
