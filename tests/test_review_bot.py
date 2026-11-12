@@ -143,6 +143,59 @@ class ReviewBotTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'permissions'):
                     verify_app(c, 'review', Client())
 
+    def test_recorded_app_extras_require_exact_live_permissions(self):
+        extras = {'actions': 'read', 'checks': 'read', 'statuses': 'read', 'workflows': 'write'}
+        for role, recorded in (('builder', extras), ('review', {'discussions': 'read'})):
+            with self.subTest(role=role):
+                self.raw['review_bot']['apps'][role]['extra_permissions'] = recorded
+                c = self.load()
+                app = c['review_bot']['apps'][role]
+                app.update(id=1007, slug='project-' + role)
+                payload = manifest(app, role, c['review_bot']['webhook_url'], 'http://127.0.0.1/callback')
+                self.assertTrue(set(recorded).isdisjoint(payload['default_permissions']))
+                remote = {'id': app['id'], 'slug': app['slug'], 'name': app['name'],
+                          'owner': {'login': 'owner', 'type': 'Organization'},
+                          'permissions': {**payload['default_permissions'], 'metadata': 'read'},
+                          'events': payload['default_events']}
+
+                class Client:
+                    def request(self, method, path):
+                        return deepcopy(remote) if path == '/app' else {'url': c['review_bot']['webhook_url']}
+
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    verify_app(c, role, Client())
+                remote['permissions'].update(recorded)
+                self.assertEqual(verify_app(c, role, Client()), remote)
+                app.pop('extra_permissions')
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    verify_app(c, role, Client())
+                for permission in recorded:
+                    remote['permissions'].pop(permission)
+                self.assertEqual(verify_app(c, role, Client()), remote)
+
+    def test_extra_permission_policy_is_enforced_at_config_load(self):
+        forbidden = ({'administration': 'read'}, {'organization_projects': 'read'},
+                     {'organization_custom': 'write'}, {'members': 'read'},
+                     {'secrets': 'read'}, {'environments': 'read'}, {'actions': 'write'},
+                     {'metadata': 'write'})
+        for role in ('review', 'builder'):
+            for extras in forbidden:
+                with self.subTest(role=role, extras=extras):
+                    self.raw['review_bot']['apps'][role]['extra_permissions'] = extras
+                    with self.assertRaisesRegex(ValueError, 'forbidden extra permission'):
+                        self.load()
+            for extras in (None, [], {'checks': 'admin'}, {'Bad-Key': 'read'},
+                           {'pull_requests': 'read'}):
+                with self.subTest(role=role, extras=extras):
+                    self.raw['review_bot']['apps'][role]['extra_permissions'] = extras
+                    with self.assertRaises(ValueError):
+                        self.load()
+            self.raw['review_bot']['apps'][role].pop('extra_permissions')
+        for permission in ('contents', 'workflows', 'discussions', 'issues', 'statuses'):
+            self.raw['review_bot']['apps']['review']['extra_permissions'] = {permission: 'write'}
+            with self.subTest(permission=permission), self.assertRaisesRegex(ValueError, 'forbidden'):
+                self.load()
+
     def test_manifest_callback_rejects_wrong_state_and_never_logs_one_use_code(self):
         flow = ManifestCallback({'name': 'project-review'}, 'review', 'owner', 'organization',
                                 'https://review.example/github')
@@ -187,6 +240,9 @@ class ReviewBotTests(unittest.TestCase):
         c['review_bot']['apps']['review']['id'] = 1007
         installation = {'id': 1008, 'app_id': 1007, 'repository_selection': 'selected',
                         'account': {'login': 'owner'}, 'suspended_at': None}
+        installation['permissions'] = manifest(
+            {'name': 'project-review'}, 'review', c['review_bot']['webhook_url'],
+            'http://127.0.0.1/callback')['default_permissions']
         class Client:
             def request(self, method, path, body=None):
                 return deepcopy(installation) if method == 'GET' else {'token': 'synthetic-installation-token'}
@@ -201,6 +257,34 @@ class ReviewBotTests(unittest.TestCase):
         installation['repository_selection'] = 'all'
         with self.assertRaisesRegex(ValueError, 'selected-repository'):
             verify_installation(c, 'review', Client())
+
+    def test_recorded_extras_require_owner_accepted_installation_grants(self):
+        self.raw['review_bot']['apps']['builder']['extra_permissions'] = {'workflows': 'write'}
+        c = self.load()
+        c['review_bot']['apps']['builder']['id'] = 1007
+        installation = {'id': 1008, 'app_id': 1007, 'repository_selection': 'selected',
+                        'account': {'login': 'owner'}, 'suspended_at': None,
+                        'permissions': {'contents': 'write', 'pull_requests': 'write'}}
+
+        class Client:
+            def request(self, method, path, body=None):
+                if method == 'GET':
+                    return deepcopy(installation)
+                return {'token': 'synthetic-installation-token'}
+
+        class Scoped:
+            def request(self, method, path, body=None):
+                return None if method == 'DELETE' else {
+                    'total_count': 1, 'repositories': [{'full_name': 'owner/project'}]}
+
+        with patch('fleet.review_bot_apps.GitHub', return_value=Scoped()):
+            with self.assertRaisesRegex(ValueError, 'installation permissions'):
+                verify_installation(c, 'builder', Client())
+            installation['permissions']['workflows'] = 'write'
+            self.assertEqual(verify_installation(c, 'builder', Client()), 1008)
+            installation['permissions']['issues'] = 'read'
+            with self.assertRaisesRegex(ValueError, 'installation permissions'):
+                verify_installation(c, 'builder', Client())
 
     def existing(self, c):
         desired = desired_ruleset(c)

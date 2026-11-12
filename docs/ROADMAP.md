@@ -113,6 +113,28 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-138 — Recorded owner-approved App permission extras
+
+Private `review_bot.apps.<role>.extra_permissions` records approved read/write
+additions. All existing App verification paths require exactly base plus recorded
+extras; missing grants and unrecorded widening refuse. New-App manifests and event
+subscriptions remain unchanged. Config loading rejects administration,
+organization permissions/members, secrets, environments, Actions write and Review
+writes beyond its base. Init/deploy plans and status expose recorded extras.
+The Main runbook documents owner approval, manual GitHub grants and recording.
+
+Verification: 40 focused App/deployment/status tests passed. Candidate CLI init,
+deploy and status exercised isolated fixture-only configs and displayed all four
+Builder extras; each returned expected exit 2 for absent deployment/pin/credential
+prerequisites. No Email Sherpa config/keys, App, ruleset or runtime was accessed or
+changed. Publication requires independent final-head review, green CI and Main's
+exact-head GO; shared rollout remains Main-owned.
+Independent review identified pending owner installation updates: `/app` can
+already show widened grants while the installation still lacks them. Verification
+now checks installation permissions against the same exact recorded contract
+before minting a token; regression covers missing, accepted and unrecorded grants.
+
+
 ### TASK-137 — Guarded approve deployment and anonymous public pulls
 
 `review_bot.deployment.mode` defaults to `advisory`; explicit `approve` requires

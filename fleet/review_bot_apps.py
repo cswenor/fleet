@@ -14,15 +14,10 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from . import state
 from .review_bot_api import APIError, GitHub, app_client, verify_pin
+from .review_bot_config import PERMISSIONS
 from .review_bot_files import create_environment, private_parent, read_config, save_config
 
 
-PERMISSIONS = {
-    'review': {'contents': 'read', 'pull_requests': 'write', 'checks': 'write',
-               'actions': 'read', 'issues': 'read', 'statuses': 'read',
-               'merge_queues': 'read'},
-    'builder': {'contents': 'write', 'pull_requests': 'write'},
-}
 EVENTS = {'review': ['pull_request', 'pull_request_review', 'pull_request_review_comment',
                      'issue_comment', 'check_run', 'check_suite', 'status', 'push',
                      'workflow_run', 'merge_group'], 'builder': []}
@@ -142,7 +137,7 @@ def verify_app(c, role, client):
     remote = client.request('GET', '/app')
     if not isinstance(remote, dict):
         raise ValueError('invalid App identity response')
-    permissions = {**PERMISSIONS[role], 'metadata': 'read'}
+    permissions = {**PERMISSIONS[role], **expected.get('extra_permissions', {}), 'metadata': 'read'}
     actual = remote.get('permissions', {})
     if (remote.get('id') != expected['id'] or remote.get('slug') != expected['slug']
             or remote.get('name') != expected['name']
@@ -169,6 +164,10 @@ def verify_installation(c, role, client):
         raise ValueError(f'{role} App requires an active selected-repository installation for this project owner')
     if app.get('installation_id') is not None and app['installation_id'] != installation['id']:
         raise ValueError(f'{role} App installation receipt differs from live installation')
+    permissions = {**PERMISSIONS[role], **app.get('extra_permissions', {}), 'metadata': 'read'}
+    actual = installation.get('permissions')
+    if not isinstance(actual, dict) or {**actual, 'metadata': actual.get('metadata', 'read')} != permissions:
+        raise ValueError(f'{role} App installation permissions differ from the private project manifest; accept the owner-approved installation update')
     # Deliberately do not restrict the minted token: that would conceal extra
     # repositories selected on a broad installation.
     issued = client.request('POST', f'/app/installations/{installation["id"]}/access_tokens', {})
@@ -203,6 +202,7 @@ def initialize(c, *, apply=False, release='main', timeout=600, github=None,
                            if bot['apps']['owner_type'] == 'organization' else 'https://github.com/settings/apps/new'),
             'apps': {role: {'name': bot['apps'][role]['name'], 'private': True,
                             'permissions': PERMISSIONS[role], 'events': EVENTS[role],
+                            'extra_permissions': bot['apps'][role].get('extra_permissions', {}),
                             'install_url': ('https://github.com/apps/' + bot['apps'][role]['slug'] + '/installations/new')
                             if bot['apps'][role].get('slug') else None,
                             'repository_selection': [c['repo']]}

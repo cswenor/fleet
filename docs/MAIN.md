@@ -590,8 +590,33 @@ push, workflow_run and merge_group. Builder has no webhook subscriptions.
 The `merge_group` subscription requires `merge_queues: read` even when the
 project has not enabled merge queue publication. Existing Review Apps must grant
 it before verification succeeds; Builder permissions are unchanged.
-Neither has administration, Actions write or legacy direct-merger permissions.
-Workflow-file publication needs separately approved workflows permission.
+Neither base manifest grants administration or Actions write.
+For an existing App, record owner approval on the assigned Pad task before
+granting additional permissions in GitHub and accepting the installation update.
+Then record the exact approved additions in the private project configuration:
+
+```yaml
+review_bot:
+  apps:
+    builder:
+      extra_permissions:
+        actions: read
+        checks: read
+        statuses: read
+        workflows: write
+```
+
+Merge this fragment into the existing configuration; preserve owner, App receipts,
+credentials and other settings. Workflow-file publication needs the separately
+approved `workflows: write` grant. Init/deploy plans and status display recorded
+extras; every App verifier requires exactly base plus recorded extras (including
+implicit metadata read). Unrecorded widening and recorded-but-missing grants both
+refuse. New-App manifests remain base-only; Fleet never grants these extras.
+Config loading forbids administration, `organization_*`, members, secrets,
+environments and Actions write for either role, and any Review write beyond its
+base writes. Base writes and implicit metadata read cannot be reduced or widened,
+respectively. Event subscriptions remain unchanged. An approval record does not
+authorize shared-runtime rollout; coordinate that separately with Main.
 
 Run from the operator host, using the private project config:
 

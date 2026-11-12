@@ -7,6 +7,13 @@ from urllib.parse import urlsplit
 REPOSITORY = r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
 SLUG = r'[a-z0-9]+(?:-[a-z0-9]+)*'
 
+PERMISSIONS = {
+    'review': {'contents': 'read', 'pull_requests': 'write', 'checks': 'write',
+               'actions': 'read', 'issues': 'read', 'statuses': 'read',
+               'merge_queues': 'read'},
+    'builder': {'contents': 'write', 'pull_requests': 'write'},
+}
+
 
 def _mapping(value, fields, name):
     if not isinstance(value, dict) or set(value) - set(fields):
@@ -74,7 +81,8 @@ def validate(c):
     for role in ('review', 'builder'):
         if role not in apps:
             continue
-        app = _mapping(apps[role], ('name', 'slug', 'id', 'installation_id', 'env_file'), f'review_bot.apps.{role}')
+        app = _mapping(apps[role], ('name', 'slug', 'id', 'installation_id', 'env_file',
+                                   'extra_permissions'), f'review_bot.apps.{role}')
         if app.get('id') is not None and not app.get('slug'):
             raise ValueError(f'review_bot.apps.{role}.id requires its verified slug')
         if app.get('installation_id') is not None and not app.get('id'):
@@ -87,6 +95,22 @@ def validate(c):
                 _text(value, name, SLUG)
             elif key == 'env_file':
                 private_path(value, name)
+            elif key == 'extra_permissions':
+                if not isinstance(value, dict):
+                    raise ValueError(f'{name} must be a mapping of permission names to read or write')
+                for permission, level in value.items():
+                    _text(permission, name + ' permission', r'[a-z][a-z0-9_]*')
+                    if level not in ('read', 'write'):
+                        raise ValueError(f'{name}.{permission} must be read or write')
+                    if (permission in ('administration', 'members', 'secrets', 'environments')
+                            or permission.startswith('organization_')
+                            or (permission == 'actions' and level == 'write')
+                            or (permission == 'metadata' and level != 'read')
+                            or (role == 'review' and level == 'write'
+                                and PERMISSIONS[role].get(permission) != 'write')):
+                        raise ValueError(f'{name}.{permission}: forbidden extra permission {level}')
+                    if PERMISSIONS[role].get(permission) == 'write' and level != 'write':
+                        raise ValueError(f'{name}.{permission} cannot reduce a base permission')
             else:
                 _text(value, name, r'[A-Za-z0-9][A-Za-z0-9 ._-]{2,33}')
     for key in ('id', 'slug', 'installation_id'):
