@@ -204,6 +204,16 @@ mp-web-app deployment dry-run/cold status explicitly reported missing pin, App,
 host and health evidence using an isolated bootstrap copy; no private project
 config/runtime changes. Owner preparation and secret boundaries are documented
 in Main's onboarding runbook.
+Independent review `01a1d0fe` (actual Sol medium, no fallback/advisors) found a
+target-host symlink vault alias and empty/failed webhook history being treated as
+healthy. Fixes compare kernel bind-root/device identity, including nested mounts,
+and require the latest successful delivery for verified repository/installation
+IDs. Actual local Docker, pinned public Node base, UID 10010/no network/caps:
+separate bind roots accepted and a host symlink into reviewed work rejected.
+Only disposable fixtures mounted; no host permissions changed or secrets read.
+Fourteen focused deployment/status tests, including both regressions, passed.
+Docker required explicit `bind-propagation=rprivate` with recursive read-only
+binds; actual smoke established that prerequisite. Final-head gates still apply.
 
 Remaining: independently review and publish deployment/status; obtain owner
 release approval/public GHCR visibility and prove anonymous immutable pull plus

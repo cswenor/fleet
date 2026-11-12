@@ -636,9 +636,13 @@ Owner provisions broker logins privately for UID 10010 with HOME equal to
 or spend saved resets. Runner policy must preserve no fallback/advisors/reset
 spending. The CLI does not SSH, create target directories or run a privileged
 initialization container. Apply first pulls the pinned image, then probes only
-directory/file metadata and read access through read-only mounts as UID 10010,
-with no network/capabilities and no-new-privileges. Only aggregate validity is
-reported; dry-run explicitly leaves target paths unverified.
+directory/file metadata and read access through recursively read-only mounts as
+UID 10010, with no network/capabilities and no-new-privileges. Kernel bind-root
+identities (including nested mounts) must prove that runtime, provider vault and
+policy are isolated even after host symlink resolution; unknown identity fails
+closed. This requires Docker/kernel recursive-read-only bind support. No broader
+host filesystem is mounted, and only aggregate validity is reported; dry-run
+explicitly leaves target paths unverified.
 
 | Client-local env file | Allowed authority |
 |---|---|
@@ -665,9 +669,11 @@ digests, OCI source revisions and Docker health, plus bounded HTTPS `/health`,
 verified selected-only-this-repository installations and recent webhook delivery
 metadata. It never retrieves container environments, delivery payloads, broker
 accounts or provider credentials. A configured pin is not deployed-version proof;
-missing/unknown/drifting evidence makes status unhealthy. Empty recent delivery
-history is not webhook delivery proof. Deployment request success is not readiness
-or scratch-PR/calibration acceptance. Rollback requires a separately approved,
+missing/unknown/drifting evidence makes status unhealthy. The latest timestamped
+delivery for the verified repository ID and Review installation must have a 2xx
+response; empty/failed/unknown delivery evidence is unhealthy. A later successful
+redelivery can recover an older failure. Deployment request success is not
+readiness or scratch-PR/calibration acceptance. Rollback requires a separately approved,
 verified compatible immutable pin and owner-approved state handling; never infer
 database downgrade safety or automatically retry a partial deployment.
 

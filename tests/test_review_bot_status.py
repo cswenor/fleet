@@ -82,7 +82,10 @@ class StatusTests(unittest.TestCase):
         c = self.config()
         class Client:
             def request(self, method, path):
-                return []
+                if path.startswith('/repos/'):
+                    return {'id': 45, 'full_name': 'example/project'}
+                return [{'id': 1, 'repository_id': 45, 'installation_id': 11,
+                         'status_code': 200, 'delivered_at': '2026-11-12T18:00:00Z'}]
         valid = {'ok': True, 'revision': 'a' * 40, 'mode': 'advisory', 'mode_degraded': None,
                  'mergeLaneEnabled': False, 'runner': 'up', 'gateway': 'up'}
         cases = [(200, valid, True), (503, {**valid, 'ok': False}, False),
@@ -94,7 +97,7 @@ class StatusTests(unittest.TestCase):
         for code, value, healthy in cases:
             with self.subTest(value=value), \
                     patch('fleet.review_bot_status.verify_pin'), \
-                    patch('fleet.review_bot_status.GitHub.owner', return_value=object()), \
+                    patch('fleet.review_bot_status.GitHub.owner', return_value=Client()), \
                     patch('fleet.review_bot_status.docker', self.daemon()), \
                     patch('fleet.review_bot_status.health', return_value=(code, value)), \
                     patch('fleet.review_bot_status.app_client', return_value=Client()), \
@@ -102,6 +105,35 @@ class StatusTests(unittest.TestCase):
                     patch('fleet.review_bot_status.verify_installation', return_value=11):
                 result = status(c)
             self.assertEqual(result['healthy'], healthy)
+
+    def test_healthy_requires_latest_success_for_verified_repository_and_installation(self):
+        c = self.config()
+        good = {'id': 1, 'repository_id': 45, 'installation_id': 11,
+                'status_code': 200, 'delivered_at': '2026-11-12T18:00:00Z'}
+        cases = [([good], True), ([], False), ([{**good, 'status_code': 500}], False),
+                 ([{**good, 'repository_id': 46}], False),
+                 ([{**good, 'installation_id': 12}], False),
+                 ([{**good, 'delivered_at': None}], False),
+                 ([{**good, 'status_code': 500}, {**good, 'id': 2,
+                     'delivered_at': '2026-11-12T18:01:00Z'}], True),
+                 ([good, {**good, 'id': 2, 'status_code': 500,
+                     'delivered_at': '2026-11-12T18:01:00Z'}], False)]
+        valid = {'ok': True, 'revision': 'a' * 40, 'mode': 'advisory', 'mode_degraded': None,
+                 'mergeLaneEnabled': False, 'runner': 'up', 'gateway': 'up'}
+        class Owner:
+            def request(self, method, path):
+                return {'id': 45, 'full_name': 'example/project'}
+        for rows, expected in cases:
+            with self.subTest(rows=rows), patch('fleet.review_bot_status.verify_pin'), \
+                    patch('fleet.review_bot_status.GitHub.owner', return_value=Owner()), \
+                    patch('fleet.review_bot_status.docker', self.daemon()), \
+                    patch('fleet.review_bot_status.health', return_value=(200, valid)), \
+                    patch('fleet.review_bot_status.app_client'), \
+                    patch('fleet.review_bot_status.verify_app'), \
+                    patch('fleet.review_bot_status.verify_installation', return_value=11), \
+                    patch('fleet.review_bot_status._deliveries', return_value=rows):
+                result = status(c)
+            self.assertEqual(result['healthy'], expected)
 
     def test_unconfigured_status_has_no_external_effects(self):
         with patch('fleet.review_bot_status.docker', side_effect=AssertionError('Docker access')):

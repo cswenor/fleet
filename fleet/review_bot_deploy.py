@@ -17,6 +17,31 @@ from .review_bot_files import private_parent
 SERVICES = ('control', 'runner', 'broker', 'gateway')
 _LIMIT = 1024 * 1024
 
+# Kernel bind roots retain source identity when Docker dereferences host symlinks.
+# Include nested mounts: a vault submount inside reviewed work is also unsafe.
+_BIND_ISOLATION = r'''
+function isolatedMounts(text) {
+  const decode = value => value.replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+  const below = (path, parent) => path === parent || path.startsWith(parent === '/' ? '/' : parent + '/');
+  const mounts = text.trim().split('\n').map(line => {
+    const fields = line.split(' ');
+    return { device: fields[2], root: decode(fields[3] || ''), target: decode(fields[4] || '') };
+  });
+  const names = ['instance', 'auth', 'config'];
+  const groups = names.map(name => mounts.filter(mount => below(mount.target, '/probe/' + name)));
+  if (groups.some((group, index) => !group.some(mount => mount.target === '/probe/' + names[index]) ||
+      group.some(mount => !/^\d+:\d+$/.test(mount.device) || !mount.root.startsWith('/')))) return false;
+  for (let first = 0; first < groups.length; first++) {
+    for (let second = first + 1; second < groups.length; second++) {
+      for (const left of groups[first]) for (const right of groups[second]) {
+        if (left.device === right.device && (below(left.root, right.root) || below(right.root, left.root))) return false;
+      }
+    }
+  }
+  return true;
+}
+'''
+
 
 def project_name(c):
     return 'fleet-review-' + hashlib.sha256(c['repo'].lower().encode()).hexdigest()[:16]
@@ -173,12 +198,14 @@ def _probe_target(c):
     for name, path in mounts.items():
         if ',' in path:
             raise ValueError('target bind paths cannot contain commas')
-        args += ['--mount', 'type=bind,src=' + path + ',dst=/probe/' + name + ',readonly']
+        args += ['--mount', 'type=bind,src=' + path + ',dst=/probe/' + name + ',readonly,bind-propagation=rprivate,bind-recursive=readonly']
     args += [bot['source']['image'], 'node', '--input-type=module']
-    script = '''
-import { lstatSync, realpathSync, accessSync, constants } from 'node:fs';
-let valid = true;
+    script = r'''
+import { lstatSync, realpathSync, accessSync, readFileSync, constants } from 'node:fs';
+''' + _BIND_ISOLATION + r'''
+let valid = false;
 try {
+  valid = isolatedMounts(readFileSync('/proc/self/mountinfo', 'utf8'));
   for (const name of ['instance', 'instance/state', 'instance/work', 'instance/sessions', 'instance/gateway', 'auth']) {
     const path = '/probe/' + name;
     const info = lstatSync(path);

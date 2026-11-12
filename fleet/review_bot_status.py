@@ -1,4 +1,5 @@
-"""Observe runtime identity, health and App metadata without reading secrets."""
+"""Observe runtime identity, health and App metadata without exposing credentials."""
+from datetime import datetime
 import json
 import re
 from urllib.error import HTTPError
@@ -155,8 +156,21 @@ def status(c, *, github=None):
             if role == 'review':
                 try:
                     result['deliveries'] = _deliveries(client)
-                except (ValueError, KeyError, TypeError):
-                    result['blockers'].append('recent webhook delivery metadata unavailable')
+                    repository = (github or GitHub.owner()).request('GET', '/repos/' + c['repo'])
+                    if (not isinstance(repository, dict) or repository.get('full_name', '').lower() != c['repo'].lower()
+                            or type(repository.get('id')) is not int or repository['id'] < 1):
+                        raise ValueError('target delivery identity unavailable')
+                    relevant = [row for row in result['deliveries']
+                                if row['repository_id'] == repository['id'] and row['installation_id'] == installation]
+                    if any(type(row['id']) is not int or row['id'] < 1
+                           or not row['delivered_at'].endswith(('Z', '+00:00')) for row in relevant):
+                        raise ValueError('target delivery timestamp or identity unavailable')
+                    latest = max(relevant, key=lambda row: (
+                        datetime.fromisoformat(row['delivered_at'].replace('Z', '+00:00')), row['id']))
+                    if type(latest['status_code']) is not int or not 200 <= latest['status_code'] < 300:
+                        result['blockers'].append('latest verified repository/installation webhook delivery is unsuccessful')
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    result['blockers'].append('successful verified repository/installation webhook delivery evidence unavailable')
         except (ValueError, KeyError, TypeError):
             result['installations'][role] = {'verified': False}
             result['blockers'].append(role + ' App selected-only-this-repository installation is unverifiable')

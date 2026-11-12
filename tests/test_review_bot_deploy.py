@@ -2,10 +2,12 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import shutil
+import subprocess
 import unittest
 from unittest.mock import patch
 
-from fleet.review_bot_deploy import deploy, docker, topology
+from fleet.review_bot_deploy import _BIND_ISOLATION, deploy, docker, topology
 
 
 class DeploymentTests(unittest.TestCase):
@@ -17,6 +19,22 @@ class DeploymentTests(unittest.TestCase):
                            'control_env_file': '/private/control.env', 'broker_env_file': '/private/broker.env',
                            'gateway_env_file': '/private/gateway.env', 'runner_config_dir': '/private/config',
                            'broker_auth_dir': '/private/auth'}}}
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required to exercise the target probe')
+    def test_kernel_bind_identity_rejects_symlink_aliases_nested_mounts_and_unknown_roots(self):
+        def mounts(auth='/srv/vault', extra='', device='0:1'):
+            return ('1 0 0:1 /srv/runtime /probe/instance ro - ext4 /dev/test ro\n'
+                    f'2 0 {device} {auth} /probe/auth ro - ext4 /dev/test ro\n'
+                    '3 0 0:1 /etc/policy /probe/config ro - ext4 /dev/test ro\n' + extra)
+        cases = [mounts(), mounts('/srv/runtime/work/vault'), mounts('/srv/runtime'),
+                 mounts('/srv/runtime-old'), mounts('/vault', device='0:2',
+                     extra='4 1 0:2 /vault /probe/instance/work/provider ro - ext4 /dev/other ro\n'),
+                 mounts().replace('/probe/config', '/missing-config'),
+                 mounts().replace('0:1 /srv/vault', 'unknown /srv/vault')]
+        script = _BIND_ISOLATION + '\nprocess.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")).map(isolatedMounts)));'
+        result = subprocess.run(['node', '-e', script], input=json.dumps(cases),
+                                capture_output=True, text=True, timeout=10, check=True)
+        self.assertEqual(json.loads(result.stdout), [True, False, False, True, False, False, False])
 
     def test_bootstrap_plan_is_read_only_and_reports_missing_authority(self):
         c = self.config()
