@@ -147,6 +147,11 @@ boundary. Stop timeout fixtures now isolate their fake clock from shared locks.
 After the inbox-only reply fix, all 82 thread/steering/parking regressions pass.
 Independent final-head review, green CI and Main's exact-head GO remain required.
 Merge does not authorize shared installation.
+Fresh post-cutover review identified a decision-completion race after final task
+revalidation and before wake input. Main approved sharing the terminal wait lease:
+wake takes it nonblocking across proof/send, releasing before result persistence;
+wait has bounded 15-second acquisition. Deterministic regressions cover an active
+wait skipping wake and a wait blocking at wake send, then recording the decision.
 
 ### TASK-122 — Replace an unfinished same-task session
 

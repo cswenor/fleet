@@ -318,6 +318,13 @@ Wake takes a nonblocking per-slot lease before its task lock; a busy lease skips
 the slot until the next cycle. It holds that lease across native proof, final
 launch/question revalidation, journaling and send. Launch/restart hold the same
 lease across terminal mutation, so retirement/reuse cannot race wake input.
+Wake lock order is slot → `thread-wait-TERMINAL` → task. The shared
+terminal decision lease is nonblocking for wake: an active wait skips that cycle.
+It spans proof/journaling/send and is released immediately after native send,
+before persisting the result. `thread wait` acquires it with a 15-second bound
+and retryable thread-busy diagnostics. Thus a decision cannot return and resume
+builder work between the final authority check and wake input. Read-only steering
+checks do not need the decision lease.
 Supervisor PARK holds its slot lease across native proof, file revalidation and
 delivery, without the launcher lock. Lane-free proof/transport also stays outside
 launcher.

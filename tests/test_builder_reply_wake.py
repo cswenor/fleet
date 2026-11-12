@@ -1,9 +1,11 @@
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import fcntl
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -202,6 +204,73 @@ class BuilderWakeTests(unittest.TestCase):
             self.wake()
         self.assertEqual(self.sends, [])
         self.wake(1)
+        self.assertEqual(len(self.sends), 1)
+
+    def test_running_wait_skips_wake_until_decision_is_recorded(self):
+        self.q['question_recorded'] = True
+        self.reply['body'] = 'approved'
+        self.save_attempt()
+        entered, release = threading.Event(), threading.Event()
+
+        def inbox(c, *args):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return {'messages': [self.reply], 'count': 1}
+
+        with patch.object(threads, 'identity', return_value='builder'), patch.object(
+                threads, 'request', side_effect=inbox), patch.object(threads, 'pad'), \
+                ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(threads.wait, self.c, 'TASK-1', 1)
+            try:
+                self.assertTrue(entered.wait(5))
+                with patch.object(health, 'builder_wake_proof',
+                                  side_effect=AssertionError('wait must exclude wake proof')):
+                    self.wake()
+                self.assertEqual(self.sends, [])
+            finally:
+                release.set()
+            self.assertEqual(future.result(timeout=5)['reply']['body'], 'approved')
+        self.wake(1)
+        self.assertEqual(self.sends, [])
+
+    def test_wait_blocks_during_wake_send_then_records_decision(self):
+        self.q['question_recorded'] = True
+        self.reply['body'] = 'approved'
+        self.save_attempt()
+        blocked = threading.Event()
+        original_native, original_flock = self.native, fcntl.flock
+        future = None
+
+        def flock(file, operation):
+            try:
+                return original_flock(file, operation)
+            except BlockingIOError:
+                if threading.current_thread() is not threading.main_thread():
+                    blocked.set()
+                raise
+
+        def inbox(c, *args):
+            return {'messages': [self.reply], 'count': 1}
+
+        with patch.object(threads, 'identity', return_value='builder'), patch.object(
+                threads, 'request', side_effect=inbox), patch.object(threads, 'pad'), \
+                patch.object(fcntl, 'flock', side_effect=flock), \
+                ThreadPoolExecutor(max_workers=1) as pool:
+            def native(c, *args):
+                nonlocal future
+                if args[:2] == ('terminal', 'send'):
+                    future = pool.submit(threads.wait, self.c, 'TASK-1', 1)
+                    self.assertTrue(blocked.wait(5))
+                    self.assertFalse(future.done())
+                    pending = state.read(c, 'threads-TASK-1')['TASK-1']['attempts']['launch']
+                    self.assertFalse(pending['questions'][self.token].get('reply_recorded'))
+                return original_native(c, *args)
+
+            with patch.object(supervisor, 'orca', side_effect=native):
+                self.wake()
+            self.assertEqual(future.result(timeout=5)['reply']['body'], 'approved')
+        saved = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['launch']
+        self.assertTrue(saved['questions'][self.token]['reply_recorded'])
         self.assertEqual(len(self.sends), 1)
 
     def test_wake_lease_prevents_retirement_and_reuse_even_at_send(self):

@@ -55,10 +55,10 @@ def slot_lock(c, slot):
 
 
 def _busy(c, name):
-    if name not in ('launcher', 'launch-publication') and not name.startswith('threads-'):
+    if name not in ('launcher', 'launch-publication') and not name.startswith(('threads-', 'thread-wait-')):
         return ValueError(f'fleet {name} already running')
     holder = read(c, name + '-holder', {}) or {}
-    if name.startswith('threads-'):
+    if name.startswith(('threads-', 'thread-wait-')):
         return LauncherBusy(
             f"thread busy: held by pid {holder.get('pid', 'unknown')} "
             f"({holder.get('op', 'unknown')}) since {holder.get('start', 'unknown')}; retry")
@@ -75,12 +75,12 @@ def _busy(c, name):
 def lock(c, name, wait_seconds=None, *, operation=None):
     with (directory(c) / (name + '.lock')).open('a') as f:
         if wait_seconds is None:
-            wait_seconds = 15 if name.startswith('threads-') else 0
+            wait_seconds = 15 if name.startswith(('threads-', 'thread-wait-')) else 0
         if name == 'launcher':
             wait_seconds = min(wait_seconds, 15)
         elif name == 'launch-publication':
             wait_seconds = min(wait_seconds, 5)
-        elif name.startswith('threads-'):
+        elif name.startswith(('threads-', 'thread-wait-')):
             wait_seconds = min(wait_seconds, 15)
         deadline = time.monotonic() + wait_seconds if wait_seconds > 0 else None
         while True:

@@ -1,5 +1,5 @@
 """Per-project supervision with journaled, positively idle inbox/decision wakes."""
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -690,7 +690,11 @@ def wake_builders(c, ledger, now, deliver):
             for ref in dict.fromkeys(refs):
                 if not isinstance(ref, str) or not re.fullmatch(r'[A-Z]+-\d+', ref):
                     continue
-                with state.slot_lock(c, slot):
+                with state.slot_lock(c, slot), ExitStack() as decision_lease:
+                    # Exclude decision completion until wake input has returned.
+                    decision_lease.enter_context(state.lock(
+                        c, 'thread-wait-' + launch['terminal'], wait_seconds=0,
+                        operation='supervisor builder wake'))
                     with state.lock(c, 'threads-' + ref, wait_seconds=0):
                         # Snapshot only file-backed state under the task lock.
                         latest = state.read(c, 'launches', {}).get(slot, {})
@@ -701,8 +705,8 @@ def wake_builders(c, ledger, now, deliver):
                                          if r == ref), None)
                         if question is None:
                             continue
-                    # The slot lease excludes restart throughout native observation,
-                    # revalidation and send; task writers remain free to settle.
+                    # The slot lease excludes restart; the decision lease excludes
+                    # a wait returning and resuming work before wake input arrives.
                     reply = threads.decision_reply(c, launch, question)
                     if reply is None:
                         continue
@@ -769,6 +773,8 @@ def wake_builders(c, ledger, now, deliver):
                         attempt['status'] = 'sent'
                     except (RuntimeError, ValueError):
                         attempt['status'] = 'unknown'
+                    finally:
+                        decision_lease.close()
                     state.write(c, 'supervisor', ledger)
         except (RuntimeError, ValueError, KeyError, TypeError, AttributeError, OSError):
             # Busy thread/transport/unknown evidence is not permission for input.

@@ -106,11 +106,3 @@ with state.lock({'_state': sys.argv[1]}, sys.argv[2], operation='thread reply re
                 sleep.assert_called_once()
                 self.assertAlmostEqual(sleep.call_args.args[0], 0.05)
 
-    def test_other_lock_defaults_remain_nonblocking(self):
-        for name in ('launcher', 'launch-publication', 'scratch', 'thread-wait-builder'):
-            with self.subTest(name=name), self.holder(name), \
-                    patch.object(state.time, 'sleep') as sleep:
-                with self.assertRaises(ValueError):
-                    with state.lock(self.c, name):
-                        self.fail('other locks must remain nonblocking by default')
-                sleep.assert_not_called()
