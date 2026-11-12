@@ -55,7 +55,11 @@ Inventory these source classes before every collection:
 Use header `cwd`, not a directory name or message text, to attribute sessions.
 Provide every stable checkout, lane and scratch prefix; the longest matching
 path-component prefix wins. Repository renames need both old/new local aliases.
-Unmapped calls are counted separately, never silently assigned to a project.
+An unmapped isolated helper inherits attribution through its header's
+`parentSession` path only when that ancestor is in the declared file inventory;
+follow nested ancestry, but an explicit matching cwd always wins. Cycles refuse.
+Uninventoried ancestors are never silently read. Still-unmapped calls are counted
+separately, never guessed from directory names or prompts.
 Keep host paths, real project bindings and raw source evidence private.
 
 Fleet's public repository was recreated on Nov 12. Main identified its retained
@@ -183,13 +187,20 @@ all clients. Arithmetic alone never establishes causality.
 
 ## Before result — observed local sources, not a complete baseline
 
-Collected 2026-11-12T23:17:10Z for Oct 30–Nov 6; Gamma's Nov 3–10 run
-collected at 23:19:24Z. Source inventory: 11,262/11,263 files respectively,
-11,256/11,257 distinct session IDs; two non-session files skipped. No divergent
+Collected 2026-11-12T23:35:41Z for Oct 30–Nov 6; Gamma's Nov 3–10 run
+collected at 23:38:11Z. Retained inventory: 11,267/11,269 files respectively,
+11,261/11,263 distinct session IDs; two non-session files skipped. No divergent
 copies or missing usage found. Zero duplicate events in these windows.
-The one additional inventory file appeared during collection, outside the
-completed windows. Recorded runtime versions: 18.13.1 for Oct 30–Nov 6;
+New live session files appeared between inventories, outside the completed windows.
+Recorded runtime versions: 18.13.1 for Oct 30–Nov 6;
 18.13.1/18.17.0/18.18.1 for the wider Gamma diagnostic.
+
+These results supersede the earlier cwd-only snapshot: explicit inventoried
+ancestry restored 24,171 Sol and 3,064 Sonnet isolated-helper calls to Alpha.
+Three temporary Beta reviewer roots disappeared after the initial collection,
+before AFTER opened. The original manifests and private omission diagnosis are
+retained; this recollection explicitly uses remaining sources, not a silently
+shrunk replay of the original inventory. No raw logs were moved or copied.
 
 | Project / approved before interval | Exact merged PRs | Observed usage / per-PR coverage |
 |---|---:|---|
@@ -200,17 +211,17 @@ completed windows. Recorded runtime versions: 18.13.1 for Oct 30–Nov 6;
 
 **No local events never means zero actual usage.** No percentage change is
 accepted before the after window closes and scopes match.
-The Oct 30–Nov 6 run also observed 27,236 unattributed calls outside the supplied
-project prefixes; they are excluded, not silently assigned to Alpha.
+The Oct 30–Nov 6 run observed one still-unattributed call; it is excluded,
+not guessed into Alpha. This is observed partial usage, not full-scope coverage.
 
 Alpha's complete *observed* model breakdown below sums assistant and internal
-events. All recorded cost rows were priced; 109 Sol error calls are included.
+events. All recorded cost rows were priced; 197 Sol error calls are included.
 
 | Provider / model | Calls | Input | Output | Cache-read | Cache-write | Recorded list USD |
 |---|---:|---:|---:|---:|---:|---:|
 | anthropic / claude-opus-5-5 | 9,985 | 26,472 | 4,791,283 | 4,489,974,949 | 22,470,799 | 1,173.6929298 |
-| anthropic / claude-sonnet-5-5 | 29,045 | 5,366,832 | 19,002,054 | 2,480,010,360 | 96,559,917 | 834.994908 |
-| openai-codex / gpt-6.1-sol | 120,120 | 269,128,224 | 81,172,844 | 22,552,713,344 | 0 | 3,605.2562224 |
+| anthropic / claude-sonnet-5-5 | 32,109 | 5,373,274 | 21,232,928 | 2,826,199,643 | 108,050,163 | 937.8964443 |
+| openai-codex / gpt-6.1-sol | 144,291 | 308,531,606 | 86,273,573 | 23,773,405,568 | 0 | 3,857.1394988 |
 
 Main attests that Alpha's pre-adoption Main and lanes ran on this host
 (`msg_d23185b95551`). This inventory includes their default sessions and nested
@@ -219,8 +230,8 @@ clients. The resulting **partial local-host Sol usage per merged PR** is:
 
 | Observed Sol scope / window | Calls/PR | Cache-read tokens/PR | Recorded list USD/PR |
 |---|---:|---:|---:|
-| Alpha local Main/builders/helpers/reviewers, excluding remote review-bot and off-host clients / Oct 30–Nov 6 | 357.5 | 67,121,170.666667 | 10.729929 |
-| Alpha, same observed local scope / six-day Nov 6–12 checkpoint (not AFTER) | 706.043716 | 73,342,591.300546 | 13.365421 |
+| Alpha local Main/builders/helpers/reviewers, excluding remote review-bot and off-host clients / Oct 30–Nov 6 | 429.4375 | 70,754,183.238095 | 11.479582 |
+| Alpha, same observed local scope / six-day Nov 6–12 checkpoint (not AFTER) | 706.191257 | 73,347,465.092896 | 13.366844 |
 | Fleet / same observed local scope / six-day Nov 6–12 checkpoint, archive denominator 103 | 100.951456 | 9,202,625.864078 | 1.677386 |
 
 
@@ -228,11 +239,12 @@ clients. The resulting **partial local-host Sol usage per merged PR** is:
 
 Main corrected the cutoff in `msg_b95c9f064f00`: use the completed
 `[2026-11-06T00:00:00Z, 2026-11-12T00:00:00Z)` checkpoint, not a future midnight.
-Collected **2026-11-12T23:19:34Z**, before the after window opened.
-Source inventory: 11,263 files, 11,257 session IDs; 33 copied/inherited usage
-events deduplicated, two non-session files skipped, 130 unattributed calls,
-zero missing-usage events and zero unpriced recorded calls. Runtime events
-reported 18.13.1, 18.17.0, 18.18.1 and 18.18.6.
+Collected **2026-11-12T23:41:14Z**, before the after window opened.
+Retained inventory: 11,270 files, 11,264 session IDs; 33 copied/inherited usage
+events deduplicated, two non-session files skipped, 33 still-unattributed calls,
+zero missing-usage events and zero unpriced recorded calls. Inventoried ancestry
+restored 27 Alpha and 70 Beta Sol calls from the earlier unattributed count.
+Runtime events reported 18.13.1, 18.17.0, 18.18.1 and 18.18.6.
 
 | Project | Exact merged PRs in checkpoint | Per-PR rates |
 |---|---:|---|
@@ -253,11 +265,11 @@ to six decimals for display; the numeric JSON retains recorded precision:
 | Alpha / anthropic / claude-opus-5-5 | 9,331 | 22,040 | 4,462,494 | 3,730,948,305 | 30,821,299 | 1,082.098093 |
 | Alpha / anthropic / claude-sonnet-5-5 | 22,506 | 9,555,789 | 8,371,422 | 829,477,747 | 44,212,607 | 362.624001 |
 | Alpha / openai-codex / gpt-5.6-luna | 47 | 73,214 | 9,963 | 64,896 | 0 | 0.027896 |
-| Alpha / openai-codex / gpt-6.1-sol | 129,206 | 250,052,750 | 60,359,707 | 13,421,694,208 | 0 | 2,445.871991 |
+| Alpha / openai-codex / gpt-6.1-sol | 129,233 | 250,101,751 | 60,367,034 | 13,422,586,112 | 0 | 2,446.132453 |
 | Beta / anthropic / claude-fable-5-2 | 97 | 198 | 263,654 | 26,346,682 | 808,809 | 28.758024 |
 | Beta / anthropic / claude-opus-5-5 | 9,271 | 24,666 | 5,684,875 | 3,142,531,999 | 14,459,833 | 857.981228 |
 | Beta / anthropic / claude-sonnet-5-5 | 6,306 | 4,051,812 | 951,368 | 19,806,819 | 1,481,025 | 25.522086 |
-| Beta / openai-codex / gpt-6.1-sol | 30,776 | 52,623,648 | 8,994,010 | 2,986,253,312 | 0 | 493.812727 |
+| Beta / openai-codex / gpt-6.1-sol | 30,846 | 52,758,345 | 9,008,360 | 2,988,021,376 | 0 | 494.402428 |
 | Gamma / anthropic / claude-fable-5-2 | 6,314 | 454,303 | 5,371,121 | 745,307,800 | 20,447,650 | 694.703224 |
 | Gamma / anthropic / claude-opus-5-5 | 2,185 | 291,603 | 1,114,460 | 688,741,961 | 3,426,472 | 188.615780 |
 | Gamma / openai-codex / gpt-6.1-sol | 7,526 | 19,080,882 | 2,035,129 | 589,882,112 | 0 | 117.501265 |

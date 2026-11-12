@@ -64,27 +64,58 @@ def attribution(cwd, projects):
     return names.pop()
 
 
+def _session_header(stream):
+    try:
+        header = json.loads(next(stream))
+        while isinstance(header, dict) and header.get('type') == 'title':
+            header = json.loads(next(stream))
+    except (ValueError, StopIteration):
+        raise MeasurementError('unreadable session header') from None
+    if isinstance(header, dict) and header.get('type') == 'session':
+        if not header.get('id') or not header.get('cwd'):
+            raise MeasurementError('invalid session header')
+    return header
+
+
 def tally(files, projects, start, end):
     seen, inherited, sessions, groups = {}, {}, {}, {}
     counts = dict(files=len(files), sessions=0, duplicate_events=0,
                   unattributed_calls=0, missing_usage=0, non_session_files=0)
     versions = set()
+    inventory = {path.resolve(): path for path in files}
+    owners = {}
+
+    def owner(path, header, visiting):
+        key = path.resolve()
+        if key in owners:
+            return owners[key]
+        if key in visiting:
+            raise MeasurementError('cyclic session ancestry')
+        project = attribution(Path(header['cwd']), projects)
+        parent = header.get('parentSession')
+        if project is None and isinstance(parent, str) and parent:
+            reference = Path(parent)
+            if not reference.is_absolute():
+                reference = path.parent / reference
+            source = inventory.get(reference.resolve())
+            if source is not None:
+                opener = gzip.open if source.name.endswith('.gz') else open
+                with opener(source, 'rt', encoding='utf-8') as stream:
+                    ancestor = _session_header(stream)
+                if isinstance(ancestor, dict) and ancestor.get('type') == 'session':
+                    project = owner(source, ancestor, visiting | {key})
+        owners[key] = project
+        return project
+
     for path in files:
         opener = gzip.open if path.name.endswith('.gz') else open
         with opener(path, 'rt', encoding='utf-8') as stream:
-            try:
-                header = json.loads(next(stream))
-                while isinstance(header, dict) and header.get('type') == 'title':
-                    header = json.loads(next(stream))
-            except (ValueError, StopIteration):
-                raise MeasurementError('unreadable session header') from None
+            header = _session_header(stream)
             if not isinstance(header, dict) or header.get('type') != 'session':
                 counts['non_session_files'] += 1
                 continue
-            if not header.get('id') or not header.get('cwd'):
-                raise MeasurementError('invalid session header')
-            sid, cwd = header['id'], Path(header['cwd'])
-            project = attribution(cwd, projects)
+            sid = header['id']
+            project = owner(path, header, set())
             if sid in sessions and sessions[sid] != project:
                 raise MeasurementError('session copy attribution conflict')
             sessions[sid] = project

@@ -10,6 +10,63 @@ from fleet.metrics import MeasurementError, merged_prs, tally, utc
 
 
 class MetricsTests(unittest.TestCase):
+    def test_isolated_helpers_follow_inventoried_ancestry_but_explicit_cwd_wins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = [root / name for name in ('main.jsonl', 'helper.jsonl', 'nested.jsonl.gz',
+                                             'other.jsonl')]
+            for index, (path, cwd) in enumerate(zip(files, ['/alpha', '/isolated/one',
+                                                          '/isolated/two', '/beta'])):
+                header = dict(type='session', id=str(index), cwd=cwd)
+                if index:
+                    header['parentSession'] = str(files[1 if index == 2 else 0])
+                events = [header]
+                if index:
+                    events.append(dict(type='message', id=str(index),
+                                       timestamp='2026-11-01T00:00:00Z',
+                                       message=dict(role='assistant', provider='p', model='m',
+                                                    usage=dict(input=index, output=0,
+                                                               cacheRead=10, cacheWrite=0,
+                                                               cost={'total': 0.25}))))
+                opener = gzip.open if path.suffix == '.gz' else open
+                with opener(path, 'wt') as stream:
+                    stream.write('\n'.join(map(json.dumps, events)))
+            result = tally(list(reversed(files)), [('alpha', Path('/alpha')),
+                                                   ('beta', Path('/beta'))],
+                           utc('2026-11-01T00:00:00Z'), utc('2026-11-02T00:00:00Z'))
+            rows = {row['project']: row for row in result['usage']}
+            self.assertEqual(rows['alpha']['calls'], 2)
+            self.assertEqual(rows['alpha']['input'], 3)
+            self.assertEqual(rows['alpha']['cache_read'], 20)
+            self.assertEqual(rows['beta']['calls'], 1)
+            self.assertEqual(rows['beta']['input'], 3)
+            self.assertEqual(result['coverage']['unattributed_calls'], 0)
+
+    def test_uninventoried_ancestor_is_not_silently_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / 'parent.jsonl'
+            child = Path(directory) / 'child.jsonl'
+            parent.write_text(json.dumps(dict(type='session', id='parent', cwd='/alpha')))
+            child.write_text('\n'.join(map(json.dumps, [
+                dict(type='session', id='child', cwd='/isolated', parentSession=str(parent)),
+                dict(type='message', id='call', timestamp='2026-11-01T00:00:00Z',
+                     message=dict(role='assistant', provider='p', model='m',
+                                  usage=dict(input=1, output=1, cacheRead=1, cacheWrite=0)))])))
+            result = tally([child], [('alpha', Path('/alpha'))],
+                           utc('2026-11-01T00:00:00Z'), utc('2026-11-02T00:00:00Z'))
+            self.assertEqual(result['usage'], [])
+            self.assertEqual(result['coverage']['unattributed_calls'], 1)
+
+    def test_cyclic_unknown_ancestry_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / name for name in ('a.jsonl', 'b.jsonl')]
+            for index, path in enumerate(paths):
+                path.write_text(json.dumps(dict(type='session', id=str(index), cwd='/isolated',
+                                               parentSession=str(paths[1 - index]))))
+            with self.assertRaisesRegex(MeasurementError, 'cyclic session ancestry'):
+                tally(paths, [('alpha', Path('/alpha'))], utc('2026-11-01T00:00:00Z'),
+                      utc('2026-11-02T00:00:00Z'))
+
     def test_malformed_header_refuses_instead_of_dropping_source(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'session.jsonl'

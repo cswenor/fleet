@@ -2917,7 +2917,8 @@ Main's TASK-18 brief and ruling `msg_451dea46f55b` authorize one read-only JSONL
 tally for BOTH windows: stock omp 18.18.6 has no additional stats-root option,
 and the stock index omits dedicated Fleet/Main/reviewer session directories.
 `python -m fleet.metrics` unions source logs, includes internal model-usage
-events, attributes by session cwd and queries exact GitHub merge timestamps.
+events, attributes by cwd or explicit inventoried isolated-helper ancestry,
+and queries exact GitHub merge timestamps.
 No shared runtime/configuration or other project's state is changed.
 
 Before: Oct 30–Nov 6 UTC for Project Alpha, Project Beta and Fleet; Nov 3–10 UTC
@@ -2931,6 +2932,12 @@ Alpha's before Main/lanes ran on this host. Beta/Gamma before rates remain N/A
 where sources are unavailable; never infer zero usage from missing sources.
 Fleet's retained private predecessor supplies historical GitHub merge timestamps
 (0 before / 103 checkpoint); use the current repo for AFTER.
+The source-bound recollection corrects cwd-only helper omissions: Alpha before
+Sol totals 144,291 calls, 23,773,405,568 cache-read tokens and recorded list
+USD 3,857.1394988 across 336 merges (429.4375 observed local calls/PR).
+Three ephemeral Beta reviewer roots disappeared before AFTER opened; original
+inventories and omission diagnosis are retained. Results use explicitly labelled
+remaining-source scope, never silently claim full original replay or bot coverage.
 
 [Procedure, source inventory, field contract and results](metrics.md).
 TASK-18 remains **open**, waiting for the after window; no causal claim or
