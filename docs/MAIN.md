@@ -121,6 +121,34 @@ a live builder. No third lane or stash. At most two active builders.
 fleet --config ~/.config/fleet/fleet.yml launch TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2
 fleet --config ~/.config/fleet/fleet.yml restart TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2 --finished-ref TASK-OLD
 ```
+For an **unfinished session of the same task**, use Main-only `relaunch`, not
+`restart` with an unrelated `--finished-ref`. If the turn is running, first stop
+it through the sanctioned command, then wait for its positively idle, empty
+composer:
+
+```sh
+fleet --config ~/.config/fleet/fleet.yml thread stop TASK-N --reason "replace unfinished session"
+fleet --config ~/.config/fleet/fleet.yml relaunch TASK-N --slot /path/to/configured/lane --reason "why this session is being replaced"
+```
+
+Relaunch keeps the current task branch and committed/unpushed WIP. It requires
+the slot's exact current ref and either a final assistant stop or a completed
+`thread stop` journal matching the now-idle session/process. It never interrupts
+or bypasses foreground/session/identity proof. No merged PR or handoff is needed:
+Main's nonempty reason authorizes replacement, recorded on Pad before exit and
+in the retirement receipt with old launch/session/model/thinking, new project
+default model/thinking/source, branch and time. The old attempt settles after
+verified retirement. This path does not mark the Pad task done.
+
+Tracked/staged changes refuse before retirement and list their paths.
+`--keep-uncommitted` explicitly preserves them and identifies that previous-session
+WIP in the fresh builder prompt; untracked user files remain listed and untouched.
+Preflight runs before exit; the slot lease spans retirement and launch.
+After partial failure, inspect retirement and launch-preparation receipts and
+the explicit recovery line; never repeat retirement or blindly launch. If
+tracked WIP was preserved, normal `launch` still refuses dirt: coordinate recovery
+without discarding or stashing it. Per-launch model flags await TASK-121.
+
 
 On withheld/error: inspect reasons, state and `~/.local/state/fleet/cswenor--fleet/last-launch.json`.
 A saved receipt after partial failure forbids blind relaunch. Verify actual new
