@@ -108,7 +108,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Self-host/handover | Delivered and installed 2026-11-06 | [#12](https://github.com/cswenor/fleet/pull/12) setup + fail-closed unknown/disconnected occupancy; [#13](https://github.com/cswenor/fleet/pull/13) complete knowledge. Fresh independent unadvised read-only Sol review PASS, CI [42240339663](https://github.com/cswenor/fleet/actions/runs/42240339663) / [42240526182](https://github.com/cswenor/fleet/actions/runs/42240526182) green. Fleet PLAN-9/DOC-19, two reusable slots and own active supervisor; real CLI status/live-slot refusal and the central host **both projects LIVE** verified. Run run_ca3dd4d80c5a reserved; **Main not started by builder**. Installation receipt in docs/MAIN.md. |
 | 3 generic process + Project Alpha process | Partial | TASK-14 generic policy and TASK-15 threads implemented; publication receipts on assigned Pad tasks. TASK-16 Project Alpha coordination remains. |
 | 4 additional projects | Project Beta accepted; further rollout owner-gated | TASK-17 receipts below: merged project policy, real launch/thread/event/retirement and three-project the central host proof. Other candidates remain unapproved. |
-| Usage outcome | Baseline recorded; after measurement open | Fleet TASK-18. Do not label the workflow a measured saving yet. |
+| Usage outcome | Legacy baseline rejected; same-procedure before/checkpoint collection, after window Nov 13–20 | Fleet TASK-18. Do not label the workflow a measured saving. |
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
@@ -2908,36 +2908,29 @@ Email Main had started at 22:05Z; no installer terminal input was sent after tha
 
 ### TASK-18 — Success metric: Codex usage per merged PR
 
-Baseline: seven days ending **2026-11-06**, owner-provided figures.
-**Baseline source: owner-provided, unverified**; exact UTC boundaries and source
-class remain unknown.
+The legacy 137,049-call / 22.4B-cache-read / approximately $3,600 figures have
+unknown provenance. The owner did not recognise them; Main's 2026-11-07 ruling
+supersedes their designation as a baseline. The estimated 182 PRs are not a
+denominator. **No measured savings.**
 
-| Metric | Baseline |
-|---|---:|
-| Sol calls | 137,049 |
-| Cache-read tokens | 22.4 billion |
-| Context per call (approx.) | 160K |
-| List-equivalent cost (approx.) | $3,600 |
-| Project Alpha PRs merged/day (approx.) | 26 |
-| Implied 7-day PR count (estimate, not measured denominator) | 182 |
+Main's TASK-18 brief and ruling `msg_451dea46f55b` authorize one read-only JSONL
+tally for BOTH windows: stock omp 18.18.6 has no additional stats-root option,
+and the stock index omits dedicated Fleet/Main/reviewer session directories.
+`python -m fleet.metrics` unions source logs, includes internal model-usage
+events, attributes by session cwd and queries exact GitHub merge timestamps.
+No shared runtime/configuration or other project's state is changed.
 
-After: collect a comparable full seven-day window, exact merged-PR denominator,
-calls/merged PR, cache-read tokens/merged PR and list-cost/merged PR. Preserve
-aggregate source provenance and date boundaries, distinguish provider/account
-changes and workload differences; report before/after measurable reduction or
-lack of one. No secrets/account IDs. Do not infer causal savings from an
-incomparable interval or treat ~182 as an exact baseline PR count.
+Before: Oct 30–Nov 6 UTC for Project Alpha, Project Beta and Fleet; Nov 3–10 UTC
+for Project Gamma, using adoption-date midnight cutoffs. After: exactly
+**Nov 13–20 UTC**, collected on/after 2026-11-20T00:00:00Z.
+Project Beta's pre-adoption Mac sessions are unavailable; Project Gamma has no
+local pre-adoption sessions, and Fleet has no established pre-Fleet baseline.
+Publish observed local totals but **N/A per-PR rates wherever matching coverage
+is absent/unproven**, never zero usage inferred from missing sources.
 
-Preparation (2026-11-07): [reproducible procedure and exercised dry run](metrics.md).
-Main approved docs-only incomplete-source scope in `msg_560fc2bfe0d0`; no custom
-ingestion. The stock omp 18.17.0 local stats index omits Fleet's dedicated
-`--session-dir` logs. The short-window result is explicitly **LOCAL INDEX /
-INCOMPLETE / NOT COMPARABLE**, not a savings measurement. Exact GitHub merge
-counts are collected separately for Project Alpha, Fleet and Project Beta.
-
-TASK-18 stays **open**. Before the Nov 13 measurement checkpoint, Main must
-resolve the intended exact after-window dates, baseline provenance (owner
-question: provider dashboard or auth-broker history?), and complete matching
-source coverage. Follow-up decision: stock extra-session-root indexing if
-available, otherwise a separate small ingestion task. No per-PR baseline rate
-or measured change is valid until those gates pass; ~182 remains an estimate.
+[Procedure, source inventory, field contract and results](metrics.md).
+TASK-18 remains **open**, waiting for the after window; no causal claim or
+measured reduction is valid without matching source coverage. Custom temporary
+reviewer/bot logs, other hosts/clients, workload, model mix, PR size and idle
+days remain explicit confounders. The same exact rerun procedure and private
+source bindings must be retained on Pad before retiring this builder.

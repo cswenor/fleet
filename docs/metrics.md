@@ -1,228 +1,260 @@
-# TASK-18: usage measurement procedure
+# TASK-18: local usage measurement
 
-Status: preparation only. **No measured savings.** TASK-18 remains open.
-Main approved this docs-only, incomplete-source preparation in `msg_560fc2bfe0d0`;
-custom-session ingestion is not authorized in this PR.
+**No measured savings.** The historical 137,049-call / 22.4B-cache-read /
+approximately $3,600 figures have unknown provenance. The owner did not recognise
+them; Main's 2026-11-07 ruling supersedes their designation as a baseline.
+Never divide them by the estimated 182 PRs.
 
-## Sources and coverage gate
+## Approved windows
 
-Baseline source: **owner-provided, unverified**. The [roadmap baseline](ROADMAP.md#task-18--success-metric-codex-usage-per-merged-pr)
-reports seven days ending 2026-11-06, but its exact UTC boundaries, source class,
-host/client coverage, error counting and price basis are unknown. Its ~182 PRs
-are an estimate, not an exact denominator. Do not derive a baseline per-PR rate
-or percentage change from that estimate.
+UTC half-open intervals include START and exclude END. Main approved adoption-day
+midnight cutoffs in `msg_451dea46f55b`; first retained launch artifacts establish
+adoption dates, not proof that every delivery used Fleet.
 
-Observed stock tools: omp 18.17.0 and gh 2.97.0, checked 2026-11-07:
+| Project | Before START | Before END (exclusive) | Adoption evidence / coverage limitation |
+|---|---|---|---|
+| Project Alpha | 2026-10-30T00:00:00Z | 2026-11-06T00:00:00Z | Fleet adoption on Nov 6; substantial local pre-adoption sessions exist; other clients/hosts unverified |
+| Project Beta | 2026-10-30T00:00:00Z | 2026-11-06T00:00:00Z | Nov 6 migration/adoption; pre-adoption Mac sessions unavailable on this host |
+| Project Gamma | 2026-11-03T00:00:00Z | 2026-11-10T00:00:00Z | Local checkout/Main/builders began Nov 10; pre-adoption source unavailable |
+| Fleet | 2026-10-30T00:00:00Z | 2026-11-06T00:00:00Z | Project began Nov 6; no established pre-Fleet delivery baseline |
 
-- `omp stats --json`: syncs local session files into `~/.omp/stats.db`, then
-  returns aggregate statistics. The observed default output spans approximately
-  the latest day, not an arbitrary exact seven-day interval. Use the indexed
-  `messages` table below for exact millisecond boundaries, not hourly rollups.
-- `omp stats --help`: only JSON/summary and dashboard host/port flags; no
-  session-directory or date-range option. `omp config list` exposes
-  `session.worktreeScope` but no stats sessions-root setting. Do not change
-  configuration or relocate live sessions to make this measurement work.
-- **Known hole:** the local index does not include Fleet `--session-dir`
-  launch logs under `~/.local/state/fleet/*/sessions-*/`. After sync, zero
-  `messages.session_file` rows referenced that Fleet state root; the latest
-  indexed Fleet-folder message was 2026-11-06T19:58:49Z despite later launches.
-  Dedicated Main/reviewer dirs and other hosts/clients also require inventory.
-  Local-index totals are not account-wide provider usage.
-- `omp usage --help`: live limits, hourly limit history (`--history --days N`)
-  and client burn (`clients --days N`) are different surfaces, with no exact UTC
-  range flag shown. Limits are not call/cache-read/list-cost totals. Do not run
-  `accounts`, print raw usage JSON, or assume `--redact` removes identifiers:
-  help describes shortened unique prefixes, not identity-free output.
-- Candidate account-wide sources: provider usage dashboard exports and
-  auth-broker history. **Owner question:** which source produced the baseline,
-  and can it export these exact interval/model fields without identities?
-  Neither candidate has been established as a comparable aggregate source here.
+For **all four projects**, AFTER is exactly
+`[2026-11-13T00:00:00Z, 2026-11-20T00:00:00Z)`.
+Collect only on/after Nov 20 00:00Z. A day-zero checkpoint is not this after
+measurement. TASK-18 stays open until the after window closes and comparable
+coverage is established, or limitations are explicitly reported.
 
-**Before a comparable result:** Main must resolve either a stock option to index
-extra session dirs or a separate small ingestion task, and obtain baseline
-source provenance from the owner. Ingestion alone cannot make a local index
-comparable to an unknown account-wide baseline. Inventory every host/client and
-session root; establish coverage, duplicates and omitted internal retries.
-Changing provider/account mix must be reported without publishing identities.
-Missing data is unknown, never zero. Database minimum/maximum timestamps do not
-prove completeness.
+## Stock capability and source inventory
 
-## Exact interval and field contract
+Checked omp **18.18.6**: `omp stats --help` exposes only JSON/summary and dashboard
+host/port flags. `omp config list` exposes no extra stats session-root setting.
+`--session-dir` selects a launch's storage, not additional stats input. Do not
+change profiles, move live logs, insert symlinks or mutate the stock database to
+simulate complete ingestion.
 
-Use UTC half-open intervals `[START, END)`: include START, exclude END. Require
-explicit `Z` and use seven complete days (604800 seconds) for the final comparison.
-The baseline's phrase “ending 2026-11-06” does not establish either endpoint.
-The Nov 13 checkpoint must resolve the intended after interval with Main; do not
-quietly choose whether Nov 13 is the start or collection date. The example below
-is a **candidate diagnostic** ending Nov 13, not an approved comparable window.
-If the after window starts Nov 13, use Nov 13–20 and collect only after Nov 20.
-Never include a running partial day or convert local calendar days across DST.
+The observed stock `~/.omp/stats.db` contained 608,771 messages from 6,930 source
+files, all under the default session tree, through Nov 6 23:58:07Z. Dedicated
+Fleet builder, Main and reviewer logs were absent. Database extrema are not
+completeness evidence. The new read-only `python -m fleet.metrics` walks original
+JSONL sources directly; an optional `--index` adds every source file referenced
+by the stock database, **not** its aggregate rows.
 
-- Sol calls = indexed assistant-message rows with `model = gpt-6.1-sol`, grouped
-  by provider. Includes recorded error rows; not necessarily every HTTP attempt
-  or broker retry. The index deduplicates `(session_file, entry_id)`, not copies
-  under different paths. Do not combine copied databases by summing them.
-- Cache-read = sum of `cache_read_tokens`; uncached input = `input_tokens`;
-  output = `output_tokens`; cache-write = `cache_write_tokens`.
-- Context/call proxy = `(input + cache_read + cache_write) / calls`. Report
-  cache-read/call separately; neither is the configured context-window size.
-- List-equivalent USD = sum of recorded `cost_total`, with components and
-  `cost_unpriced` count retained. It is an estimate recorded by omp, not billed
-  subscription spend. Unpriced rows make the cost incomplete. Preserve model,
-  provider, tool version and price basis; baseline prices are unverified.
-- Exact merged PRs = unique GitHub PR numbers whose `mergedAt` falls in the same
-  interval, separately for `example-org/project-alpha`, `cswenor/fleet` and
-  `example-org/project-beta`. Count every merge, including docs/reverts, unless both
-  windows use a separately documented identical exclusion policy.
-- Per-PR rates require **matching coverage**: calls / merged PRs, cache-read /
-  merged PRs, list-cost / merged PRs. Zero denominator yields N/A, not zero or
-  infinity. Do not divide all-client usage by Project Alpha-only merges. Establish
-  repo attribution before reporting repo-specific usage rates.
-- Once both windows pass coverage/provenance gates, measured change is
-  `100 * (after_rate / before_rate - 1)`; a zero/unknown baseline yields N/A.
-  Report workload, PR size/scope, rollout timing, review overhead and provider
-  mix differences. Even comparable arithmetic does not establish causality.
+Inventory these source classes before every collection:
 
-## Reproduce the local-index diagnostic
+- Active profile default session tree, including nested subagent transcripts.
+- Every project's Fleet state tree: `sessions-*`, `main-sessions-*`, recovery
+  sessions and their nested subagents. Include renamed-state compatibility paths
+  only once (resolved file paths deduplicate aliases).
+- Custom Main/reviewer/evaluation roots, including temporary directories. On the
+  measurement host these include both `/tmp` and `/var/tmp`. Files can disappear
+  on cleanup/reboot; absence is not zero usage.
+- Other hosts, clients, bot containers and custom profile roots. These are **not
+  automatically discovered** by this tool. Record missing sources explicitly.
+  No provider/account-wide or billed-spend coverage is claimed.
 
-Prerequisites: Python >=3.11, authenticated read-only `gh` access to all three
-repos, the same local omp profile/home, and a completed interval. No resets,
-provider requests, credential exports or service changes. `omp stats` writes its
-own derived index during synchronization; the measurement opens SQLite read-only.
+Use header `cwd`, not a directory name or message text, to attribute sessions.
+Provide every stable checkout, lane and scratch prefix; the longest matching
+path-component prefix wins. Repository renames need both old/new local aliases.
+Unmapped calls are counted separately, never silently assigned to a project.
+Keep host paths, real project bindings and raw source evidence private.
 
-Run `omp stats --help`, `omp usage --help` and inspect only relevant keys from
-`omp config list` when upgrading. Run this single shell block from the checkout;
-replace only START/END. It prints allowlisted aggregates, never session paths,
-prompts, errors, tokens used for authentication, or provider/account identities.
-Do not publish raw `omp stats --json`, database dumps or subprocess stderr.
+Fleet's current GitHub repository was created on 2026-11-12T11:55:59Z after
+repository recreation. It returns zero merges for earlier windows; this is
+**missing historical denominator coverage**, not proof of zero delivery.
+Imported Git history does not reconstruct GitHub `mergedAt` events. No per-PR
+baseline for Fleet is claimed.
+
+
+## Tally contract
+
+- Read-only UTF-8 `.jsonl` and `.jsonl.gz`; optional leading stock `title` records
+  precede the `session` header. Non-session files in mixed scratch trees are
+  counted and skipped. Invalid records inside a session refuse the measurement;
+  no partial aggregate is emitted on a parse/GitHub error.
+- Calls are recorded assistant `message` events and internal `model_usage` events
+  (for example title generation), reported separately by event type, provider and
+  model. Sum both event types for total recorded model calls. Recorded error
+  calls count; internal HTTP retries with no usage event remain unobservable.
+- Union copied logs by `(session id, event id)`; divergent copies refuse. Forks
+  can receive a new session ID while retaining original entries. Exact inherited
+  event ID/timestamp/model/provider/usage fingerprints count once globally;
+  cross-project attribution conflicts refuse rather than guessing an owner.
+- Input, output, cache-read and cache-write are the four recorded token counters.
+  Missing usage has an explicit counter, not fabricated zeros. Missing cost is
+  counted as unpriced. List-equivalent USD sums recorded `usage.cost.total` only:
+  no repricing, subscription-spend or invoice claim. Historical omp/catalog and
+  service-tier differences can change this estimate.
+- GitHub GraphQL paginates **repository** merged PRs, then filters exact
+  `mergedAt` endpoints. There is no search-result cap. Count every merge,
+  including docs/reverts, once by PR number. Stop only when there are no more
+  pages or descending `updatedAt` is older than START (`mergedAt <= updatedAt`).
+  Concurrent updates can move pagination boundaries: retain collection time and
+  investigate differing counts on a later rerun.
+- Per-PR rates default to **null/N/A**. `--complete-project NAME` is an explicit
+  operator assertion of independently verified matching source coverage; never
+  pass it merely because the tally succeeded. Missing usage suppresses rates;
+  unpriced calls suppress cost/PR. Missing/zero PR denominator gives N/A.
+- Once BOTH windows have matching complete scope, calculate
+  `100 * (after_per_pr / before_per_pr - 1)`; unknown/zero before rate gives N/A.
+  Recorded totals from an incomplete source remain useful lower bounds, not a
+  comparable baseline or proof of savings.
+
+## Reproduce
+
+Python >=3.11; read-only authenticated `gh` access for PR counts. No provider
+requests, reset spending, uploads, service changes or other-project writes.
+Run from the source checkout (no shared installation required):
 
 ```sh
-START=2026-11-06T22:00:00Z END=2026-11-06T23:00:00Z python3 - <<'PY'
-import datetime as dt
-import json
-import os
-from pathlib import Path
-import sqlite3
-import subprocess
-
-
-def run(args):
-    result = subprocess.run(args, capture_output=True, text=True)
-    if result.returncode:
-        raise SystemExit(f"{args[0]} failed; inspect privately, no partial result")
-    return result.stdout
-
-
-def utc(text):
-    if not text.endswith("Z"):
-        raise SystemExit("UTC Z endpoints required")
-    return dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
-
-
-start, end = os.environ["START"], os.environ["END"]
-a, b = utc(start), utc(end)
-if not a < b <= dt.datetime.now(dt.timezone.utc):
-    raise SystemExit("require a completed, increasing interval")
-versions = {name: run([name, "--version"]).splitlines()[0]
-            for name in ("omp", "gh")}
-run(["omp", "stats", "--json"])  # sync; do not publish raw folder aggregates
-with sqlite3.connect((Path.home() / ".omp/stats.db").as_uri() + "?mode=ro",
-                     uri=True) as db:
-    db.row_factory = sqlite3.Row
-    usage = [dict(row) for row in db.execute("""
-        SELECT provider, model, count(*) AS calls,
-               sum(CASE WHEN stop_reason='error' THEN 1 ELSE 0 END) AS errors,
-               sum(input_tokens) AS input, sum(output_tokens) AS output,
-               sum(cache_read_tokens) AS cache_read,
-               sum(cache_write_tokens) AS cache_write,
-               sum(cost_total) AS list_usd, sum(cost_unpriced) AS unpriced,
-               sum(cost_input) AS input_usd, sum(cost_output) AS output_usd,
-               sum(cost_cache_read) AS cache_read_usd,
-               sum(cost_cache_write) AS cache_write_usd,
-               min(timestamp) AS first_ms, max(timestamp) AS last_ms
-        FROM messages WHERE timestamp >= ? AND timestamp < ? AND model = ?
-        GROUP BY provider, model ORDER BY provider, model
-        """, (int(a.timestamp()*1000), int(b.timestamp()*1000), "gpt-6.1-sol"))]
-for row in usage:
-    row["context_per_call_proxy"] = (
-        row["input"] + row["cache_read"] + row["cache_write"]) / row["calls"]
-    row["cache_read_per_call"] = row["cache_read"] / row["calls"]
-
-query = """query($owner:String!,$name:String!,$endCursor:String) {
-  repository(owner:$owner,name:$name) {
-    pullRequests(first:100,after:$endCursor,states:MERGED,
-                 orderBy:{field:UPDATED_AT,direction:DESC}) {
-      nodes { number mergedAt updatedAt }
-      pageInfo { hasNextPage endCursor }
-    }
-  }
-}"""
-merges = {}
-for repo in ("example-org/project-alpha", "cswenor/fleet", "example-org/project-beta"):
-    owner, name = repo.split("/")
-    cursor, numbers = None, set()
-    while True:
-        args = ["gh", "api", "graphql", "-f", f"query={query}",
-                "-f", f"owner={owner}", "-f", f"name={name}"]
-        if cursor:
-            args += ["-f", f"endCursor={cursor}"]
-        payload = json.loads(run(args))
-        if payload.get("errors") or not payload.get("data", {}).get("repository"):
-            raise SystemExit("GitHub incomplete/error; no partial result")
-        page = payload["data"]["repository"]["pullRequests"]
-        nodes = page["nodes"]
-        numbers.update(n["number"] for n in nodes if a <= utc(n["mergedAt"]) < b)
-        # mergedAt <= updatedAt: older updates cannot contain an in-window merge.
-        if not page["pageInfo"]["hasNextPage"] or any(
-                utc(n["updatedAt"]) < a for n in nodes):
-            break
-        cursor = page["pageInfo"]["endCursor"]
-    merges[repo] = len(numbers)
-
-print(json.dumps({"status": "LOCAL INDEX / INCOMPLETE / NOT COMPARABLE",
-                  "start": start, "end_exclusive": end, "versions": versions,
-                  "collected_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                  "usage": usage, "merged_prs": merges}, indent=2))
-PY
+python3 -m fleet.metrics \
+  --root "$DEFAULT_SESSION_ROOT" \
+  --root "$FLEET_STATE_ROOT" \
+  --root "$CUSTOM_REVIEW_SESSION_ROOT" \
+  --root "$OTHER_CUSTOM_SESSION_ROOT" \
+  --index "$STOCK_STATS_DB" \
+  --project "project-alpha=$ALPHA_CHECKOUT" \
+  --project "project-alpha=$ALPHA_LANES" \
+  --project "project-beta=$BETA_CHECKOUT" \
+  --project "project-beta=$BETA_LANES" \
+  --project "project-gamma=$GAMMA_CHECKOUT" \
+  --project "project-gamma=$GAMMA_LANES" \
+  --project "fleet=$FLEET_CHECKOUT" \
+  --project "fleet=$FLEET_LANES" \
+  --repo "project-alpha=$ALPHA_REPO" \
+  --repo "project-beta=$BETA_REPO" \
+  --repo "project-gamma=$GAMMA_REPO" \
+  --repo fleet=cswenor/fleet \
+  --start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z
 ```
 
-For the Nov 13 **diagnostic checkpoint**, rerun that block with
-`START=2026-11-06T00:00:00Z END=2026-11-13T00:00:00Z` only after END; this does
-not bypass the unresolved after-window/source decisions. The GraphQL query
-paginates repository merges rather than GitHub search (no 1,000-result cap or
-search-index lag). Concurrent repository updates can move pagination boundaries;
-repeat after the window closes and investigate differing counts before acceptance.
+Fill private bindings from the source inventory; repeat `--project` for scratch
+and historical aliases, and `--root` for other approved source trees. Do not
+print environment values or publish a raw configuration. Run the same procedure
+with each BEFORE interval above. A completed increasing interval is mandatory;
+future endpoints refuse. A source root or indexed source file missing also
+refuses, rather than silently shrinking the measurement.
 
-Retain the aggregate JSON with collection time, exact UTC endpoints, source class,
-versions, model/provider grouping, included repo set, coverage exceptions and
-price basis on TASK-18. Keep any raw source evidence private; only aggregates
-belong in Git/Pad. Never include account IDs, even shortened ones.
+For a durable private inventory, `--manifest /private/task18-sources.json`
+replaces the repeated bindings. Its JSON shape is:
 
-## Exercised dry run — LOCAL INDEX / INCOMPLETE / NOT COMPARABLE
+```json
+{
+  "roots": ["/private/default-sessions", "/private/custom-session-dir"],
+  "index": "/private/stats.db",
+  "projects": {"project-alpha": ["/private/checkout", "/private/lanes"]},
+  "repos": {"project-alpha": "example-org/project-alpha"}
+}
+```
 
-Window: **2026-11-06T22:00:00Z <= timestamp < 2026-11-06T23:00:00Z**.
-Local default-session index, Sol / openai-codex only; collection 2026-11-07.
-No repo attribution or complete-account-burn claim. Dedicated launch sessions
-are absent. These numbers are procedure proof, not an after measurement.
+Then run `python3 -m fleet.metrics --manifest /private/task18-sources.json
+--start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z`.
+Inventory actual custom session directories, not arbitrary scratch trees
+containing deliberately invalid test fixtures. Standard runtime filenames have
+a timestamp and UUID; include their sibling nested-subagent directory as well.
+Refresh the private inventory for new launches/reviewers before the after run;
+retain the original inventory to explain coverage changes. Never publish it.
 
-| Indexed usage metric | Observed |
-|---|---:|
-| Calls (including 1 recorded error) | 165 |
-| Uncached input tokens | 320,873 |
-| Cache-read tokens | 21,598,976 |
-| Output tokens | 99,409 |
-| Cache-write tokens | 0 |
-| Context/call proxy | 132,847.57 |
-| Cache-read/call | 130,902.88 |
-| Recorded list-equivalent USD | 3.7957336 |
-| Unpriced rows | 0 |
 
-| Repository | Exact merged PRs |
-|---|---:|
-| example-org/project-alpha | 3 |
-| cswenor/fleet | 7 |
-| example-org/project-beta | 0 |
+Retain numeric JSON, tool/head versions, exact UTC endpoints, source-root classes,
+private binding manifest, collection time, coverage exceptions and GitHub counts
+on TASK-18. Only identity-free aggregates belong in Git/Pad; no prompts, content,
+credentials, raw errors or provider/account identities (even shortened).
 
-GitHub GraphQL returned one page per repo; bounded search independently returned
-the same counts. Per-PR usage and baseline change: **N/A**, because source
-coverage and baseline provenance are unresolved. No reduction/increase claimed.
+## Interpretation
+
+Model/provider mix, PR size, scope, docs-only/revert share, reviewer/bot usage,
+idle days, migration, custom-profile retention and ephemeral reviewer directories
+confound comparisons. A project with no pre-adoption sources has **no measured
+baseline**, even if GitHub reports merges. Repo-attributed local usage must never
+be divided by a different project's merges or account-wide merges. The tool's
+runtime-version list records observed in-window events, not version coverage of
+all clients. Arithmetic alone never establishes causality.
+
+## Before result — observed local sources, not a complete baseline
+
+Collected 2026-11-12T23:17:10Z for Oct 30–Nov 6; Gamma's Nov 3–10 run
+collected at 23:19:24Z. Source inventory: 11,262/11,263 files respectively,
+11,256/11,257 distinct session IDs; two non-session files skipped. No divergent
+copies or missing usage found. Zero duplicate events in these windows.
+The one additional inventory file appeared during collection, outside the
+completed windows. Recorded runtime versions: 18.13.1 for Oct 30–Nov 6;
+18.13.1/18.17.0/18.18.1 for the wider Gamma diagnostic.
+
+| Project / approved before interval | Current-repo merged PRs | Observed usage / per-PR coverage |
+|---|---:|---|
+| Alpha / Oct 30–Nov 6 | 336 | Model totals below; per-PR N/A: complete client coverage unproven |
+| Beta / Oct 30–Nov 6 | 157 | No local events; per-PR N/A: Mac usage unavailable |
+| Gamma / Nov 3–10 | 0 | No local events; per-PR N/A: no pre-adoption source |
+| Fleet / Oct 30–Nov 6 | 0 | No local events; per-PR N/A: no baseline, historical merge events unavailable |
+
+**No local events never means zero actual usage.** No BEFORE per-PR rate or
+percentage change is accepted.
+The Oct 30–Nov 6 run also observed 27,236 unattributed calls outside the supplied
+project prefixes; they are excluded, not silently assigned to Alpha.
+
+Alpha's complete *observed* model breakdown below sums assistant and internal
+events. All recorded cost rows were priced; 109 Sol error calls are included.
+
+| Provider / model | Calls | Input | Output | Cache-read | Cache-write | Recorded list USD |
+|---|---:|---:|---:|---:|---:|---:|
+| anthropic / claude-opus-5-5 | 9,985 | 26,472 | 4,791,283 | 4,489,974,949 | 22,470,799 | 1,173.6929298 |
+| anthropic / claude-sonnet-5-5 | 29,045 | 5,366,832 | 19,002,054 | 2,480,010,360 | 96,559,917 | 834.994908 |
+| openai-codex / gpt-6.1-sol | 120,120 | 269,128,224 | 81,172,844 | 22,552,713,344 | 0 | 3,605.2562224 |
+
+## Day-zero checkpoint — six completed days, NOT AFTER
+
+Main corrected the cutoff in `msg_b95c9f064f00`: use the completed
+`[2026-11-06T00:00:00Z, 2026-11-12T00:00:00Z)` checkpoint, not a future midnight.
+Collected **2026-11-12T23:19:34Z**, before the after window opened.
+Source inventory: 11,263 files, 11,257 session IDs; 33 copied/inherited usage
+events deduplicated, two non-session files skipped, 130 unattributed calls,
+zero missing-usage events and zero unpriced recorded calls. Runtime events
+reported 18.13.1, 18.17.0, 18.18.1 and 18.18.6.
+
+| Project | Exact current-repo merged PRs in checkpoint | Per-PR rates |
+|---|---:|---|
+| Alpha | 183 | N/A: full client/bot coverage unproven |
+| Beta | 198 | N/A: full client/bot coverage unproven |
+| Gamma | 66 | N/A: full client/bot coverage unproven |
+| Fleet | 0 | N/A: pre-recreation GitHub merge history absent |
+
+Observed provider/model totals (assistant + internal events), list USD rounded
+to six decimals for display; the numeric JSON retains recorded precision:
+
+| Project / provider / model | Calls | Input | Output | Cache-read | Cache-write | Recorded list USD |
+|---|---:|---:|---:|---:|---:|---:|
+| Fleet / anthropic / claude-opus-5-5 | 4,389 | 11,550 | 1,834,637 | 1,968,743,127 | 4,714,939 | 468.207077 |
+| Fleet / anthropic / claude-sonnet-5-5 | 1,659 | 1,229,757 | 115,833 | 1,208,863 | 90,328 | 4.100042 |
+| Fleet / openai-codex / gpt-6.1-sol | 10,398 | 24,361,092 | 2,926,154 | 947,870,464 | 0 | 172.770770 |
+| Alpha / anthropic / claude-fable-5-2 | 1,780 | 5,179 | 1,681,925 | 759,217,749 | 4,663,779 | 549.255647 |
+| Alpha / anthropic / claude-opus-5-5 | 9,331 | 22,040 | 4,462,494 | 3,730,948,305 | 30,821,299 | 1,082.098093 |
+| Alpha / anthropic / claude-sonnet-5-5 | 22,506 | 9,555,789 | 8,371,422 | 829,477,747 | 44,212,607 | 362.624001 |
+| Alpha / openai-codex / gpt-5.6-luna | 47 | 73,214 | 9,963 | 64,896 | 0 | 0.027896 |
+| Alpha / openai-codex / gpt-6.1-sol | 129,206 | 250,052,750 | 60,359,707 | 13,421,694,208 | 0 | 2,445.871991 |
+| Beta / anthropic / claude-fable-5-2 | 97 | 198 | 263,654 | 26,346,682 | 808,809 | 28.758024 |
+| Beta / anthropic / claude-opus-5-5 | 9,271 | 24,666 | 5,684,875 | 3,142,531,999 | 14,459,833 | 857.981228 |
+| Beta / anthropic / claude-sonnet-5-5 | 6,306 | 4,051,812 | 951,368 | 19,806,819 | 1,481,025 | 25.522086 |
+| Beta / openai-codex / gpt-6.1-sol | 30,776 | 52,623,648 | 8,994,010 | 2,986,253,312 | 0 | 493.812727 |
+| Gamma / anthropic / claude-fable-5-2 | 6,314 | 454,303 | 5,371,121 | 745,307,800 | 20,447,650 | 694.703224 |
+| Gamma / anthropic / claude-opus-5-5 | 2,185 | 291,603 | 1,114,460 | 688,741,961 | 3,426,472 | 188.615780 |
+| Gamma / openai-codex / gpt-6.1-sol | 7,526 | 19,080,882 | 2,035,129 | 589,882,112 | 0 | 117.501265 |
+
+This six-day checkpoint is deliberately not compared to a seven-day before
+window. **After totals, after per-PR rates and measured change are not available
+until the Nov 13–20 interval has completed; no savings claim.**
+
+## Nov 20 handoff
+
+Run on/after **2026-11-20T00:00:00Z**, from the published source checkout:
+
+```sh
+python3 -m fleet.metrics --manifest /private/task18-sources.json \
+  --start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z
+```
+
+TASK-18's private Pad handoff binds the actual mode-0600 manifest path. Refresh
+custom session roots and cwd aliases first; retain old roots and investigate any
+that disappeared rather than dropping them silently. Include bot-container and
+other-host sources only through an approved read-only inventory. Missing
+historical sources cannot be repaired by inventing totals or reconstructing
+`mergedAt` from Git commit times. Keep rates/change N/A until coverage is proven.
