@@ -213,6 +213,153 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(self.c['builder']['resolved_model'], 'provider/model')
         self.assertFalse(state.read(self.c, 'retirements', {}))
 
+    def test_relaunch_selection_preserves_old_identity_and_project_defaults(self):
+        self.relaunch_repo()
+        self.c['builder']['allowed_models'] = {'other/model': ['high']}
+        self.c['builder']['plan_models'] = {'PLAN-1': {'model': 'other/model', 'thinking': 'high'}}
+        before = copy.deepcopy(self.c)
+        result = self.run_relaunch(model='provider/new-model', thinking='medium')
+        evidence = result['retirement']['relaunch']
+        self.assertEqual(evidence['old_model'], 'provider/old-model')
+        self.assertEqual(evidence['old_thinking'], 'high')
+        self.assertEqual(evidence['new_model'], 'provider/new-model')
+        self.assertEqual(evidence['new_thinking'], 'medium')
+        self.assertEqual(evidence['new_model_source'], 'override')
+        self.assertEqual(evidence['plan_ref'], 'PLAN-1')
+        self.assertEqual(self.c, before)
+
+    def test_relaunch_mapped_quota_refuses_before_retirement(self):
+        self.relaunch_repo()
+        self.c['builder']['allowed_models'] = {'other/model': ['high']}
+        self.c['builder']['plan_models'] = {'PLAN-1': {'model': 'other/model', 'thinking': 'high'}}
+        def admission(config):
+            return {'errors': [], 'inventory': copy.deepcopy(self.inventory),
+                    'quota': {'may_start': config['quota']['provider'] != 'other',
+                              'reason': 'selected pool exhausted'}, 'disk': {'low': False}}
+        with patch.object(restart.snapshot, 'collect', side_effect=admission):
+            with self.assertRaisesRegex(ValueError, 'selected pool exhausted'):
+                self.run_relaunch()
+        self.assertEqual(self.sent, [])
+        self.assertFalse(state.read(self.c, 'retirements', {}))
+
+    def test_relaunch_invalid_override_leaves_old_session_untouched(self):
+        self.relaunch_repo()
+        for pair in ({'model': 'other/model'}, {'thinking': 'high'},
+                     {'model': 'other/model', 'thinking': 'high'}):
+            with self.subTest(pair=pair), self.assertRaises(ValueError):
+                self.run_relaunch(**pair)
+        self.assertEqual(self.sent, [])
+        self.assertFalse(state.read(self.c, 'retirements', {}))
+    def relaunch_repo(self):
+        def git(*args):
+            return subprocess.run(['git', *args], cwd=self.slot, check=True,
+                                  capture_output=True).stdout
+        git('init')
+        git('config', 'user.name', 'Test')
+        git('config', 'user.email', 'test@example.invalid')
+        git('add', 'RULES.md')
+        git('commit', '-m', 'base')
+        git('switch', '-c', 'task-1-wip')
+        self.c['builder']['resolved_model'] = 'provider/new-model'
+        self.events[1:1] = [
+            {'type': 'model_change', 'model': 'provider/old-model'},
+            {'type': 'thinking_level_change', 'thinkingLevel': 'high'}]
+        self.write_log()
+        return git
+
+    def run_relaunch(self, **kwargs):
+        with patch.object(restart.steering, '_main', return_value='main'), \
+                patch.object(restart.threads, 'pad') as pad, \
+                patch.object(restart.launcher, '_prepare_branch', wraps=self.prepare_branch):
+            result = restart.relaunch(self.c, 'TASK-1', self.slot, 'replace unfinished session', **kwargs)
+            self.assertIn('replace unfinished session', pad.call_args.args[2])
+            return result
+
+    def test_relaunch_idle_requires_no_publication_and_records_identity(self):
+        git = self.relaunch_repo()
+        self.prs = []
+        result = self.run_relaunch()
+        evidence = result['retirement']['relaunch']
+        self.assertEqual(evidence['old_launch_id'], 'old')
+        self.assertEqual(evidence['old_session_id'], 'session')
+        self.assertEqual(evidence['old_model'], 'provider/old-model')
+        self.assertEqual(evidence['old_thinking'], 'high')
+        self.assertEqual(evidence['new_model'], 'provider/new-model')
+        self.assertEqual(git('branch', '--show-current').strip(), b'task-1-wip')
+        self.assertEqual(result['retirement']['stage'], 'launched')
+
+    def test_relaunch_running_refuses_with_stop_hint_without_input(self):
+        self.relaunch_repo()
+        self.agent['state'] = 'working'
+        with self.assertRaisesRegex(ValueError, 'run `fleet thread stop TASK-1` first'):
+            self.run_relaunch()
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
+
+    def test_relaunch_tracked_and_staged_work_requires_explicit_preservation(self):
+        git = self.relaunch_repo()
+        rules = Path(self.slot) / 'RULES.md'
+        rules.write_text('staged work')
+        git('add', 'RULES.md')
+        rules.write_text('unstaged work')
+        before_index = git('show', ':RULES.md')
+        with self.assertRaisesRegex(ValueError, 'RULES.md.*--keep-uncommitted'):
+            self.run_relaunch()
+        self.assertEqual(self.sent, [])
+        result = self.run_relaunch(keep_uncommitted=True)
+        self.assertEqual(result['retirement']['relaunch']['tracked_files'], ['RULES.md'])
+        self.assertEqual(rules.read_text(), 'unstaged work')
+        self.assertEqual(git('show', ':RULES.md'), before_index)
+
+    def test_relaunch_stopped_session_requires_matching_completed_stop_journal(self):
+        self.relaunch_repo()
+        process = restart._foreground(self.c, self.record, self.slot, 'target')
+        self.events[-1]['message']['stopReason'] = 'aborted'
+        self.write_log()
+        with self.assertRaisesRegex(ValueError, 'final assistant stop'):
+            self.run_relaunch()
+        state.write(self.c, 'stops', {'old': {'ref': 'TASK-1', 'token': 'stop'}})
+        name = restart.threads._name('TASK-1')
+        attempt = {'settled': False, 'steering': {'stop': {'steps': [
+            {'step': 'identity-proven', 'proof': {'session': 'wrong', 'process': process}},
+            {'step': 'submitted'}]}}}
+        state.write(self.c, name, {'TASK-1': {'attempts': {'old': attempt}}})
+        with self.assertRaisesRegex(ValueError, 'different session'):
+            self.run_relaunch()
+        attempt['steering']['stop']['steps'][0]['proof']['session'] = 'session'
+        state.write(self.c, name, {'TASK-1': {'attempts': {'old': attempt}}})
+        self.run_relaunch()
+        settled = state.read(self.c, name)['TASK-1']['attempts']['old']
+        self.assertTrue(settled['settled'])
+        self.assertEqual(settled['relaunch']['reason'], 'replace unfinished session')
+
+    def test_relaunch_wrong_ref_and_non_main_refuse_without_input(self):
+        self.relaunch_repo()
+        with patch.object(restart.steering, '_main', return_value='main'):
+            with self.assertRaisesRegex(ValueError, 'exact finished-task launch'):
+                restart.relaunch(self.c, 'TASK-2', self.slot, 'replace')
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'builder'}):
+            with self.assertRaisesRegex(ValueError, 'Main terminal identity'):
+                restart.relaunch(self.c, 'TASK-1', self.slot, 'replace')
+        self.assertEqual(self.sent, [])
+
+    def test_relaunch_pad_failure_keeps_old_session_alive(self):
+        self.relaunch_repo()
+        with patch.object(restart.steering, '_main', return_value='main'), \
+                patch.object(restart.threads, 'pad', side_effect=CommandError('Pad unavailable')):
+            with self.assertRaisesRegex(CommandError, 'Pad unavailable'):
+                restart.relaunch(self.c, 'TASK-1', self.slot, 'replace')
+        self.assertEqual(self.sent, [])
+        self.assertEqual(state.read(self.c, 'retirements', {}), {})
+    def test_relaunch_deleted_preserved_rules_refuses_before_retirement(self):
+        self.relaunch_repo()
+        (Path(self.slot) / 'RULES.md').unlink()
+        with self.assertRaisesRegex(ValueError, 'rules_file is absent in preserved worktree.*old session untouched'):
+            self.run_relaunch(keep_uncommitted=True)
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
+        self.assertEqual(state.read(self.c, 'retirements', {}), {})
+
     def test_tracked_work_refuses_before_exit(self):
         def git(*args):
             return subprocess.run(['git', *args], cwd=self.slot, check=True,

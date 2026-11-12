@@ -39,6 +39,14 @@ def main():
     p.add_argument('--finished-ref', required=True)
     p.add_argument('--model', help='one-shot next builder model; requires --thinking and an allowed pair')
     p.add_argument('--thinking', help='one-shot next builder thinking level; requires --model')
+    p = sub.add_parser('relaunch', help='Main replaces an idle unfinished session of the same task')
+    p.add_argument('ref')
+    p.add_argument('--slot', required=True)
+    p.add_argument('--reason', required=True)
+    p.add_argument('--keep-uncommitted', action='store_true',
+                   help='preserve tracked/staged WIP and identify it in the fresh builder prompt')
+    p.add_argument('--model', help='one-shot replacement builder model; requires --thinking and an allowed pair')
+    p.add_argument('--thinking', help='one-shot replacement builder thinking level; requires --model')
     p = sub.add_parser('reconcile', help='Main records positive exit evidence for an exact launch')
     p.add_argument('--slot', required=True)
     p.add_argument('--launch', required=True, dest='launch_id')
@@ -236,6 +244,12 @@ def main():
             from .restart import restart
             print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref,
                                      model=args.model, thinking=args.thinking), indent=2))
+            return 0
+        if args.command == 'relaunch':
+            from .restart import relaunch
+            print(json.dumps(relaunch(c, args.ref, args.slot, args.reason,
+                                      keep_uncommitted=args.keep_uncommitted,
+                                      model=args.model, thinking=args.thinking), indent=2))
             return 0
         if args.command == 'watch-pr':
             if args.timeout < 1 or args.interval < 1 or args.number < 1:

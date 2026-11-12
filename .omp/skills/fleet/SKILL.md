@@ -280,7 +280,7 @@ compaction and fail-closed reserve. `builder.plan_models` maps the nearest
 PLAN ancestor to `{model: provider/model, thinking: level}`; unmapped nearer
 plans use defaults, never outer mappings. `builder.allowed_models` maps resolved
 IDs to allowed thinking-level lists; the project default pair is implicitly
-allowed. `launch`/`restart --model ID --thinking LEVEL` requires both flags
+allowed. `launch`/`restart`/`relaunch --model ID --thinking LEVEL` requires both flags
 and an allowed pair, overrides the plan for this launch only, and never rewrites
 config. Main approves model/cost decisions; budget/reset approval stays owner-only.
 Quota follows the selected provider; receipts, prompt headers and FRESH-READY
