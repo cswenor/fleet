@@ -81,7 +81,8 @@ class RetirementTests(unittest.TestCase):
                         patch.object(restart, 'json_run', side_effect=self.pad),
                         patch.object(restart, 'gh', side_effect=lambda *a: self.search_page(self.prs)),
                         patch.object(restart.snapshot, 'collect', side_effect=lambda c: {
-                            'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True}, 'disk': {'low': False}}),
+                            'errors': [], 'inventory': copy.deepcopy(self.inventory), 'quota': {'may_start': True},
+                            'publication': {'verified': True}, 'disk': {'low': False}}),
                         patch.object(restart.dispatcher, 'pad', side_effect=self.dispatcher_pad),
                         patch.object(restart.dispatcher, 'run', return_value='task-1'),
                         patch.object(restart.launcher, '_prepare_branch', return_value='task-2'),
