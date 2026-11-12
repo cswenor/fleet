@@ -167,7 +167,9 @@ class SelectiveMergeGroupReadTests(unittest.TestCase):
         self.assertEqual(github.collect(self.c, 7), first)
         self.assertEqual(github.collect(self.c, 7), first)
         self.assertEqual(len(self.group_reads()), 1)
-        self.assertEqual(sum(args[1] == 'graphql' for args in self.calls), 2)
+        # Queue membership is observed each time, including the cold snapshot;
+        # merge-group history still stays cached for unchanged, nonqueued PRs.
+        self.assertEqual(sum(args[1] == 'graphql' for args in self.calls), 3)
 
     def test_changes_and_queue_entry_refresh_history(self):
         github.collect(self.c, 7)
@@ -224,8 +226,10 @@ class SelectiveMergeGroupReadTests(unittest.TestCase):
             return self.response(c, *args)
 
         with patch.object(github, 'gh', side_effect=unavailable):
-            with self.assertRaisesRegex(ValueError, 'queue query failed'):
-                github.collect(self.c, 7)
+            current = github.collect(self.c, 7)
+        self.assertTrue(current['prs'][0]['merge_queue_unknown'])
+        self.assertTrue(current['unavailable'])
+        self.assertEqual(len(self.group_reads()), 2)
 
     def test_unresolved_failure_is_retried_without_pr_changes(self):
         self.runs = [self.group_run(1) | {

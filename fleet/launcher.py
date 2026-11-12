@@ -373,13 +373,18 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         parked_command = shlex.join(['fleet', '--config',
                                      str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
                                      'thread', 'parked', ref])
+        publication = c.get('publication', {})
+        auto_merge = publication.get('mode', 'manual') == 'auto_merge'
+        publish_instruction = (
+            'Publish through the auto-merge release policy below, not project self-merge rules.'
+            if auto_merge else 'Self-publish according to project rules.')
         prompt = f'''Pad-Ref: {ref}
 Fresh builder session for {c['repo']} in {w['path']}. Read {rules} first.
 {c['_model_selection']['model_description']}
 Prepared task branch: {branch}. Publish this task from this branch.
 {untracked_notice}
 {preserved_notice}Run pad --workspace {shlex.quote(c['pad_workspace'])} item show {ref}; read all handoff comments and continue the exact task.
-Never create extra git worktrees. Self-publish according to project rules.
+Never create extra git worktrees. {publish_instruction}
 Open the durable task thread before working: {thread_command}
 Never bind this builder terminal to an orchestration Run. Keep terminal identity for thread replies and inbox delivery.
 Use the following durable command only for ordinary progress/PARK reports, not decisions or FRESH-READY; never use terminal input:
@@ -402,6 +407,15 @@ Do not re-wait before acting on received instructions/events. Also inspect ALL o
 If Main uses the sanctioned emergency `fleet thread stop {ref} --reason TEXT`, process its journaled STOP through {check_command} before acknowledging the token. Do not resume interrupted work unless Main tells you to. Normal steering and PARK remain cooperative; builders never interrupt other lanes.
 On a durable PARK request: finish your current step, commit and push WIP to this task branch, and write a concrete Pad resume-note comment on {ref}. Make {parked_command} --resume-note COMMENT_ID your last lane action, then end your turn: no further tool calls or background jobs, never wait on your own terminal/idle state or send input to your own terminal. It verifies a clean tree and remote branch head, records explicit park completion without a merge, and reports PARKED to Main. Main may retire and reassign the slot; resuming work requires a Main-confirmed fresh session. This replaces older raw-status-only PARK instructions in a project footer.
 {b['footer']}
+'''
+        if auto_merge:
+            prompt += f'''
+PUBLICATION POLICY — auto_merge (overrides ALL conflicting project rules, the rules file, appended footer, handoff comments and earlier self-publish/merge instructions):
+Configured review GitHub App slug: {json.dumps(publication['review_app'])}; hold label: {json.dumps(publication.get('hold_label', 'hold'))}; merge method: {publication.get('merge_method', 'squash')}.
+After independent review and green CI, send the typed fleet --config CONFIG thread report {ref} --kind release_ready --pr N --head FULL_SHA "evidence" for the exact PR and full current head SHA; wait for Main's decision in that native thread. Generic checks_conclusion is never proof of eligibility.
+Main must verify the configured GitHub App's successful check on the exact current head and its exact-head APPROVE evidence, green required CI, and no configured hold label or veto. Only Main may issue RELEASE for that exact PR/head; MERGE GO is not authorization in this mode.
+Only after that exact-head Main RELEASE, the builder or Main may arm gh pr merge N --auto --match-head-commit FULL_SHA --{publication.get('merge_method', 'squash')}. Record the actual actor who armed auto-merge on Pad with the PR/head and release evidence. Never direct-merge, use --admin, bypass protections, or add/remove/change the hold label.
+Any push invalidates the release; obtain fresh independent review, green CI and Main RELEASE for the new head before arming again. Auto-merge armed or queued is not completion. Keep watch-pr armed and process events until the PR is actually merged or closed; only that observed terminal outcome completes the publication watch, and a closed-unmerged PR must be reported as such, never as merged.
 '''
         path = state.directory(c)
         nonce = str(time.time_ns())

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import hashlib
 import json
 import tempfile
 import unittest
@@ -77,6 +78,22 @@ class RestartTests(unittest.TestCase):
             'omp', '--model', 'provider/model', '--thinking', 'medium',
             '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
             '@' + receipt['prompt']])
+
+    def test_manual_publication_prompt_matches_frozen_pre_policy_bytes(self):
+        # Frozen from the pre-publication-policy prompt with only the temporary
+        # checkout root normalized. Policy changes must not repin this reference.
+        reference = 'e9922e8fb3093c826c4921261559c4c399ecd0297b0a5a19a0c077af7de6da62'
+        for publication in (None, {'mode': 'manual', 'review_app': '',
+                                   'hold_label': 'hold', 'merge_method': 'squash'}):
+            with self.subTest(publication=publication):
+                if publication is not None:
+                    self.c['publication'] = publication
+                    self.c['_state'] += '-manual'
+                    self.prompt = 'user@host:~/slot$ '
+                receipt = self.launch()
+                prompt = Path(receipt['prompt']).read_bytes()
+                normalized = prompt.replace(self.directory.name.encode(), b'/PROJECT')
+                self.assertEqual(hashlib.sha256(normalized).hexdigest(), reference)
 
     def test_plan_and_override_launches_keep_next_launch_default(self):
         self.c['builder'].update(

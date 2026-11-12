@@ -401,6 +401,9 @@ def urgent_event(c, event):
 
 def _stuck_pr_paused(c, p):
     parked = c.get('github', {}).get('parked_labels', ['parked'])
+    publication = c.get('publication', {})
+    if publication.get('mode') == 'auto_merge':
+        parked = [*parked, publication.get('hold_label', 'hold')]
     return p.get('draft', False) or any(
         label.casefold() == configured.casefold()
         for label in p.get('labels', []) for configured in parked)

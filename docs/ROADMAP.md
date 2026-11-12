@@ -113,6 +113,54 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-128 — Per-project native auto-merge publication
+
+Main's task brief approves `publication.mode: manual | auto_merge`, with default
+manual preserving launch prompt bytes; `review_app` is an App slug, `hold_label`
+defaults to `hold`, and `merge_method` defaults to `squash` (merge/rebase supported).
+Auto mode forbids builder direct/admin merge and hold-label mutation. Independent
+review + required CI lead to an exact-head `release_ready` request. Main verifies
+the configured App's successful check and current-head APPROVE plus no hold/veto,
+then issues RELEASE, not MERGE GO. An authorized actor records itself before
+arming protected native auto-merge. A push invalidates release; queue/arming
+never count as completion.
+
+The candidate adds hold/draft, auto-merge and native queue evidence/events, review
+commit/App provenance and current-head matching. Generic check conclusions remain
+diagnostic, not eligibility. Auto-mode hold joins existing stuck-timer exclusions;
+removal restarts the full interval while real failures remain visible.
+Completion remains based on actual task-linked merged PRs, not the merging actor.
+
+Read-only Evermore PR2559 timeline confirms native queue entry, removal,
+re-entry and actual merge at 2026-11-12T15:14:01Z by its Builder App. Live reviews
+include two dismissed stale-head reviews and exact-head APPROVED
+`e12c4a75ca74d99dc27e4c2026c2fc7ee97b68ce`; REST reports App provenance via
+the Bot user and canonical GitHub App profile, not `performed_via_github_app`.
+At observation only draft PR2495/2477 remained open and neither was queued.
+Historical replay is not a claimed new live enqueue/merge drill. Private source
+captures are in `/tmp/fleet-task128-evidence/`.
+
+The public generic bot source publishes `codex-review` and the separate
+`merge-gate` commit status. Require live ruleset enforcement on PR/synthetic heads;
+review approval alone does not enforce hold. Bot installation/image rollout is
+separate from this policy change. Shared installation remains Main-owned and
+publication waits for independent final-head Sol-medium review, green CI and
+Main's exact-head GO.
+
+Verification: 358 focused config/launcher/GitHub/watcher/supervisor/completion
+tests passed; 46 event/watcher regressions passed after preserving semantic queue
+exit/disarming alongside terminal merge/close events. Frozen pre-change archive
+and candidate manual prompts share normalized SHA256
+`e9922e8fb3093c826c4921261559c4c399ecd0297b0a5a19a0c077af7de6da62`.
+The temporary auto-mode prompt smoke proved configured rebase arming only after
+RELEASE, actor recording, push invalidation and terminal-outcome watching.
+The real source CLI `watch-pr 2495` (isolated state/config, read-only) returned
+`DIRTY; draft`. Source-bound PR2559 timeline replay produced three queue entries,
+three exits, auto-merge arm/disarm and merged events; actual captured reviews
+normalized to two stale rows and one configured-App exact-head approval.
+No live PR, project config, service or lane was mutated by these probes.
+
+
 ### TASK-121 — Plan-scoped and one-shot builder model selection
 
 Main ruling `msg_f906ee6f0153` approves `builder.allowed_models` as resolved

@@ -17,14 +17,59 @@ def _permission_unknown(error, unavailable):
     return False
 
 
-def _queued(c, number):
+def _queued(c, number, *, details=False):
     owner, name = c['repo'].split('/')
     query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id}}}}'
     data = gh(c, 'api', 'graphql', '-f', 'query=' + query,
               '-f', 'owner=' + owner, '-f', 'name=' + name, '-F', f'number={number}')
     if data.get('errors'):
         raise ValueError('GitHub PR queue query failed')
-    return data['data']['repository']['pullRequest']['mergeQueueEntry'] is not None
+    entry = data['data']['repository']['pullRequest']['mergeQueueEntry']
+    return entry if details else entry is not None
+
+
+def _review_snapshot(c, reviews, head):
+    """Keep review evidence separate from current-head and producer identity."""
+    configured = c.get('publication', {}).get('review_app')
+    result = []
+    for review in reviews:
+        user = review.get('user') or {}
+        app = review.get('performed_via_github_app')
+        source = 'performed_via_github_app' if app else None
+        # GitHub's REST review author is a canonical App profile for App bots,
+        # even when performed_via_github_app is omitted. A human's login alone
+        # is never App evidence; require the GitHub-owned App URL and Bot type.
+        if not app and user.get('type') == 'Bot':
+            try:
+                profile = urlsplit(user.get('html_url') or '')
+                parts = profile.path.split('/')
+                if (profile.scheme == 'https' and profile.netloc.casefold() == 'github.com' and
+                        not profile.query and not profile.fragment and
+                        len(parts) == 3 and parts[1] == 'apps' and parts[2] and
+                        user.get('login', '').casefold() == (parts[2] + '[bot]').casefold()):
+                    app = {'slug': parts[2]}
+                    source = 'github_bot_profile'
+            except ValueError:
+                pass
+        slug = (app or {}).get('slug')
+        current_head = (review['commit_id'] == head
+                        if review.get('commit_id') is not None else None)
+        match = (slug.casefold() == configured.casefold()
+                 if slug and configured else None)
+        result.append({
+            'id': review['id'], 'state': review['state'],
+            'submitted_at': review.get('submitted_at'),
+            'commit_id': review.get('commit_id'), 'current_head': current_head,
+            'user': {field: user.get(field) for field in ('id', 'login', 'type', 'html_url')},
+            'performed_via_github_app': review.get('performed_via_github_app'),
+            'app_id': (app or {}).get('id'), 'app_slug': slug,
+            'app_identity_source': source, 'review_app_match': match,
+            'classification': ('stale' if current_head is False else
+                               'unknown_head' if current_head is None else
+                               'wrong_app' if match is False else
+                               'current_review_app' if match is True else
+                               'unknown_app')})
+    return result
 
 
 def _recent(timestamp, cutoff):
@@ -217,6 +262,8 @@ def collect(c, pr_number=None):
         checks = []
         comments = []
         reviews = []
+        queue_entry = None
+        queue_unknown = False
         if p['state'] == 'open':
             if 'mergeable_state' not in p:
                 p = gh(c, 'api', f'repos/{repo}/pulls/{number}')
@@ -226,6 +273,7 @@ def collect(c, pr_number=None):
             checks = [{'id': r['id'], 'name': r['name'], 'status': r['status'],
                        'conclusion': r['conclusion'], 'completed_at': r.get('completed_at'),
                        'app_id': (r.get('app') or {}).get('id'),
+                       'app_slug': (r.get('app') or {}).get('slug'),
                        'check_suite_id': (r.get('check_suite') or {}).get('id')}
                       for r in _latest_checks(_workflow_checks(c, sha, raw_checks, unavailable))]
             statuses = pages(c, f'repos/{repo}/commits/{sha}/statuses?per_page=100')
@@ -239,16 +287,25 @@ def collect(c, pr_number=None):
             comments = pages(c, f'repos/{repo}/pulls/{number}/comments?per_page=100')
             comments += pages(c, f'repos/{repo}/issues/{number}/comments?per_page=100')
             reviews = pages(c, f'repos/{repo}/pulls/{number}/reviews?per_page=100')
+            try:
+                queue_entry = _queued(c, number, details=True)
+            except (CommandError, ValueError, KeyError, TypeError) as error:
+                unavailable.append(f'PR #{number} merge queue unavailable: {error}')
+                queue_unknown = True
         merged = p.get('merged_at')
         result.append({'number': number, 'title': p['title'], 'url': p['html_url'], 'branch': p['head']['ref'], 'head': p['head']['sha'],
                        'state': 'merged' if merged else p['state'], 'created_at': p['created_at'],
                        'draft': p.get('draft', False), 'labels': [label['name'] for label in p.get('labels', [])],
+                       'hold_label': c.get('publication', {}).get('hold_label', 'hold'),
+                       'auto_merge': p.get('auto_merge'),
+                       'auto_merge_unknown': 'auto_merge' not in p,
+                       'merge_queue_entry': queue_entry, 'merge_queue_unknown': queue_unknown,
                        'updated_at': p['updated_at'], 'merge_state': (p.get('mergeable_state') or 'unknown').upper(),
                        'closed_at': p['closed_at'], 'merged_at': merged,
                        'time_to_merge_seconds': int((datetime.fromisoformat(merged.replace('Z', '+00:00')) - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))).total_seconds()) if merged else None,
                        'checks': sorted(checks, key=lambda x: (x['name'], x['id'])),
                        'comments': sorted([{'id': x['id'], 'updated_at': x.get('updated_at', x.get('submitted_at')), 'url': x.get('html_url')} for x in comments], key=lambda x: (x['id'], x['url'] or '')),
-                       'reviews': [{'id': x['id'], 'state': x['state'], 'submitted_at': x.get('submitted_at')} for x in reviews]})
+                       'reviews': _review_snapshot(c, reviews, p['head']['sha'])})
     cached = None
     signature = None
     merge_group_unknown = False
@@ -260,18 +317,14 @@ def collect(c, pr_number=None):
     # A cold read is necessary even for a healthy, nonqueued PR: a previous
     # same-head group may have failed after leaving the queue. Once discovered,
     # own-group evidence keeps history live for failure and supersession changes.
-    try:
-        refresh = (cached is None or cached[0] != signature or
-                   any(pr_number in r.get('prs', []) or
-                       (not r.get('membership_complete') and
-                        (r.get('status') != 'completed' or
-                         r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')))
-                       for r in cached[1]) or
-                   _queued(c, pr_number))
-    except CommandError as error:
-        if not _permission_unknown(error, unavailable):
-            raise
-        refresh = True
+    refresh = (cached is None or cached[0] != signature or
+               any(pr_number in r.get('prs', []) or
+                   (not r.get('membership_complete') and
+                    (r.get('status') != 'completed' or
+                     r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')))
+                   for r in cached[1]) or
+               any(p.get('merge_queue_unknown') or p.get('merge_queue_entry') is not None
+                   for p in result))
     if refresh:
         try:
             run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100')
@@ -346,6 +399,19 @@ def checks_conclusion(p):
     return 'success'
 
 
+def _publication_state(p):
+    hold_label = p.get('hold_label', 'hold').casefold()
+    return {
+        'hold': (any(label.casefold() == hold_label for label in p['labels'])
+                 if 'labels' in p else None),
+        'draft': p.get('draft'),
+        'auto_merge': (p['auto_merge'] is not None
+                       if 'auto_merge' in p and not p.get('auto_merge_unknown') else None),
+        'merge_queue': (p['merge_queue_entry'] is not None
+                        if 'merge_queue_entry' in p and not p.get('merge_queue_unknown') else None),
+    }
+
+
 def initial_event(p):
     reasons = []
     if p['state'] in ('merged', 'closed'):
@@ -356,6 +422,11 @@ def initial_event(p):
         failed = _failing_checks(p)
         if failed:
             reasons.append('failing checks: ' + ', '.join(failed))
+        publication = _publication_state(p)
+        reasons.extend(detail for field, detail in (
+            ('hold', 'hold active'), ('draft', 'draft'),
+            ('auto_merge', 'auto_merge armed'), ('merge_queue', 'merge_queue entered'))
+            if publication[field] is True)
     if not reasons:
         return None
     detail = '; '.join(reasons)
@@ -381,6 +452,44 @@ def events(previous, current, *, aggregate_checks=False):
             elif previous:
                 events.append({'key': f'pr:{p["number"]}:opened:{p["head"]}', 'subject': f'PR #{p["number"]} {p["state"]}', 'pr': p['number'], 'branch': p['branch'], 'body': p['url']})
             continue
+        old_publication = _publication_state(before)
+        publication = _publication_state(p)
+        for field, descriptions in (
+                ('hold', ('hold removed', 'hold added')),
+                ('draft', ('draft ready', 'draft converted')),
+                ('auto_merge', ('auto_merge disarmed', 'auto_merge armed')),
+                ('merge_queue', ('merge_queue exited', 'merge_queue entered'))):
+            value = publication[field]
+            if (value is not None and old_publication[field] is not None and
+                    value != old_publication[field]):
+                detail = descriptions[int(value)]
+                occurrence = p.get('updated_at', p['head'])
+                evidence_field = {'auto_merge': 'auto_merge',
+                                  'merge_queue': 'merge_queue_entry'}.get(field)
+                evidence = json.dumps(
+                    (p if value else before).get(evidence_field)
+                    if evidence_field else value, sort_keys=True)
+                events.append({
+                    'key': f'pr:{p["number"]}:{field}:{occurrence}:{value}:{evidence}',
+                    'subject': f'PR #{p["number"]} {detail}', 'pr': p['number'],
+                    'branch': p['branch'], 'body': p['url'] + '\n' + detail})
+        if p['state'] == 'open':
+            # Hold has its own event; ignore label ordering and hold spelling.
+            if 'labels' in before and 'labels' in p:
+                hold_label = p.get('hold_label', 'hold').casefold()
+                old_labels = set(before['labels'])
+                labels = set(p['labels'])
+                added = sorted(label for label in labels - old_labels
+                               if label.casefold() != hold_label)
+                removed = sorted(label for label in old_labels - labels
+                                 if label.casefold() != hold_label)
+                if added or removed:
+                    value = json.dumps({'added': added, 'removed': removed}, sort_keys=True)
+                    occurrence = p.get('updated_at', p['head'])
+                    events.append({
+                        'key': f'pr:{p["number"]}:labels:{occurrence}:{value}',
+                        'subject': f'PR #{p["number"]} labels changed', 'pr': p['number'],
+                        'branch': p['branch'], 'body': p['url'] + '\nlabels: ' + value})
         fields = ('state', 'head', 'merge_state', 'checks', 'comments', 'reviews') if p['state'] == 'open' else ('state',)
         for field in fields:
             if field not in before and field == 'merge_state' and p.get(field) != 'DIRTY':

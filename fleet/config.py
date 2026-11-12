@@ -142,6 +142,26 @@ def load(path):
     if (not isinstance(github['parked_labels'], list) or
             any(not isinstance(label, str) or not label.strip() for label in github['parked_labels'])):
         raise ValueError('github.parked_labels must be a list of nonempty label names')
+    publication = c.setdefault('publication', {})
+    if (not isinstance(publication, dict) or
+            set(publication) - {'mode', 'review_app', 'hold_label', 'merge_method'}):
+        raise ValueError('publication must map mode, review_app, hold_label and merge_method')
+    publication.setdefault('mode', 'manual')
+    publication.setdefault('review_app', '')
+    publication.setdefault('hold_label', 'hold')
+    publication.setdefault('merge_method', 'squash')
+    if publication['mode'] not in ('manual', 'auto_merge'):
+        raise ValueError('publication.mode must be manual or auto_merge')
+    app = publication['review_app']
+    if (not isinstance(app, str) or
+            (app and not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]*[a-z0-9])?', app)) or
+            (publication['mode'] == 'auto_merge' and not app)):
+        raise ValueError('publication.review_app must be a GitHub App slug, required in auto_merge')
+    label = publication['hold_label']
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError('publication.hold_label must be a nonempty label name')
+    if publication['merge_method'] not in ('merge', 'squash', 'rebase'):
+        raise ValueError('publication.merge_method must be merge, squash or rebase')
     urgent = c.setdefault('urgent', {})
     if not isinstance(urgent, dict):
         raise ValueError('urgent must be a mapping')

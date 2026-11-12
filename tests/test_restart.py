@@ -114,6 +114,18 @@ class RetirementTests(unittest.TestCase):
                 self.search_page([]), self.search_page(self.prs)]):
             self.assertEqual(self.run_restart()['retirement']['completion']['pr'], self.prs[0]['url'])
 
+    def test_native_queue_bot_merge_allows_retirement_but_arming_does_not(self):
+        self.c['publication'] = {'mode': 'auto_merge', 'review_app': 'review-app'}
+        self.prs = []
+        self.refused('no merged PR')
+        # GitHub's completed native-queue merge, not the builder, owns the merge.
+        self.prs = [{'number': 1, 'title': 'TASK-1 fix', 'body': '',
+                     'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1',
+                     'mergedBy': {'login': 'github-merge-queue[bot]'}}]
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['completion']['pr'], 'https://example/pr/1')
+        self.assertEqual(result['retirement']['stage'], 'launched')
+
     def test_incomplete_search_never_sends_retirement_input(self):
         for response in (
                 self.search_page(self.prs, 1000),

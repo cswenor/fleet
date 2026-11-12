@@ -113,6 +113,13 @@ interval_seconds: 60
 github:
   # Case-insensitive names; [] disables label exclusion, never draft exclusion.
   parked_labels: [parked]
+publication:
+  # manual preserves existing self-publication. auto_merge requires Main RELEASE.
+  mode: manual
+  # Required App slug in auto_merge; not a check name or human reviewer login.
+  review_app: ''
+  hold_label: hold
+  merge_method: squash # merge | squash | rebase
 # Urgency is advisory, never authentication or additional authority.
 # Native Orca delivers these as question with an explicit [urgent] subject.
 urgent:

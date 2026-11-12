@@ -446,8 +446,43 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
 
 Resolve findings. Any changed head requires fresh final-head review and CI.
 Record reviewer session ID, full reviewed SHA, findings/resolutions and CI run URL
-on Pad/PR; never upload raw credential-bearing logs. Self-merge only after both
-gates; there is no Fleet review bot or implied second model reviewer.
+on Pad/PR; never upload raw credential-bearing logs. In default
+`publication.mode: manual`, self-merge only after both gates; no review bot or
+second model reviewer is implied.
+
+### Opt-in bot/native auto-merge mode
+
+With `publication.mode: auto_merge`, builders NEVER merge directly or with
+`--admin`, and NEVER touch `publication.hold_label` (default `hold`). The two
+gates above remain necessary. Send `thread report REF --kind release_ready
+--pr N --head FULL_SHA "evidence"` and wait for Main's **RELEASE** for that exact
+PR/head. Main verifies independent review, required current-head CI, the configured
+`publication.review_app` successful check plus exact-head APPROVE, and no
+hold/draft/unticked Gate box/project veto. Wrong-App, stale/dismissed review or
+unknown provenance is insufficient; generic check success is not eligibility.
+
+After RELEASE only, the builder or Main may arm
+`gh pr merge N --auto --match-head-commit FULL_SHA --squash`, substituting
+`--merge`/`--rebase` for `publication.merge_method`. Record the actual actor,
+PR/head and release ruling on Pad. A push invalidates RELEASE: obtain fresh
+gates and authorization. Keep `watch-pr` armed through actual merge or closure;
+arming and queue entry never qualify as completion or retirement evidence.
+
+The optional generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
+publishes `codex-review` and exact-head reviews; its separate `merge-gate` status
+enforces hold/draft/Gate boxes on PR and synthetic queue heads. Require live
+ruleset protection, App-bound reviews and no builder/admin bypass. Installation,
+tested source/image pinning and rollout need separate approval; this setting
+does not install a service. Emergency holds after arming also require Main to
+disable auto-merge/dequeue and verify removal: asynchronous checks cannot undo
+an already completed merge.
+
+Watch semantic hold/draft, armed/disarmed and queue entry/exit events; unknown
+queue evidence is not exit. Review commit IDs and App metadata must match the
+current head/configured App before Main releases. Auto-mode hold pauses only
+`pr_stuck`, joining existing parked labels; removal restarts the full interval,
+while real failures remain visible. Completion guards use actual task-linked
+merged PRs, independent of the merger's identity.
 
 ## Completion, deployment and retirement
 

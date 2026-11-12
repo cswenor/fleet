@@ -14,6 +14,7 @@ This is agent policy, not additional `fleet.yml` schema.
 | CI gate | `<required final-head checks>` | GitHub CI |
 | Additional review bot | `<none or project-required bot>` | None |
 | Dispatch mode | `<owner-approved mode>` | Main-confirmed `fleet launch`; no auto-dispatch |
+| Publication mode | `manual` or `auto_merge`; Review App slug / hold label / merge method | `manual` |
 
 ## Authority
 
@@ -60,7 +61,8 @@ Preserve user work and resolve uncertainty before acting.
 
 ## Publication and project policy
 
-Self-merge small task-linked PRs only after BOTH gates on the final head:
+In `publication.mode: manual` (the default), self-merge small task-linked PRs only
+after BOTH gates on the final head:
 1. Fresh independent read-only unadvised review using the bound reviewer policy;
    resolve findings and retain reviewer/session and exact-head evidence.
 2. Green required CI on that same head; fix task-caused failures before merge.
@@ -91,6 +93,25 @@ model substitution.
 Do not assume a review bot exists or count CI as a second model review. A project
 may require its own bot in addition to these gates. Verify the changed real
 surface and retain evidence in the PR and durable task outcome.
+
+In `publication.mode: auto_merge`, those gates remain required but do not
+authorize a builder merge. Builders NEVER merge directly or with admin bypass,
+and NEVER modify the configured hold label. Send `thread report REF --kind
+release_ready --pr N --head FULL_SHA "evidence"` and wait for Main's exact-head
+**RELEASE**. Main verifies independent review, required CI, the configured
+`publication.review_app` successful check and APPROVE on the current head, and
+no hold/draft/veto. Unknown or stale-head/wrong-App evidence cannot authorize
+release; aggregate check success alone is not eligibility.
+
+Only after RELEASE may the builder or Main arm
+`gh pr merge N --auto --match-head-commit FULL_SHA --squash` (use the configured
+`publication.merge_method`) and record the actor and authorization on Pad.
+A push invalidates RELEASE. Keep watching until GitHub actually merges or closes
+the PR; arming auto-merge or entering the queue is not task completion. Require
+the bot's `merge-gate` on live PR/synthetic heads and App-bound reviews in branch
+rulesets; hold/veto enforcement is not supplied by Fleet's diagnostic watcher.
+Emergency holds after arming also require Main to disable auto-merge/dequeue and
+verify removal: asynchronous label checks cannot revoke an already completed merge.
 
 Pick the next piece by plan priority, usually the same feature; the same ref is
 allowed. Never switch to an unrelated task just to get a different ref.
