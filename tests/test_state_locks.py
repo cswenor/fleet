@@ -1,5 +1,7 @@
 import contextlib
 from datetime import datetime, timedelta
+import hashlib
+import io
 import os
 import select
 import subprocess
@@ -9,7 +11,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from fleet import state
+from fleet import cli, launcher, state
 
 
 class StateLockTests(unittest.TestCase):
@@ -105,4 +107,60 @@ with state.lock({'_state': sys.argv[1]}, sys.argv[2], operation='thread reply re
                         self.fail('contended lock must respect its wait cap')
                 sleep.assert_called_once()
                 self.assertAlmostEqual(sleep.call_args.args[0], 0.05)
+
+    def test_slot_main_paths_wait_for_release_and_report_retryable_timeout(self):
+        slot = os.path.join(self.temp.name, 'lane')
+        name = 'slot-' + hashlib.sha256(os.fsencode(slot)).hexdigest()
+        self.c['builder'] = {'slots': [slot]}
+        for command, extra in (('launch', []), ('restart', ['--finished-ref', 'TASK-1']),
+                               ('relaunch', ['--reason', 'fresh session'])):
+            for release in (True, False):
+                with self.subTest(command=command, release=release), self.holder(name) as holder:
+                    metadata = state.read(self.c, name + '-holder')
+                    stderr = io.StringIO()
+                    real_sleep = time.sleep
+
+                    def release_and_sleep(seconds):
+                        holder.stdin.close()
+                        holder.wait()
+                        real_sleep(seconds)
+
+                    with patch.object(sys, 'argv', ['fleet', command, 'TASK-1',
+                                                   '--slot', slot, *extra]), \
+                            patch.object(cli, 'load', return_value=self.c), \
+                            patch.object(sys, 'platform', 'linux'), \
+                            patch('fleet.steering._main'), \
+                            patch.object(launcher, 'resolve_model',
+                                         side_effect=ValueError('reached admission')) as admission, \
+                            patch.object(state.time, 'monotonic', side_effect=[0, 0, 15]), \
+                            patch.object(state.time, 'sleep',
+                                         side_effect=release_and_sleep if release else None) as sleep, \
+                            contextlib.redirect_stderr(stderr):
+                        result = cli.main()
+                    sleep.assert_called_once()
+                    if release:
+                        self.assertEqual(result, 2)
+                        admission.assert_called_once()
+                        self.assertIn('reached admission', stderr.getvalue())
+                    else:
+                        self.assertEqual(result, 4)
+                        admission.assert_not_called()
+                        for detail in (slot, str(holder.pid), metadata['op'], metadata['start']):
+                            self.assertIn(detail, stderr.getvalue())
+                        self.assertEqual(state.read(self.c, name + '-holder'), metadata)
+
+    def test_slot_default_is_nonblocking_and_explicit_wait_is_capped(self):
+        slot = '/scratch/lane'
+        with state.slot_lock(self.c, slot, operation='supervisor wake'), \
+                patch.object(state.time, 'sleep') as sleep:
+            with self.assertRaises(state.LauncherBusy):
+                with state.slot_lock(self.c, slot):
+                    self.fail('busy supervisor must not acquire lease')
+            sleep.assert_not_called()
+            with patch.object(state.time, 'monotonic', side_effect=[0, 14.95, 15]):
+                with self.assertRaises(state.LauncherBusy):
+                    with state.slot_lock(self.c, slot, wait_seconds=60):
+                        self.fail('slot wait must be capped')
+            sleep.assert_called_once()
+            self.assertAlmostEqual(sleep.call_args.args[0], 0.05)
 

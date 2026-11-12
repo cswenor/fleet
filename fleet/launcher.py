@@ -262,7 +262,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
             if slot not in c['builder']['slots']:
                 raise ValueError('requested slot is not in builder.slots')
             if not _locked:
-                lease.enter_context(state.slot_lock(c, slot))
+                lease.enter_context(state.slot_lock(c, slot, wait_seconds=15, operation='launch'))
         c = resolve_model(c, ref, model=model, thinking=thinking)
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
@@ -292,7 +292,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
         if not _locked and chosen and not slot:
-            lease.enter_context(state.slot_lock(c, chosen))
+            lease.enter_context(state.slot_lock(c, chosen, wait_seconds=15, operation='launch'))
         shells = []
         skipped = []
         if existing:
@@ -315,7 +315,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
             if not missing:
                 raise ValueError('no free configured slot')
             if not _locked and not chosen:
-                lease.enter_context(state.slot_lock(c, missing))
+                lease.enter_context(state.slot_lock(c, missing, wait_seconds=15, operation='launch'))
             preparation.update(slot=missing, stage='preparation-attempted', action='worktree-create')
             if c['hooks'].get('before_launch'):
                 run(c['hooks']['before_launch'], c['root'])
