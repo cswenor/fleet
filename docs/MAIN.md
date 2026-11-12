@@ -170,6 +170,11 @@ PLAN mapping > default. Choices never rewrite config or carry into later
 launches. Main approves the pair; this is not permission to change budgets.
 Admission checks the selected provider, including restart preflight before exit.
 Old-session identity remains pinned to its original receipt.
+Ongoing supervision also collects each active receipt-bound provider's quota.
+Mixed-provider snapshots add `quota_by_provider`; the existing `quota` field
+still describes the default (or launch-selected) pool. Unknown alternate quota
+does not block starts on a healthy selected pool. PARK ranks only builders bound
+to known-exhausted pools; one unresolved PARK remains the global limit.
 
 Receipts, launch prompt headers and launch output retain `model_description`,
 `model_source` (`default`, `plan:PLAN-N`, `override`) and `plan_ref`.

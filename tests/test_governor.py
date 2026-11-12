@@ -35,6 +35,52 @@ class GovernorTests(unittest.TestCase):
                     terminal=row['terminal'], ref=row['task'], terminal_incarnation_id=row['incarnation_id'])
                     for row, at in zip(self.builders, (a, b))})
 
+    def mixed_pools(self):
+        self.c['builder'] = {'resolved_model': 'default/model'}
+        self.history()
+        launches = state.read(self.c, 'launches')
+        launches['/a']['resolved_model'] = 'default/model'
+        launches['/b']['resolved_model'] = 'alternate/model'
+        state.write(self.c, 'launches', launches)
+        self.s['quota_by_provider'] = {
+            'default': {'known': True, 'may_start': False},
+            'alternate': {'known': True, 'may_start': True}}
+        return self.s['quota_by_provider']
+
+    def test_exhausted_default_never_parks_healthy_alternate(self):
+        self.mixed_pools()
+        event, = self.advance()
+        self.assertEqual(event['recipients'][0], 'a')
+        self.assertEqual(self.ledger['governor']['active']['provider'], 'default')
+
+    def test_exhausted_alternate_is_not_ignored_and_delivery_tracks_its_pool(self):
+        pools = self.mixed_pools()
+        pools['default']['may_start'] = True
+        pools['alternate']['may_start'] = False
+        self.s['quota'] = pools['default']
+        event, = self.advance()
+        self.assertEqual(event['recipients'][0], 'b')
+        self.assertTrue(governor.deliverable(self.c, event, self.s, self.ledger))
+        pools['alternate']['known'] = False
+        self.assertFalse(governor.deliverable(self.c, event, self.s, self.ledger))
+
+    def test_unknown_pool_does_not_park_it_or_mask_other_exhausted_pool(self):
+        pools = self.mixed_pools()
+        pools['alternate']['known'] = False
+        event, = self.advance()
+        self.assertEqual(event['recipients'][0], 'a')
+        self.ledger = {}
+        pools['default']['may_start'] = True
+        self.assertEqual(self.advance(), [])
+        self.assertIsNone(self.ledger['governor']['active'])
+
+    def test_mixed_pools_keep_one_unresolved_park_globally(self):
+        pools = self.mixed_pools()
+        self.advance()
+        pools['default']['may_start'] = True
+        pools['alternate']['may_start'] = False
+        self.assertTrue(all(not event.get('park') for event in self.advance(1)))
+        self.assertEqual(self.ledger['governor']['active']['terminal'], 'a')
     def test_priority_alone_selects_lowest_without_history(self):
         events = self.advance()
         self.assertEqual(events[0]['recipients'], ['b', 'run:scratch', 'pad:TASK-2'])

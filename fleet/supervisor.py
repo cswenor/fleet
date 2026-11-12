@@ -317,6 +317,12 @@ def alerts(s, c, lane_free=None):
         q = s.get('quota', {})
         add('quota:' + q.get('reason', 'unavailable'), 'Fleet quota reserve: new builders withheld',
             json.dumps(q, sort_keys=True) + ' ' + governor.CONSENT)
+    for provider, q in s.get('quota_by_provider', {}).items():
+        if q is s.get('quota') or q == s.get('quota'):
+            continue
+        if not q.get('may_start', False):
+            add('quota-provider:' + provider, 'Fleet quota reserve: ' + provider + ' builders withheld',
+                json.dumps(q, sort_keys=True) + ' ' + governor.CONSENT)
     if s.get('disk', {}).get('low'):
         add('disk', 'Fleet disk reserve reached', json.dumps(s['disk'], sort_keys=True))
     return result
@@ -860,6 +866,11 @@ def cycle(c, deliver=True):
         # let the quota exception path bypass the unknown-quota alert debounce.
         active = [a for a in active if not a['key'].startswith('quota:')
                   and a['key'] != 'error:quota collection unavailable']
+    streaks = ledger.setdefault('provider_quota_unknown_cycles', {}) if s.get('quota_by_provider') else {}
+    for provider, pool in s.get('quota_by_provider', {}).items():
+        streaks[provider] = 0 if pool.get('known') else streaks.get(provider, 0) + 1
+        if not pool.get('known') and streaks[provider] < c.get('quota', {}).get('unknown_alert_cycles', 3):
+            active = [a for a in active if a['key'] != 'quota-provider:' + provider]
     active = [urgent_event(c, a) for a in active]
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.

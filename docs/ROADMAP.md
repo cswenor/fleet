@@ -155,6 +155,12 @@ and old-session identity remain unchanged. Source CLI exposes both flags and
 refuses a non-Main caller before mutation.
 Publication requires fresh final-head Sol-medium review, green CI and Main's
 exact-head GO; shared deployment remains Main-owned.
+Independent review of `492b8ac` found a P2: supervision still used only default
+quota, allowing a healthy alternate-provider builder to be parked for another
+pool's exhaustion. Main approved receipt-bound per-provider collection and
+exhausted-pool candidate filtering in `msg_1a36bd798d9f`. Mixed-provider snapshots
+add `quota_by_provider`; selected-provider admission stays isolated, unknown
+usage never authorizes PARK, and only one unresolved PARK is permitted globally.
 
 ### TASK-122 — Replace an unfinished same-task session
 
