@@ -351,6 +351,13 @@ Wake takes a nonblocking per-slot lease before its task lock; a busy lease skips
 the slot until the next cycle. It holds that lease across native proof, final
 launch/question revalidation, journaling and send. Launch/restart hold the same
 lease across terminal mutation, so retirement/reuse cannot race wake input.
+Wake lock order is slot → `thread-wait-TERMINAL` → task. The shared
+terminal decision lease is nonblocking for wake: an active wait skips that cycle.
+It spans proof/journaling/send and is released immediately after native send,
+before persisting the result. `thread wait` acquires it with a 15-second bound
+and retryable thread-busy diagnostics. Thus a decision cannot return and resume
+builder work between the final authority check and wake input. Read-only steering
+checks do not need the decision lease.
 Supervisor PARK holds its slot lease across native proof, file revalidation and
 delivery, without the launcher lock. Lane-free proof/transport also stays outside
 launcher.
@@ -601,7 +608,7 @@ PID, operation and UTC start, removed on release.
 |---|---|
 | Launch | Launcher → `slot-<sha256(path)>`; terminal create/reuse/send under slot; publication only for final launch files |
 | Restart | Launcher → slot across retirement and nested launch; nested launch reuses both leases |
-| Builder wake | Launcher for file snapshot only, released; then nonblocking slot → task across native proof/send; busy slot skips |
+| Builder wake | Launcher for file snapshot only, released; nonblocking slot spans native proof/send, task locks cover file snapshots/revalidation/journal only; busy leases skip |
 | Read-only check | Task for file snapshots and native ownership proof; never launcher/slot/publication |
 | Ack commit | Ownership proof under task, released; publication → task for final file revalidation/write only |
 | Supervisor PARK | Slot across native proof, file revalidation and send; never launcher |
@@ -921,9 +928,15 @@ Follow-ups use reply/status in the same pending native subthread, not a new dire
 question. Main replies to the emitted message ID. Native question subthreads are
 unique per attempt/question, so a late reply cannot authorize another decision/task.
 Builders run `thread wait REF` as an **async background command**; one process
-inspects non-consuming terminal history every two seconds, caching every type
-privately. Only questions, Main decisions and outcomes go to Pad, never relay
-noise or secrets. The wait returns after the matching Main decision is copied
+inspects non-consuming terminal history every two seconds, returning the current
+observation intact. The private index keeps at most 64 newest task/subthread-related
+metadata rows per attempt, never bodies; canonical question replies retain the
+decision body for Pad retries. Any ledger write lazily compacts old indexes,
+including archived attempts. Unrelated mail is not retained; inspect other inbox
+types separately. Only questions, Main decisions and outcomes go to Pad.
+Per-task locks wait at most 15s, then exit 4 with `thread busy` and holder
+PID/operation/UTC start; supervisor wake uses nonblocking task snapshots, never
+holding the task lock across native I/O. The wait returns after the decision is copied
 to Pad; restart/Pad-write retry reuses that private copy. Native terminal history
 is capped and expires on close: do not close before an unseen reply is copied.
 `thread result REF --body 'publication receipts/outcome'` records the durable

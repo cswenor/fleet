@@ -132,7 +132,8 @@ class StopTests(unittest.TestCase):
 
     def test_no_idle_after_escape_withholds_stop(self):
         self.stuck = True
-        with patch.object(emergency.time, 'monotonic', side_effect=[0, 2]):
+        with patch.object(emergency, 'time', wraps=emergency.time) as clock:
+            clock.monotonic.side_effect = [0, 2]
             with self.assertRaisesRegex(ValueError, 'turn did not stop'):
                 self.run_stop(timeout=1)
         self.assertEqual(self.inputs, [('\x1b', False)])
@@ -287,7 +288,8 @@ class StopTests(unittest.TestCase):
 
     def test_idle_agent_with_running_program_does_not_receive_clear_or_stop(self):
         self.agent['programStatus'] = {'state': 'running'}
-        with patch.object(emergency.time, 'monotonic', side_effect=[0, 2]):
+        with patch.object(emergency, 'time', wraps=emergency.time) as clock:
+            clock.monotonic.side_effect = [0, 2]
             with self.assertRaisesRegex(ValueError, 'turn did not stop'):
                 self.run_stop(timeout=1)
         self.assertEqual(self.inputs, [('\x1b', False)])

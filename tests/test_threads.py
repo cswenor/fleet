@@ -85,8 +85,55 @@ class ThreadTests(unittest.TestCase):
         self.messages = []  # Native terminal history is no longer needed for this reply.
         result = threads.wait(self.c, 'TASK-1', 1)
         self.assertEqual(result['reply']['body'], 'approved')
-        self.assertEqual({m['id'] for m in result['messages']}, {'reply', 'report'})
+        self.assertEqual({m['id'] for m in result['messages']}, {'reply'})
+        self.assertNotIn('body', result['messages'][0])
         self.assertTrue(any('Decision: approved' in body for _, body in self.pads))
+
+    def test_migration_preserves_pending_question_and_inbox_only_unrecorded_reply(self):
+        self.open()
+        q = threads.question(self.c, 'TASK-1', 'approve?')
+        ledger, _, _, attempt = threads.current(self.c, 'TASK-1', 'term_builder')
+        attempt['inbox'] = {str(i): {'id': str(i), 'thread_id': 'unrelated',
+                                    'body': 'noise' * 600} for i in range(1001)}
+        attempt['inbox']['reply'] = self.answer(q)
+        attempt['inbox']['spoof'] = self.answer(q, 'spoof', from_handle='other')
+        # Old versions wrote the complete mailbox, including unrelated bodies.
+        path = state.directory(self.c) / 'threads-TASK-1.json'
+        path.write_text(json.dumps(ledger))
+        before = path.stat().st_size
+        # A write by check/steering must rescue the reply before native history expires.
+        state.write(self.c, 'threads-TASK-1', json.loads(path.read_text()))
+        pending = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['one']
+        self.assertEqual(pending['questions'][q['thread_id']]['body'], 'approve?')
+        self.assertEqual(pending['questions'][q['thread_id']]['reply']['body'], 'approved')
+        self.assertFalse(pending['questions'][q['thread_id']].get('reply_recorded', False))
+        self.messages = []
+        result = threads.wait(self.c, 'TASK-1', 1)
+        self.assertEqual(result['reply']['body'], 'approved')
+        migrated = state.read(self.c, 'threads-TASK-1')['TASK-1']['attempts']['one']
+        self.assertEqual(set(migrated['inbox']), {'reply', 'spoof'})
+        self.assertTrue(all('body' not in m for m in migrated['inbox'].values()))
+        self.assertLess(path.stat().st_size, before // 100)
+        self.assertTrue(migrated['questions'][q['thread_id']]['reply_recorded'])
+
+    def test_inbox_bound_preserves_canonical_reply_and_archived_attempts(self):
+        self.open()
+        q = threads.question(self.c, 'TASK-1', 'approve?')
+        ledger, task, _, attempt = threads.current(self.c, 'TASK-1', 'term_builder')
+        rows = {str(i): self.answer(q, str(i), created_at=f'{i:05}')
+                for i in range(threads.INBOX_LIMIT + 20)}
+        attempt['inbox'] = rows
+        task['history'] = {'old': json.loads(json.dumps(attempt))}
+        for _ in range(2):
+            state.write(self.c, 'threads-TASK-1', ledger)
+        saved = state.read(self.c, 'threads-TASK-1')['TASK-1']
+        expected = {str(i) for i in range(20, threads.INBOX_LIMIT + 20)}
+        for bounded in (saved['attempts']['one'], saved['history']['old']):
+            self.assertEqual(set(bounded['inbox']), expected)
+            self.assertTrue(all('body' not in m for m in bounded['inbox'].values()))
+            self.assertEqual(bounded['questions'][q['thread_id']]['body'], 'approve?')
+            self.assertEqual(bounded['questions'][q['thread_id']]['reply']['id'], '0')
+            self.assertEqual(bounded['questions'][q['thread_id']]['reply']['body'], 'approved')
 
     def test_wait_retries_failed_question_pad_write_before_decision(self):
         self.open()

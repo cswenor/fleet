@@ -161,6 +161,50 @@ pool's exhaustion. Main approved receipt-bound per-provider collection and
 exhausted-pool candidate filtering in `msg_1a36bd798d9f`. Mixed-provider snapshots
 add `quota_by_provider`; selected-provider admission stays isolated, unknown
 usage never authorizes PARK, and only one unresolved PARK is permitted globally.
+Queued PARK delivery also survives returning to a default-only inventory, while
+refusing a different provider's quota. Read-only real mp-web-app usage evaluation
+found both configured provider pools known and available; mixed-pool exhaustion
+is covered deterministically, not claimed as a live deployment drill.
+
+### TASK-120 — Bound task inbox indexes and shorten wake task locks
+
+Task-ledger writes lazily compact inbox indexes in active and archived attempts.
+Only task/subthread-related metadata survives, capped at the newest 64 rows per
+attempt; bodies remain only in canonical question/decision records where needed
+for durable Pad retry. Fresh native observations are returned intact, not persisted
+as unrelated terminal history. Native mail is never consumed or acknowledged.
+Before stripping/capping, matching inbox-only unrecorded legacy replies are rescued
+into their canonical question records. The pending-question regression
+`test_migration_preserves_pending_question_and_inbox_only_unrecorded_reply`
+migrates via a separate write, then proves `wait` records the decision with empty
+native history. Cap/archived coverage also preserves an oldest reply beyond the
+metadata cap. The first candidate lacked this rescue; Project Alpha's safety request
+exposed the gap before publication.
+
+Per-task locks default to a bounded 15-second acquisition, with retryable exit 4
+and holder PID/operation/UTC-start diagnostics. Supervisor wake explicitly uses
+nonblocking task locks for file-only snapshots and final authority revalidation/
+journaling. Its slot lease still spans native mailbox/proof/send, excluding
+retirement; no native I/O holds the task lock.
+
+Read-only migration of a private copy of real Project Alpha TASK-2843 reduced
+4,345,577 bytes to 16,555 bytes. Median JSON load over 30 runs fell from 20.833ms
+to 0.058ms; migration/write took 3.261ms. The live source hash was unchanged.
+Candidate `thread check TASK-120` against copied Fleet state exited 0 in 571.248ms
+with real native ownership reads; no live receipts or services were changed.
+All 186 focused thread, lock, builder-wake, steering, supervisor, governor, stop
+and parking regressions pass across the scoped runs. Coverage includes real
+15-second contention/holder diagnostics, release/acquisition, archived-cache
+migration, decision retry, and actual flock availability at every wake native
+boundary. Stop timeout fixtures now isolate their fake clock from shared locks.
+After the inbox-only reply fix, all 82 thread/steering/parking regressions pass.
+Independent final-head review, green CI and Main's exact-head GO remain required.
+Merge does not authorize shared installation.
+Fresh post-cutover review identified a decision-completion race after final task
+revalidation and before wake input. Main approved sharing the terminal wait lease:
+wake takes it nonblocking across proof/send, releasing before result persistence;
+wait has bounded 15-second acquisition. Deterministic regressions cover an active
+wait skipping wake and a wait blocking at wake send, then recording the decision.
 
 ### TASK-122 — Replace an unfinished same-task session
 

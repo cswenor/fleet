@@ -11,6 +11,52 @@ from .commands import run, orca
 from .mailbox import request, MailboxError
 
 
+INBOX_LIMIT = 64
+_INBOX_FIELDS = ('id', 'type', 'from_handle', 'to_handle', 'run_id', 'thread_id',
+                 'created_at', 'read', 'read_at', 'acknowledged', 'acknowledged_at')
+
+
+def compact_ledger(c, ledger):
+    """Bound disposable mailbox indexes; canonical decisions/receipts remain intact."""
+    for task in ledger.values():
+        for group in ('attempts', 'history'):
+            for attempt in task.get(group, {}).values():
+                if 'inbox' not in attempt:
+                    continue
+                # Rescue inbox-only legacy replies before stripping bodies or capping.
+                # Use the same sender/recipient/subthread boundary as thread wait.
+                for q in attempt.get('questions', {}).values():
+                    if q.get('status') != 'pending' or q.get('reply') or q.get('reply_recorded'):
+                        continue
+                    reply = next((m for m in attempt['inbox'].values()
+                                  if _matches_reply(c, attempt, q, m) and 'body' in m), None)
+                    if reply is not None:
+                        q['reply'] = reply
+                tokens = {task.get('id'), attempt.get('thread_id')}
+                tokens.update(q.get('thread_id') for q in attempt.get('questions', {}).values())
+                tokens.discard(None)
+                ids = set()
+                for record in (*attempt.get('questions', {}).values(),
+                               *attempt.get('steering', {}).values(),
+                               attempt.get('ready', {}), attempt.get('needs_next', {})):
+                    ids.add(record.get('message_id'))
+                    ids.add(record.get('reply', {}).get('id'))
+                ids.discard(None)
+                relevant = [m for m in attempt['inbox'].values()
+                            if m.get('thread_id') in tokens or m.get('id') in ids]
+                relevant.sort(key=lambda m: (m.get('created_at') or '', m['id']))
+                attempt['inbox'] = {
+                    m['id']: {field: m[field] for field in _INBOX_FIELDS if field in m}
+                    for m in relevant[-INBOX_LIMIT:]}
+
+
+def _matches_reply(c, attempt, question, message):
+    return (message.get('thread_id') == question['thread_id']
+            and message.get('from_handle') == c['coordinator']['terminal']
+            and message.get('to_handle') == attempt['terminal']
+            and message.get('type') == 'status')
+
+
 def _name(ref):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference')
@@ -186,7 +232,7 @@ def current(c, ref, caller):
 def question(c, ref, body, subject=None, *, payload=None):
     name = _name(ref)
     caller = identity(c)
-    with state.lock(c, name):
+    with state.lock(c, name, operation='thread question/report'):
         ledger, task, key, attempt = current(c, ref, caller)
         for pending in attempt['questions'].values():
             if not pending.get('reply_recorded'):
@@ -245,12 +291,13 @@ def wait(c, ref, timeout=900):
     deadline = time.monotonic() + timeout
     with state.lock(c, 'thread-wait-' + caller):
         while True:
-            with state.lock(c, name):
+            with state.lock(c, name, operation='thread wait'):
                 ledger, task, key, attempt = current(c, ref, caller)
                 token = attempt.get('latest_question')
                 if not token:
                     raise ValueError('no question to wait for')
                 q = attempt['questions'][token]
+                messages = list(attempt.get('inbox', {}).values())
                 if q['status'] == 'sending':
                     raise ValueError('ambiguous question send; reconcile native inbox before retrying')
                 if not q.get('reply'):
@@ -258,11 +305,9 @@ def wait(c, ref, timeout=900):
                     messages = history.get('messages')
                     if not isinstance(messages, list) or history.get('count') != len(messages):
                         raise MailboxError('invalid_terminal_inbox')
-                    # Persist all observed types before doing anything with the decision.
+                    # Return this observation intact; retain only a bounded task index.
                     attempt.setdefault('inbox', {}).update({m['id']: m for m in messages})
-                    replies = [m for m in messages if m.get('thread_id') == q['thread_id']
-                               and m.get('from_handle') == c['coordinator']['terminal']
-                               and m.get('to_handle') == caller and m.get('type') == 'status']
+                    replies = [m for m in messages if _matches_reply(c, attempt, q, m)]
                     if replies:
                         q['reply'] = replies[0]
                 state.write(c, name, ledger)
@@ -276,12 +321,12 @@ def wait(c, ref, timeout=900):
                         state.write(c, name, ledger)
                     return {'event': 'reply', 'thread_id': attempt.get('thread_id', task['id']), 'attempt': key,
                             'question': q['message_id'], 'reply': q['reply'],
-                            'messages': list(attempt['inbox'].values()),
+                            'messages': messages,
                             'readOnly': True, 'requestedLimit': 1000}
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return {'event': 'timeout', 'thread_id': attempt.get('thread_id', task['id']), 'attempt': key,
-                        'question': q['message_id'], 'messages': list(attempt['inbox'].values()),
+                        'question': q['message_id'], 'messages': messages,
                         'readOnly': True, 'requestedLimit': 1000}
             # Terminal-only native ask requires a Dispatch. Inspect persistent history
             # in this one background process, never poll with model turns or consume it.
@@ -338,7 +383,7 @@ def decision_reply(c, launch, question):
 def result(c, ref, body):
     name = _name(ref)
     caller = identity(c)
-    with state.lock(c, name):
+    with state.lock(c, name, operation='thread result'):
         ledger, task, key, attempt = current(c, ref, caller)
         if any(not q.get('reply_recorded') for q in attempt['questions'].values()):
             raise ValueError('pending decision must be resolved and recorded before settlement')

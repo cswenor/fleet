@@ -28,6 +28,9 @@ def read(c, name, default=None):
 
 
 def write(c, name, value):
+    if name.startswith('threads-') and not name.endswith('-holder'):
+        from .threads import compact_ledger
+        compact_ledger(c, value)
     path = directory(c)
     fd, temp = tempfile.mkstemp(dir=path, prefix='.')
     try:
@@ -42,7 +45,7 @@ def write(c, name, value):
 
 
 class LauncherBusy(ValueError):
-    """Launcher contention is retryable, not an ownership/admission failure."""
+    """Lock contention is retryable, not an ownership/admission failure."""
 
 
 def slot_lock(c, slot):
@@ -52,9 +55,13 @@ def slot_lock(c, slot):
 
 
 def _busy(c, name):
-    if name not in ('launcher', 'launch-publication'):
+    if name not in ('launcher', 'launch-publication') and not name.startswith(('threads-', 'thread-wait-')):
         return ValueError(f'fleet {name} already running')
     holder = read(c, name + '-holder', {}) or {}
+    if name.startswith(('threads-', 'thread-wait-')):
+        return LauncherBusy(
+            f"thread busy: held by pid {holder.get('pid', 'unknown')} "
+            f"({holder.get('op', 'unknown')}) since {holder.get('start', 'unknown')}; retry")
     if name == 'launch-publication':
         return LauncherBusy(
             f"launch publishing; retry (held by pid {holder.get('pid', 'unknown')} "
@@ -65,12 +72,16 @@ def _busy(c, name):
 
 
 @contextmanager
-def lock(c, name, wait_seconds=0, *, operation=None):
+def lock(c, name, wait_seconds=None, *, operation=None):
     with (directory(c) / (name + '.lock')).open('a') as f:
+        if wait_seconds is None:
+            wait_seconds = 15 if name.startswith(('threads-', 'thread-wait-')) else 0
         if name == 'launcher':
             wait_seconds = min(wait_seconds, 15)
         elif name == 'launch-publication':
             wait_seconds = min(wait_seconds, 5)
+        elif name.startswith(('threads-', 'thread-wait-')):
+            wait_seconds = min(wait_seconds, 15)
         deadline = time.monotonic() + wait_seconds if wait_seconds > 0 else None
         while True:
             try:

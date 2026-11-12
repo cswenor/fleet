@@ -802,10 +802,17 @@ Main answers the emitted question message
 ID with native `orchestration reply --id`. Native `ask`, including resume, requires
 a Dispatch and cannot serve terminal builders. One background `thread wait` process reads
 non-consuming terminal history every two seconds (requested 1000, native cap
-applies), caches **all observed message types** privately, and copies only the
+applies), returns the current observation intact, and copies only the
 question, matching Main decision and final outcome to Pad. It returns only after
 the decision's Pad write succeeds. Retry the same wait after a timeout/restart or
 Pad failure; an already-cached decision needs no native history. Exit 3 is timeout.
+The private inbox index retains at most 64 newest task/subthread-related message
+metadata rows per attempt, without bodies. Full decision replies remain in their
+canonical question records for Pad retries. Unrelated terminal mail is never
+cached; inspect other inbox types separately. Existing indexes compact lazily on
+any task-ledger write, including archived attempts.
+Per-task locks wait at most 15s, then exit 4 with `thread busy` and holder
+PID/operation/UTC-start metadata; retry later rather than looping tightly.
 Each task has its own private ledger/lock, so slow native or Pad I/O in one lane
 cannot abort a different task's background wait. Same-task operations remain
 serialized; the launcher prevents duplicate active task attempts.
