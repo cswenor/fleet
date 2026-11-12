@@ -216,6 +216,9 @@ def load(path):
     for name, argv in c['hooks'].items():
         if name not in ('before_launch', 'after_launch', 'event') or not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError('hooks must be argv lists: before_launch, after_launch, event')
+    if 'review_bot' in c:
+        from .review_bot_config import validate
+        validate(c)
     c['orca'] = (c.get('orca') or os.environ.get('ORCA_CLI_COMMAND') or
                  shutil.which('orca' if sys.platform == 'darwin' else 'orca-ide'))
     if not c['orca']:

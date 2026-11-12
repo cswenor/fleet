@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 import shutil
 import time
-from . import github, github_api, health, quota, state
+from . import github, github_api, health, publication, quota, state
 from .commands import CommandError
 from .display import duration
 
@@ -49,6 +49,8 @@ def _collection_reason(error):
 def collect(c):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
+    if c.get('publication', {}).get('mode') == 'auto_merge':
+        result['publication'] = publication.guard(c)
     for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: _github(c, result)),
                     ('quota', lambda: quota.collect(c)), ('coordinator', lambda: health.coordinator(c))):
         try:
@@ -96,6 +98,11 @@ def collect(c):
 
 def may_start(c, s):
     reasons = []
+    protection = s.get('publication') or {}
+    if (c.get('publication', {}).get('mode') == 'auto_merge'
+            and protection.get('verified') is not True):
+        reasons.append(protection.get(
+            'reason', 'auto-merge protection unavailable or unsafe'))
     if s.get('errors'):
         reasons.extend(s['errors'])
     if s.get('github_budget', {}).get('blocked'):
@@ -116,6 +123,10 @@ def may_start(c, s):
 
 def render(s):
     lines = [f"Fleet {s['repo']}"]
+    protection = s.get('publication')
+    if protection is not None:
+        lines.append('Publication: ' + ('live protection verified' if protection.get('verified') is True
+                                      else protection.get('reason', 'auto-merge protection unavailable or unsafe')))
     main = s.get('coordinator', {})
     if main.get('terminal'):
         state = main.get('state', 'unknown')

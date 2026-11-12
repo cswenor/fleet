@@ -94,5 +94,43 @@ class CollectionReasonTests(unittest.TestCase):
             self.assertNotIn(secret, reason)
 
 
+class PublicationAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.c = {'repo': 'owner/project', 'root': '.', '_state': self.directory.name,
+                  'builder': {'max': 8}, 'publication': {'mode': 'auto_merge'},
+                  'disk': {'path': '/', 'min_free_gb': 0}}
+        self.healthy = {'errors': [], 'quota': {'may_start': True},
+                        'disk': {'low': False}, 'inventory': {'builders': []}}
+
+    def test_missing_and_unsafe_protection_withhold_otherwise_healthy_launch(self):
+        for guard in (None, {}, {'verified': False, 'reason': 'live protection unavailable'}):
+            with self.subTest(guard=guard):
+                data = dict(self.healthy)
+                data['publication'] = guard
+                result = snapshot.may_start(self.c, data)
+                self.assertFalse(result['may_start'])
+
+    def test_verified_protection_allows_otherwise_healthy_launch(self):
+        data = {**self.healthy, 'publication': {'verified': True}}
+        self.assertTrue(snapshot.may_start(self.c, data)['may_start'])
+
+    def test_manual_admission_is_unchanged_without_guard(self):
+        self.c['publication']['mode'] = 'manual'
+        self.assertTrue(snapshot.may_start(self.c, self.healthy)['may_start'])
+
+    def test_unavailable_live_protection_is_visible_in_snapshot_and_render(self):
+        with patch.object(snapshot.health, 'collect', return_value={'builders': []}), patch.object(
+                snapshot.health, 'coordinator', return_value={}), patch.object(
+                snapshot.quota, 'collect', return_value={'may_start': True}), patch.object(
+                snapshot, '_github', return_value={}), patch.object(
+                snapshot.health, 'add_pr_stalls'), patch.object(
+                snapshot.publication, 'verify_live_ruleset', side_effect=ValueError('private secret')):
+            result = snapshot.collect(self.c)
+        self.assertFalse(snapshot.may_start(self.c, result)['may_start'])
+        self.assertNotIn('private secret', snapshot.render(result))
+
+
 if __name__ == '__main__':
     unittest.main()

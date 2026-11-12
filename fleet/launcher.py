@@ -8,7 +8,7 @@ import re
 import shlex
 import time
 import yaml
-from . import dispatcher, health, snapshot, state
+from . import dispatcher, health, publication as publication_guard, snapshot, state
 from .commands import CommandError, gh, orca, run
 from .config import model_allowed
 
@@ -251,6 +251,10 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     if _keep_uncommitted and not _locked:
         raise ValueError('keeping uncommitted work requires guarded same-task relaunch')
+    if c.get('publication', {}).get('mode') == 'auto_merge':
+        protection = publication_guard.guard(c)
+        if protection.get('verified') is not True:
+            raise ValueError('launch withheld: ' + protection['reason'])
     with nullcontext() if _locked else state.lock(c, 'launcher', operation='launch'), ExitStack() as lease, _preparation_receipt(c, ref) as preparation:
         preparation_started_at = time.time()
         if slot:
@@ -375,6 +379,9 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
                                      'thread', 'parked', ref])
         publication = c.get('publication', {})
         auto_merge = publication.get('mode', 'manual') == 'auto_merge'
+        arm_command = shlex.join(['fleet', '--config',
+                                  str(c.get('_config') or c.get('_path') or Path(c['root']) / 'fleet.yml'),
+                                  'review-bot', 'arm', 'N', '--head', 'FULL_SHA'])
         publish_instruction = (
             'Publish through the auto-merge release policy below, not project self-merge rules.'
             if auto_merge else 'Self-publish according to project rules.')
@@ -411,19 +418,19 @@ On a durable PARK request: finish your current step, commit and push WIP to this
         if auto_merge:
             release = publication.get('release', 'main')
             if release == 'none':
-                release_policy = f'''After independent review of the final current head, post its PASS with the full exact head SHA on the PR. Immediately after that exact-head PASS is posted, the builder must arm gh pr merge N --auto --match-head-commit FULL_SHA --{publication.get('merge_method', 'squash')}, without waiting for CI or the configured Review App to finish. Do not send a release_ready report, request Main RELEASE, or wait for a Main release ruling; publication.release=none overrides those release/report waits, not ordinary task decisions or steering.
-GitHub itself must enforce the configured Review App's exact-head APPROVE, required checks and merge-gate through the configured required rules before actual merge. Arming is not approval or proof those gates passed; pending CI/App gates are expected when arming. Respect the configured hold label and any veto: do not arm while either is present, never alter the hold label, and never bypass required rules.
+                release_policy = f'''After independent review of the final current head, post its PASS with the full exact head SHA on the PR. Immediately after that exact-head PASS is posted, the builder must arm with {arm_command}, without waiting for CI or the configured Review App to finish. Do not send a release_ready report, request Main RELEASE, or wait for a Main release ruling; publication.release=none overrides those release/report waits, not ordinary task decisions or steering.
+GitHub itself must enforce the configured Review App's exact-head APPROVE, App-bound codex-review and app-approval, and producer-bound required CI through the configured required rules before actual merge. Arming is not approval or proof those gates passed; pending CI/App gates are expected when arming. Respect the configured hold label and any veto: do not arm while either is present, never alter the hold label, and never bypass required rules.
 Record the actual actor who armed auto-merge on Pad with the PR/full head SHA and the posted independent PASS evidence.'''
             else:
                 release_policy = f'''After independent review and green CI, send the typed fleet --config CONFIG thread report {ref} --kind release_ready --pr N --head FULL_SHA "evidence" for the exact PR and full current head SHA; wait for Main's decision in that native thread. Generic checks_conclusion is never proof of eligibility.
 Main must verify the configured GitHub App's successful check on the exact current head and its exact-head APPROVE evidence, green required CI, and no configured hold label or veto. Only Main may issue RELEASE for that exact PR/head; MERGE GO is not authorization in this mode.
-Only after that exact-head Main RELEASE, the builder or Main may arm gh pr merge N --auto --match-head-commit FULL_SHA --{publication.get('merge_method', 'squash')}. Record the actual actor who armed auto-merge on Pad with the PR/head and release evidence.
+Only after that exact-head Main RELEASE, the builder or Main may arm with {arm_command}. Record the actual actor who armed auto-merge on Pad with the PR/head and release evidence.
 Any push invalidates the release; obtain fresh independent review, green CI and Main RELEASE for the new head before arming again.'''
             prompt += f'''
 PUBLICATION POLICY — auto_merge (overrides ALL conflicting project rules, the rules file, appended footer, handoff comments and earlier self-publish/merge instructions):
 Configured review GitHub App slug: {json.dumps(publication['review_app'])}; hold label: {json.dumps(publication.get('hold_label', 'hold'))}; merge method: {publication.get('merge_method', 'squash')}; effective publication.release: {release}.
 {release_policy}
-Never direct-merge, use --admin, bypass protections, or add/remove/change the hold label.
+Arming MUST use the guarded Fleet command above; it revalidates live operator-visible protection and uses only the separate Builder App token. Never substitute raw GitHub auto-merge commands, direct-merge, --admin, project footer bypasses, or add/remove/change the hold label.
 Before ANY push after auto-merge has been armed (including fixes, rebases, force-pushes and PARK/WIP pushes), disarm native auto-merge and remove the PR from any merge queue. Verify from GitHub's native state that both the auto-merge request and any queue entry are absent BEFORE pushing; if removal cannot be verified, do not push. Never leave auto-merge armed across an unreviewed push. After pushing, obtain independent review of the new exact head and post its PASS with the full head SHA on the PR, then satisfy the configured release policy above before re-arming.
 Auto-merge armed or queued is not completion. Keep watch-pr armed and process events until the PR is actually merged or closed; only that observed terminal outcome completes the publication watch, and a closed-unmerged PR must be reported as such, never as merged.
 '''

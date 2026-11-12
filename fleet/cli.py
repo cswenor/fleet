@@ -140,6 +140,21 @@ def main():
     sub.add_parser('central-serve')
     p = sub.add_parser('central-install-service')
     p.add_argument('--environment-file', required=True, help='private service token file (macOS: literal KEY=value)')
+    p = sub.add_parser('review-bot', help='plan or explicitly apply a pinned per-project Review Bot installation')
+    bot_commands = p.add_subparsers(dest='review_bot_command', required=True)
+    for name in ('init', 'ruleset'):
+        p = bot_commands.add_parser(name)
+        p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
+        action = p.add_mutually_exclusive_group()
+        action.add_argument('--apply', action='store_true', help='explicitly perform the reviewed owner-authorized mutation')
+        action.add_argument('--dry-run', action='store_true', help='show the read-only plan/diff (default)')
+        if name == 'init':
+            p.add_argument('--release', choices=('main', 'none'), default='main')
+            p.add_argument('--timeout', type=int, default=600, help='owner-step timeout in seconds, 1–600')
+    p = bot_commands.add_parser('arm', help='reverify live protection and arm native auto-merge as the Builder App')
+    p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
+    p.add_argument('pr', type=int)
+    p.add_argument('--head', required=True, help='independently reviewed full current commit SHA')
     args = parser.parse_args()
     try:
         if args.command == 'wait' and args.summary and not args.save:
@@ -154,6 +169,18 @@ def main():
                 print(json.dumps(install_central(c, args.environment_file)))
             return 0
         c = load(args.config)
+        if args.command == 'review-bot':
+            if args.review_bot_command == 'init':
+                from .review_bot_apps import initialize
+                result = initialize(c, apply=args.apply, release=args.release, timeout=args.timeout)
+            elif args.review_bot_command == 'ruleset':
+                from .review_bot_ruleset import ruleset
+                result = ruleset(c, apply=args.apply)
+            else:
+                from .publication import arm
+                result = arm(c, args.pr, args.head)
+            print(json.dumps(result, indent=2))
+            return 2 if result.get('blockers') else 0
         if getattr(args, 'debug', False):
             c['_github_debug'] = True
         if args.command == 'orca-restart':

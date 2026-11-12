@@ -109,19 +109,24 @@ requires exact-head Main GO.
 - `none`: immediately after independent final-head **PASS is posted on the PR**,
   the builder arms native auto-merge before CI/App completion, without Main
   RELEASE. GitHub itself still enforces configured Review App exact-head APPROVE,
-  required checks and `merge-gate`; no bypass is authorized.
+  required App-owned `app-approval` and CI checks; no bypass is authorized.
 
-Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (use the
-configured `publication.merge_method`), recording the actual actor and PR/head
-on Pad, plus RELEASE for `main`. Before **any push after arming**, disable
+Arm only with `fleet --config CONFIG review-bot arm N --head FULL_SHA`, recording
+the observed actor and PR/head on Pad, plus RELEASE for `main`. Fleet verifies
+live protection with operator authentication and arms using only the separate
+Builder App token and configured merge method. Unknown protection or bypass
+visibility blocks launch and arming; never substitute raw GitHub arming.
+Before **any push after arming**, disable
 auto-merge/dequeue and verify removal; unknown evidence blocks the push. Then
 push, obtain a new independent exact-head PASS, post it on the PR, and rearm.
 For `main`, also obtain fresh CI/App gates and a new RELEASE; pushing invalidates
 the old ruling. Keep watching until GitHub actually merges or closes the PR;
 arming or queue entry is not task completion.
 
-Require the bot's `merge-gate` on live PR/synthetic heads and App-bound reviews
-in branch rulesets; Fleet's diagnostic watcher does not enforce hold/veto.
+Require Review-App-bound `codex-review` and App-owned `app-approval` on live
+PR/synthetic heads, project CI bound to its producer, stale dismissal/last-push
+approval and visibly no bypass. The generic Actions `merge-gate` is hold-only,
+not App approval authority; Fleet's diagnostic watcher does not enforce vetoes.
 Owner/Main stop publication with hold plus, if armed, disarm/dequeue and verified
 removal. Builders never change hold. Asynchronous checks cannot revoke a completed
 merge. Configuration neither installs a bot nor authorizes deployment.

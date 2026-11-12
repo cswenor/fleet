@@ -444,13 +444,14 @@ With `release: main`, for each exact-head `release_ready` request, Main checks:
    head's commit ID**. A same-named check from another App, stale-head approval,
    dismissed approval, or unknown App provenance is insufficient.
 4. No configured hold label, draft state, unticked Gate box or other project veto.
-   Live branch rules require the App-bound review, CI and the bot's `merge-gate`
-   status on PR and native `merge_group` heads, with no builder/admin bypass.
+   Live branch rules require `codex-review` and `app-approval` bound to the Review
+   App, plus project CI bound to its own producer, on PR/native `merge_group`
+   heads. No builder/admin bypass; stale dismissal and last-push approval apply.
 
 Reply **RELEASE PR N HEAD FULL_SHA** in the original native question thread,
 not MERGE GO, and record the ruling on Pad. The authorized builder or Main may
-then run `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (configured
-method), recording who armed it and the exact release/head. Builders never merge
+then run `fleet --config CONFIG review-bot arm N --head FULL_SHA`, recording
+the observed actor and exact release/head. Builders never merge
 directly/admin or touch the hold label. A new push invalidates RELEASE and
 requires fresh review/CI/App approval and a new ruling.
 
@@ -458,7 +459,7 @@ With `release: none`, immediately after the independent final-head **PASS is
 posted on the PR**, the builder arms that same native auto-merge command, before
 CI/App completion, without requesting or waiting for Main RELEASE. Record the
 actual arming actor and PR/head on Pad. GitHub itself must enforce configured
-Review App exact-head APPROVE, required checks and `merge-gate`; this policy
+Review App exact-head APPROVE, required checks and App-owned `app-approval`; this policy
 changes arming timing, never merge eligibility or bypass authority.
 
 In either variant, **before any push after arming**, the builder must disable
@@ -481,16 +482,112 @@ remerge-diff proof.
 a bot or native queue merged it; arming is never publication.
 
 The generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
-currently publishes `codex-review`; its distinct `merge-gate` status checks
-hold/draft/Gate boxes, including every synthetic-head member. Pin reviewed source
-and image versions during separately approved installation. A held PR may still
-receive APPROVE, so review success cannot replace the gate. Owner/Main can stop
-publication with a hold; after arming they must also disable auto-merge/dequeue
-and verify removal. Builders never change hold. Asynchronous webhook delivery
-is not an atomic merge fence and cannot undo an already completed merge.
+publishes `codex-review` and **App-owned `app-approval`**, both bound to the Review
+App. The approval gate reads live reviews, holds and every queue member on signed
+events and periodic reconciliation; PR-controlled workflows cannot grant its
+authority. The generic Actions `merge-gate` remains hold-only, not App-approval
+authority. A held PR may still receive APPROVE, so review success cannot replace
+the gate. Owner/Main stop publication with hold plus disarm/dequeue and verified
+removal. Builders never change hold. Asynchronous delivery and the stock CLI head
+precondition are not atomic merge locks and cannot undo a completed merge.
 
 In auto mode hold joins `github.parked_labels` for stuck timers only. Removal
 starts a fresh full interval; real CI/group failures remain visible while held.
+
+### Review Bot Apps, pins and live protection
+
+Installation is separate from owner-approved rollout. Keep publication manual
+while bootstrapping. GitHub private-repository ruleset capability, public HTTPS
+webhook ingress and operator authorization are prerequisites, not inferred from
+committed workflows. HTTP403 is a blocker, never evidence that no rules exist.
+
+The private project config and App environments must be owned, regular 0600
+files in owned 0700 directories **outside every Git checkout**. `openssl` is
+required for App authentication. `gh auth` supplies the operator credential;
+live protection uses GET only, but GitHub exposes `bypass_actors` only to an
+actor with write access to the ruleset. Missing visibility is unknown, not an
+empty bypass list. Never grant administration to the Builder App to solve this.
+
+Configure optional `review_bot` with:
+
+- `source`: the exact `repository`, `version` (`vMAJOR.MINOR.PATCH`), full
+  `commit` and immutable GHCR `image@sha256:…` from the chosen release's
+  `release.json`. Verify the annotated tag, successful source/image release run,
+  OCI revision/source and anonymous digest pull. A public repository does not
+  imply a public package. Pins never silently track upstream.
+- `apps.owner` and `owner_type` (`organization` or `user`), matching the target
+  repo owner. Each of `apps.review` and `apps.builder` has a globally unique
+  `name` and separate absolute `env_file`. Leave `slug`, `id` and
+  `installation_id` absent until the owner flow records verified receipts.
+- `webhook_url`: approved public HTTPS `/github`; the bot currently supports
+  the `main` default branch only.
+- `ruleset`: `name`, `branch: main`, `required_checks` containing the actual
+  project CI context names and positive producer `integration_id`, and optional
+  `merge_queue: true` only after synthetic-head CI/capability acceptance.
+  Set `id` only to an explicitly reviewed replacement target.
+
+Bootstrap may omit the source/App receipts for planning; mutation refuses
+missing authoritative prerequisites. App names, credentials, IDs, installations,
+state and webhook destination belong to this project only.
+
+| App | Native-mode repository permissions |
+|---|---|
+| Review | contents read, pull_requests write, checks write, actions read, issues read, statuses read, implicit metadata read |
+| Builder | contents write, pull_requests write, implicit metadata read |
+
+Review subscribes to pull_request, pull_request_review,
+pull_request_review_comment, issue_comment, check_run, check_suite, status,
+push, workflow_run and merge_group. Builder has no webhook subscriptions.
+Neither has administration, Actions write or legacy direct-merger permissions.
+Workflow-file publication needs separately approved workflows permission.
+
+Run from the operator host, using the private project config:
+
+```sh
+fleet review-bot init --config CONFIG --dry-run
+fleet review-bot init --config CONFIG --apply
+fleet review-bot ruleset --config CONFIG --dry-run
+fleet review-bot ruleset --config CONFIG --apply
+fleet review-bot init --config CONFIG --apply
+```
+
+`init --apply` checks ruleset capability **before creating either App**. The
+owner opens the printed loopback URL (forward its port if remote), reviews the
+manifest and manually creates/installs both private Apps in GitHub. No owner
+browser automation. The nonce-bound callback exchanges the one-use code without
+printing it or putting credentials in argv. Select **only the target repository**.
+Fleet verifies the unrestricted installation grant, not a misleading
+repository-restricted token, and saves separate credentials/receipts atomically.
+Ambiguous creation is retained as pending: reconcile the live App/installation
+and private files before retrying; never create a duplicate to clear an error.
+
+After Apps exist, init preserves publication policy and reports a blocker until
+the explicit ruleset is verified active, repository-owned, literal-main-only and
+visibly without bypass. Review the dry-run diff, apply it, then rerun init:
+existing Apps are reused; only then is publication set to auto_merge, hold label
+`hold`, verified Review App slug and release `main` (or explicit `--release none`).
+The merge method is preserved. Enable repository auto-merge explicitly too;
+Fleet does not silently change that repository setting.
+
+Ruleset planning preserves unrelated protections and refuses ambiguous
+replacement, producer changes, multi-branch replacement or approval-count
+downgrade. Choose a separately named additive ruleset rather than weakening one.
+Require strict checks: project CI bound to its producer, plus `codex-review`
+and `app-approval` bound to the Review App ID; one approval, stale dismissal,
+last-push approval and no bypass. Ordinary GitHub approval alone cannot name an
+App; the App-owned gate supplies that authority. Dry-run records only a private
+plan receipt when apply-ready; live/config drift invalidates it before mutation.
+
+Auto-merge launches and `review-bot arm` fail closed without live protection.
+The operator token never enters Review services or the arming child process:
+only a freshly minted, target-scoped Builder App token reaches that child, via
+environment rather than argv. Native pending CI/App checks remain expected in
+release-none mode. Read the command's observed native state and blockers; exit
+success from `gh` alone is not proof of arming or merge. A null actor is unknown:
+inspect native history before recording identity. After a timeout, head race or
+unconfirmed token cleanup, inspect native auto-merge/queue state before retrying.
+No deployment, calibration approval or project adoption is authorized by init.
+
 
 ### Guarded retirement
 
