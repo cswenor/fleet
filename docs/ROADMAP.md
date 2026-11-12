@@ -113,6 +113,36 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-137 — Guarded approve deployment and anonymous public pulls
+
+`review_bot.deployment.mode` defaults to `advisory`; explicit `approve` requires
+the same live repository/ruleset protection verifier used by guarded arming,
+including an immediate pre-Compose recheck. Pin and role-separated App receipts
+remain mandatory; merge lane/batch remain disabled. Read-only deploy plans expose
+the selected mode and approve blockers. Status compares requested mode with
+effective `/health` mode and preserves the bounded `approve→advisory` admission
+diagnostic rather than inferring authority from configuration.
+
+Public immutable image pulls use a credential-free temporary Docker configuration and the
+selected local/SSH context endpoint, never stored registry logins/helpers.
+An explicit empty ghcr.io auth entry also suppresses native credential-helper
+autodiscovery; an empty configuration alone does not guarantee anonymity.
+Compose reuses the pulled pin. Main's runbook now orders advisory deployment,
+scratch-PR proof, live protection, approve deployment and native merge proof,
+with advisory/hold rollback. No project/private config or shared runtime changed.
+Verification: all 37 focused Review Bot tests passed. The candidate Docker path
+successfully pulled the public release digest
+`sha256:101e4b703c5049d37691ee9744e5db1302a0a7c5f250696b9e86ed56495a5a68`
+with a deliberately bogus ghcr.io login in an isolated client configuration.
+No real client credentials were read or changed. Publication and shared
+installation require independent final-head review, green CI and Main GO.
+Independent review caught Docker's native-helper autodiscovery on an empty config.
+The fix supplies an empty ghcr.io auth entry; a second actual Docker pull passed
+with bogus stored auth and four failing native helper executables on PATH, with
+no helper invocation. The focused 37-test suite remained green.
+
+
+
 ### TASK-136 — Review App merge-group manifest permission
 
 Review App manifests and live App verification require `merge_queues: read`

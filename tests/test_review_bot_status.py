@@ -88,14 +88,17 @@ class StatusTests(unittest.TestCase):
                          'status_code': 200, 'delivered_at': '2026-11-12T18:00:00Z'}]
         valid = {'ok': True, 'revision': 'a' * 40, 'mode': 'advisory', 'mode_degraded': None,
                  'mergeLaneEnabled': False, 'runner': 'up', 'gateway': 'up'}
-        cases = [(200, valid, True), (503, {**valid, 'ok': False}, False),
-                 (200, {**valid, 'revision': 'f' * 40}, False),
-                 (200, {**valid, 'mode': 'approve'}, False),
-                 (200, {**valid, 'mergeLaneEnabled': True}, False),
-                 (200, {key: value for key, value in valid.items() if key != 'mode_degraded'}, False),
-                 (200, {key: value for key, value in valid.items() if key != 'runner'}, False)]
-        for code, value, healthy in cases:
-            with self.subTest(value=value), \
+        cases = [('advisory', 200, valid, True), ('approve', 200, {**valid, 'mode': 'approve'}, True),
+                 ('approve', 503, {**valid, 'ok': False, 'mode_degraded': 'approve→advisory'}, False),
+                 ('advisory', 503, {**valid, 'ok': False}, False),
+                 ('advisory', 200, {**valid, 'revision': 'f' * 40}, False),
+                 ('advisory', 200, {**valid, 'mode': 'approve'}, False),
+                 ('advisory', 200, {**valid, 'mergeLaneEnabled': True}, False),
+                 ('advisory', 200, {key: value for key, value in valid.items() if key != 'mode_degraded'}, False),
+                 ('advisory', 200, {key: value for key, value in valid.items() if key != 'runner'}, False)]
+        for requested, code, value, healthy in cases:
+            c['review_bot']['deployment']['mode'] = requested
+            with self.subTest(value=value, requested=requested), \
                     patch('fleet.review_bot_status.verify_pin'), \
                     patch('fleet.review_bot_status.GitHub.owner', return_value=Client()), \
                     patch('fleet.review_bot_status.docker', self.daemon()), \
@@ -105,6 +108,10 @@ class StatusTests(unittest.TestCase):
                     patch('fleet.review_bot_status.verify_installation', return_value=11):
                 result = status(c)
             self.assertEqual(result['healthy'], healthy)
+            self.assertEqual(result['health']['requested_mode'], requested)
+            self.assertEqual(result['health']['mode'], value['mode'])
+            self.assertEqual(result['health']['mode_mismatch'], requested != value['mode'])
+            self.assertEqual(result['health']['mode_degraded'], value.get('mode_degraded', 'unknown'))
 
     def test_healthy_requires_latest_success_for_verified_repository_and_installation(self):
         c = self.config()

@@ -651,8 +651,14 @@ origin to control port 8080. No service publishes raw ports or mounts a Docker
 socket. Runner has only the internal review network; broker/provider egress goes
 through the separate gateway/broker boundary. All four services use the same
 immutable source-bound image, UID/GID 10010, read-only root filesystems, dropped
-capabilities and no-new-privileges. Native/advisory mode is forced; deploy cannot
-turn on the merge lane or approval mode.
+capabilities and no-new-privileges. `review_bot.deployment.mode` accepts `advisory`
+(default) or `approve`. Native merge is mandatory: both merge lane and merge batch
+remain forced off. Approve plans report live-protection blockers; approve apply
+rechecks the same operator-visible protection as `review-bot arm` immediately
+before Compose mutation: repository-owned active literal-main ruleset, visibly
+empty bypass actors, stale dismissal/last-push approval, Review App-bound
+`codex-review`/`app-approval` and producer-bound project CI. Missing or unknown
+protection refuses deployment; pin and App verification remain required.
 
 Target-host paths are not resolved against the client filesystem:
 
@@ -687,8 +693,13 @@ Owner provisions broker logins privately for UID 10010 with HOME equal to
 `broker_auth_dir`; never copy another project's vault, print stored credentials
 or spend saved resets. Runner policy must preserve no fallback/advisors/reset
 spending. The CLI does not SSH, create target directories or run a privileged
-initialization container. Apply first pulls the pinned image, then probes only
-directory/file metadata and read access through recursively read-only mounts as
+initialization container. Apply first pulls the public pinned image anonymously,
+using a temporary credential-free Docker configuration and the selected context's local/SSH
+endpoint; stored registry logins/helpers never affect the pull. An anonymous
+failure blocks deployment. Compose reuses that pulled pin without repulling.
+An explicit empty ghcr.io auth entry suppresses Docker's native helper autodiscovery.
+Apply then probes only directory/file metadata and read access through recursively
+read-only mounts as
 UID 10010, with no network/capabilities and no-new-privileges. Kernel bind-root
 identities (including nested mounts) must prove that runtime, provider vault and
 policy are isolated even after host symlink resolution; unknown identity fails
@@ -716,12 +727,28 @@ fleet --config /absolute/private/project.yml review-bot deploy --apply
 fleet --config /absolute/private/project.yml review-bot status
 ```
 
+Rollout order, with separate owner/Main authorization:
+1. Deploy `mode: advisory` and verify status.
+2. Prove a real scratch PR receives the expected App review/checks.
+3. Review then apply protection with `review-bot ruleset --apply`.
+4. Set `mode: approve`, deploy again and verify effective approve health.
+5. Prove a PR merges through guarded native auto-merge; arming is not merge proof.
+
+Rollback approval authority by redeploying `mode: advisory`, or pause publication
+with the hold label. If already armed/queued, disable auto-merge/dequeue and verify
+removal as well; asynchronous hold checks cannot undo an already completed merge.
+
+
 Status observes all four singleton containers' actual image IDs, repository
 digests, OCI source revisions and Docker health, plus bounded HTTPS `/health`,
 verified selected-only-this-repository installations and recent webhook delivery
 metadata. It never retrieves container environments, delivery payloads, broker
-accounts or provider credentials. A configured pin is not deployed-version proof;
-missing/unknown/drifting evidence makes status unhealthy. The latest timestamped
+accounts or provider credentials. A configured pin is not deployed-version proof.
+`health.mode` is the effective mode observed from `/health`, not the requested
+configuration. Status includes `requested_mode`, `mode_mismatch` and the bounded
+`mode_degraded` diagnostic (`approve→advisory` on failed gateway/provider admission);
+unknown/degraded or requested/effective mismatch makes status unhealthy.
+Missing/unknown/drifting evidence makes status unhealthy. The latest timestamped
 delivery for the verified repository ID and Review installation must have a 2xx
 response; empty/failed/unknown delivery evidence is unhealthy. A later successful
 redelivery can recover an older failure. Deployment request success is not

@@ -1,4 +1,5 @@
 """Explicit-context Compose plans and guarded, private deployment execution."""
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -7,12 +8,14 @@ import re
 import selectors
 import subprocess
 import time
+import tempfile
 
 from .review_bot_config import validate
 from .review_bot_api import GitHub, app_client, verify_pin
 from .review_bot_apps import verify_app, verify_installation
 from .service_env import read_environment
 from .review_bot_files import private_parent
+from .review_bot_ruleset import verify_live_ruleset
 
 SERVICES = ('control', 'runner', 'broker', 'gateway')
 _LIMIT = 1024 * 1024
@@ -47,15 +50,28 @@ def project_name(c):
     return 'fleet-review-' + hashlib.sha256(c['repo'].lower().encode()).hexdigest()[:16]
 
 
-def docker(context, args, *, input=None):
+def docker(context, args, *, input=None, anonymous=False):
     """Never expose daemon errors, credentials, or unbounded subprocess output."""
     if not isinstance(context, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', context):
         raise ValueError('an explicit Docker context is required')
     environment = {key: value for key, value in os.environ.items()
                    if key in ('PATH', 'HOME', 'DOCKER_CONFIG', 'SSH_AUTH_SOCK', 'XDG_RUNTIME_DIR')}
+    command = ['docker', '--context', context, *args]
+    if anonymous:
+        endpoint = docker(context, ['context', 'inspect', context, '--format', '{{.Endpoints.docker.Host}}']).strip()
+        if not endpoint.startswith(('unix://', 'ssh://')):
+            raise ValueError('anonymous pull requires an existing local or SSH Docker context')
+        command = ['docker', '--host', endpoint, *args]
     try:
-        with subprocess.Popen(['docker', '--context', context, *args], stdin=subprocess.PIPE,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment) as process:
+        with ExitStack() as stack:
+            if anonymous:
+                environment['DOCKER_CONFIG'] = stack.enter_context(tempfile.TemporaryDirectory(prefix='fleet-public-pull-'))
+                # A present, empty registry entry suppresses Docker's automatic
+                # native credential-store discovery without supplying credentials.
+                (Path(environment['DOCKER_CONFIG']) / 'config.json').write_text(
+                    '{"auths":{"ghcr.io":{}}}\n')
+            process = stack.enter_context(subprocess.Popen(
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment))
             with selectors.DefaultSelector() as selector:
                 selector.register(process.stdout, selectors.EVENT_READ, 'stdout')
                 selector.register(process.stderr, selectors.EVENT_READ, 'stderr')
@@ -134,7 +150,7 @@ def topology(c):
     services['gateway']['depends_on'] = {'broker': {'condition': 'service_healthy'}}
     services['control']['depends_on'] = {role: {'condition': 'service_healthy'} for role in ('runner', 'gateway')}
     services['control']['environment'].update(
-        GITHUB_REPOSITORY=c['repo'], REVIEW_BOT_MODE='advisory', MERGE_LANE_ENABLED='false',
+        GITHUB_REPOSITORY=c['repo'], REVIEW_BOT_MODE=deployment.get('mode', 'advisory'), MERGE_LANE_ENABLED='false',
         MERGE_BATCH_ENABLED='false', RUNNER_URL='http://runner:8081', GATEWAY_URL='http://gateway:4000',
         STATE_ROOT='/state', WORK_ROOT='/work', SESSIONS_ROOT='/sessions', PORT='8080')
     services['gateway']['environment'].update(HOME='/var/lib/omp', OMP_AUTH_BROKER_URL='http://broker:8765')
@@ -181,7 +197,7 @@ def plan(c):
                 'Existing HTTPS reverse proxy must join ingress and route the configured origin to control:8080; no ports are published.',
                 'Target-host instance directories and broker logins must already exist, owned by uid 10010; runner configuration must be read-only.',
                 'Live release, selected-only-this-repository Apps, private environment files and Docker context/network are verified on apply.',
-                'Advisory only: calibration and approval-mode authorization are not implied by deployment.']}
+                'Approval mode requires verified live protection; deployment never authorizes rollout or calibration.']}
 
 
 def _probe_target(c):
@@ -225,18 +241,28 @@ process.stdout.write(valid ? 'valid' : 'invalid');
 process.exitCode = valid ? 0 : 1;
 '''
     # Pull is an apply-only mutation, required before the networkless probe.
-    docker(deployment['docker_context'], ['image', 'pull', bot['source']['image']])
+    try:
+        docker(deployment['docker_context'], ['image', 'pull', bot['source']['image']], anonymous=True)
+    except ValueError:
+        raise ValueError('anonymous public pinned-image pull failed; verify public availability and the selected Docker context privately') from None
     if docker(deployment['docker_context'], args, input=script).strip() != 'valid':
         raise ValueError('target-host private directories or read-only runner configuration are unsafe')
 
 
 def deploy(c, *, apply=False, github=None):
     result = plan(c)
+    bot = c.get('review_bot', {})
+    deployment = bot.get('deployment', {})
+    result['mode'] = deployment.get('mode', 'advisory')
+    if result['mode'] == 'approve':
+        try:
+            result['protection'] = verify_live_ruleset(c, github)
+        except ValueError as exc:
+            result['blockers'].append('approve deployment blocked: ' + str(exc))
     if not apply:
         return result
     if result['blockers']:
         raise ValueError('deployment prerequisites incomplete: ' + '; '.join(result['blockers']))
-    bot, deployment = c['review_bot'], c['review_bot']['deployment']
     context = deployment['docker_context']
     # Context inspection is projected: never read TLS material or arbitrary metadata.
     endpoint = docker(context, ['context', 'inspect', context, '--format', '{{.Endpoints.docker.Host}}']).strip()
@@ -292,7 +318,9 @@ def deploy(c, *, apply=False, github=None):
             return [literal(item) for item in value]
         return value
     # Compose reads private JSON over stdin; no secret files, argv or logs are emitted.
-    docker(context, ['compose', '--project-name', project_name(c), '--file', '-', 'up', '--detach', '--pull', 'always'],
+    if result['mode'] == 'approve':
+        result['protection'] = verify_live_ruleset(c, github)
+    docker(context, ['compose', '--project-name', project_name(c), '--file', '-', 'up', '--detach', '--pull', 'never'],
            input=json.dumps(literal(compose)))
     result.update(apply=True, deployed=True, target_paths_verified=True)
     result['prerequisites'].append('Deployment requested; use status for observed runtime readiness.')

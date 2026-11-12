@@ -112,6 +112,8 @@ def status(c, *, github=None):
     result = {'operation': 'status', 'healthy': False, 'pin_verified': False,
               'containers': None, 'health': None, 'installations': {}, 'deliveries': None, 'blockers': []}
     result['expected_source'] = bot.get('source')
+    requested_mode = bot.get('deployment', {}).get('mode', 'advisory')
+    result['requested_mode'] = requested_mode
     if not bot:
         result['blockers'].append('review_bot is not configured')
         return result
@@ -132,19 +134,23 @@ def status(c, *, github=None):
         code, observed = health(bot['deployment']['health_url'])
         revision = observed.get('revision')
         mode = observed.get('mode')
+        effective_mode = mode if mode in ('off', 'advisory', 'approve') else 'unknown'
+        degraded = observed.get('mode_degraded', 'unknown')
         result['health'] = {
             'http_status': code, 'ok': observed.get('ok') is True,
             'revision': revision if isinstance(revision, str) and _SHA.fullmatch(revision) else None,
-            'mode': mode if mode in ('off', 'advisory', 'approve') else 'unknown',
-            'mode_degraded': observed.get('mode_degraded') is not None if 'mode_degraded' in observed else 'unknown',
+            'mode': effective_mode,
+            'requested_mode': requested_mode,
+            'mode_mismatch': requested_mode != effective_mode,
+            'mode_degraded': degraded if degraded in (None, 'approve→advisory') else 'unknown',
             'merge_lane_disabled': observed.get('mergeLaneEnabled') is False,
             'runner': observed.get('runner') if observed.get('runner') in ('up', 'down') else 'unknown',
             'gateway': observed.get('gateway') if observed.get('gateway') in ('up', 'down') else 'unknown'}
         if (code != 200 or observed.get('ok') is not True or revision != bot.get('source', {}).get('commit')
-                or mode != 'advisory' or 'mode_degraded' not in observed or observed.get('mode_degraded') is not None
+                or mode != requested_mode or degraded is not None
                 or observed.get('mergeLaneEnabled') is not False
                 or observed.get('runner') != 'up' or observed.get('gateway') != 'up'):
-            result['blockers'].append('health readiness, exact revision or advisory/native mode is unknown or mismatched')
+            result['blockers'].append('health readiness, exact revision or requested/native mode is unknown, degraded or mismatched')
     except (ValueError, KeyError, TypeError):
         result['blockers'].append('HTTPS health diagnostics unavailable')
     for role in ('review', 'builder'):
