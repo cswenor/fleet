@@ -458,8 +458,7 @@ def initial_event(p):
             reasons.append('failing checks: ' + ', '.join(failed))
         publication = _publication_state(p)
         reasons.extend(detail for field, detail in (
-            ('hold', 'hold active'), ('draft', 'draft'),
-            ('auto_merge', 'auto_merge armed'), ('merge_queue', 'merge_queue entered'))
+            ('hold', 'hold active'), ('draft', 'draft'))
             if publication[field] is True)
     if not reasons:
         return None
@@ -469,7 +468,7 @@ def initial_event(p):
          for x in _latest_checks(p.get('checks', [])) if x.get('conclusion') in _FAILED_CONCLUSIONS),
         key=lambda x: (x[1], str(x[0]), x[2] or '', x[3] or ''))
     evidence = json.dumps(failures, separators=(',', ':'))
-    return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{p["head"]}:{detail}:{evidence}',
+    return {'key': f'pr:{p["number"]}:initial:{p.get("updated_at", p["head"])}:{p["head"]}:{detail}:failing={evidence}',
             'subject': f'PR #{p["number"]} initial state: {detail}', 'pr': p['number'],
             'branch': p['branch'], 'body': p['url'] + '\n' + detail}
 
