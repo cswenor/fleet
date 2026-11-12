@@ -145,6 +145,36 @@ class UrgentRelayTests(unittest.TestCase):
         current['prs'][0]['draft'] = True
         self.assertEqual(supervisor.stuck_pr_alerts(self.c, ledger, current, 8101), [])
 
+    def test_auto_merge_hold_resets_timer_without_hiding_failures(self):
+        self.c['publication'] = {'mode': 'auto_merge', 'hold_label': 'release hold'}
+        self.c['github'] = {'parked_labels': []}
+        self.cycle(0)
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(2700)
+        self.s['github']['prs'][0].update(
+            labels=['RELEASE HOLD'],
+            checks=[{'id': 1, 'name': 'CI', 'status': 'completed', 'conclusion': 'failure'}])
+        self.cycle(2701)
+        self.assertFalse(any(e['key'].startswith('pr_stuck:') for e, _ in self.calls))
+        self.assertTrue(any('failing checks: CI' in e['subject'] for e, _ in self.calls))
+        self.assertEqual(state.read(self.c, 'supervisor')['pr_progress'], {})
+        self.s['github']['prs'][0]['labels'] = []
+        self.cycle(3000)
+        self.cycle(5699)
+        self.assertFalse(any(e['key'].startswith('pr_stuck:') for e, _ in self.calls))
+        self.cycle(5700)
+        self.assertEqual([r for e, r in self.calls if e['key'].startswith('pr_stuck:')],
+                         ['run:r', 'builder'])
+
+    def test_manual_hold_does_not_pause_unless_explicitly_parked(self):
+        self.c['publication'] = {'mode': 'manual', 'hold_label': 'hold'}
+        current = snapshot()['github']
+        current['prs'][0]['labels'] = ['hold']
+        ledger = {}
+        supervisor.stuck_pr_alerts(self.c, ledger, current, 0)
+        self.assertEqual([e['pr'] for e in supervisor.stuck_pr_alerts(
+            self.c, ledger, current, 2700)], [1])
+
     def test_pause_discards_pending_stuck_but_keeps_other_relays(self):
         for pause in ({'draft': True}, {'labels': ['parked']}):
             with self.subTest(pause=pause):

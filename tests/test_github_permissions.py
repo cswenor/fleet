@@ -27,6 +27,8 @@ class PermissionTests(unittest.TestCase):
 
     def response(self, c, *args):
         endpoint = args[-1]
+        if args[1] == 'graphql':
+            return {'data': {'repository': {'pullRequest': {'mergeQueueEntry': None}}}}
         if endpoint == 'repos/owner/repo/pulls/7':
             return self.pr
         if '/check-runs?' in endpoint:

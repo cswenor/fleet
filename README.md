@@ -14,6 +14,8 @@ single source of truth for all remaining PLAN-2685 work and acceptance.
 and limitations. Fleet Pad owns PLAN-9 and process lessons DOC-19; elsewhere's
 PLAN-2685 remains historical. Main coordinates, builders use `fleet launch`;
 fresh independent read-only unadvised Sol review then CI are the two PR gates.
+Fleet itself remains manual and requires exact-head Main GO for publication,
+including the current PR; another project's auto-merge policy does not change it.
 The committed host binding has no credentials; private supervisor config is
 `~/.config/fleet/fleet.yml`, token in a mode-0600 EnvironmentFile.
 
@@ -33,6 +35,63 @@ Install the generic [Fleet workflow skill](.omp/skills/fleet/SKILL.md) and stock
 review overlay into each adopted project. The skill contains the complete
 onboarding checklist, Main/builder workflow, publication gates, deployment policy
 and restart recovery; it uses project bindings rather than fleet's host names.
+
+### Publication policy
+
+`publication.mode` defaults to `manual`, preserving existing launch prompts and
+self-publication after independent review + required final-head CI. Opt-in:
+
+```yaml
+publication:
+  mode: auto_merge
+  release: main # main | none; default main, ignored in manual mode
+  review_app: example-review
+  hold_label: hold
+  merge_method: squash
+```
+
+`review_app` is the installed GitHub App slug, not a human login or check name.
+`merge_method` accepts `merge`, `squash` or `rebase`; `hold_label` is compared
+case-insensitively. This is publication policy, not automatic dispatch or bot
+installation. The generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
+publishes the `codex-review` check and exact-head APPROVE; its separate
+`merge-gate` status enforces hold/draft/unticked Gate boxes, including synthetic
+queue heads. Require those protections in the live ruleset, with App-bound
+review authority, stale-review dismissal, last-push approval and no bypass.
+Pin a reviewed bot source/image; installing or deploying it is separate work.
+If you change `hold_label`, the live merge gate must enforce that same label;
+the stock bot gate uses `hold`. A watcher-only custom label is not a merge veto.
+
+In `auto_merge` mode builders never merge directly or with `--admin`, and never
+add/remove the hold label. `publication.release` selects the arming policy:
+
+- `main` (default): after independent review and green CI send
+  `thread report REF --kind release_ready --pr N --head FULL_SHA "evidence"`.
+  Main verifies required current-head CI, the configured App's successful check
+  and exact-head APPROVE, plus no hold/draft/veto, then records **RELEASE** for
+  that PR/head. Only then may the authorized builder or Main arm auto-merge.
+- `none`: immediately after an independent final-head **PASS is posted on the
+  PR**, the builder arms native auto-merge, before CI/App completion, without a
+  Main ruling. GitHub still enforces the configured Review App's exact-head
+  APPROVE, required checks and `merge-gate`; arming is not permission to bypass.
+
+Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (substitute
+the configured method), recording actual actor and PR/head on Pad, plus RELEASE
+for `main`. Before **any push after arming**, disable auto-merge/dequeue and
+verify removal; unknown evidence blocks the push. Then push, obtain a new
+independent exact-head PASS and post it on the PR before rearming. With `main`,
+also obtain fresh CI/App gates and a new RELEASE; a push invalidates the old one.
+Owner/Main can stop publication with hold plus disarm/dequeue and verified
+removal; builders never touch hold. Keep `watch-pr` armed until actual merge or
+closure; arming/queue entry is never a completion receipt.
+
+Snapshots retain review commit IDs and App identity separately from current-head
+matching, and expose hold/draft, auto-merge and queue transitions. Unknown API
+evidence is not disarmed/dequeued. Overall `checks_conclusion` is diagnostic,
+**not merge eligibility**. Exact-head approval must match the configured App;
+`release: none` changes arming timing, not GitHub's merge gates.
+`needs-next`, readiness and retirement prove task-linked merged PRs regardless
+of merge actor; a queued or auto-merge-armed PR does not qualify.
 
 ## Install and inspect
 
@@ -312,8 +371,10 @@ on state, head, merge-state, checks or review progress, not comments or
 `updated_at`. Draft PRs and PRs carrying any `github.parked_labels` name
 (case-insensitive, default `["parked"]`) produce no stuck alerts or queued stuck
 relays. Their timers are cleared; the full interval starts on the first observed
-ready, unparked state. `parked_labels: []` disables label exclusion, not draft
-exclusion. Other PR events are unchanged. Urgency is advisory and unauthenticated,
+ready, unparked state. In `auto_merge` mode the publication hold label is also
+excluded, even with `parked_labels: []`; removal restarts the full interval.
+Manual projects retain their configured exclusions. Other PR events, including
+real failures while held, remain visible. Urgency is advisory and unauthenticated,
 never authority or permission to restart, stop, merge or deploy.
 
 Each cycle observes `coordinator.terminal` for Main liveness.

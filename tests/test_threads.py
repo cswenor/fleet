@@ -524,6 +524,26 @@ class ReadyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already requested'):
             threads.ready(self.c, 'TASK-2')
 
+    def test_needs_next_requires_actual_queue_merge_not_auto_merge_arming(self):
+        from fleet import restart
+        self.c.update(repo='owner/project',
+                      publication={'mode': 'auto_merge', 'review_app': 'review-app'})
+        self.proof.stop()
+        nodes = []
+        def search(*args):
+            return {'data': {'search': {'issueCount': len(nodes), 'nodes': nodes,
+                    'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}
+        with patch.object(restart, 'gh', side_effect=search):
+            with self.assertRaisesRegex(ValueError, 'requires a new merged PR'):
+                threads.needs_next(self.c, 'TASK-1')
+            self.assertEqual(self.sent, [])
+            self.assertEqual(self.pads, [])
+            nodes.append({'number': 1, **self.prs[0],
+                          'mergedBy': {'login': 'github-merge-queue[bot]'}})
+            receipt = threads.needs_next(self.c, 'TASK-1')
+        self.assertTrue(receipt['recorded'])
+        self.assertEqual(len(self.sent), 1)
+
     def test_needs_next_rejects_inherited_merge_and_unsettled_attempt(self):
         self.prs[0]['mergedAt'] = '2025-01-01T00:00:00Z'
         with self.assertRaises(ValueError):

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import hashlib
 import json
 import tempfile
 import unittest
@@ -77,6 +78,50 @@ class RestartTests(unittest.TestCase):
             'omp', '--model', 'provider/model', '--thinking', 'medium',
             '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
             '@' + receipt['prompt']])
+
+    def test_manual_publication_prompt_matches_frozen_pre_policy_bytes(self):
+        # Frozen from the pre-publication-policy prompt with only the temporary
+        # checkout root normalized. Policy changes must not repin this reference.
+        reference = 'e9922e8fb3093c826c4921261559c4c399ecd0297b0a5a19a0c077af7de6da62'
+        for publication in (None, {'mode': 'manual', 'review_app': '',
+                                   'hold_label': 'hold', 'merge_method': 'squash'}):
+            with self.subTest(publication=publication):
+                if publication is not None:
+                    self.c['publication'] = publication
+                    self.c['_state'] += '-manual'
+                    self.prompt = 'user@host:~/slot$ '
+                receipt = self.launch()
+                prompt = Path(receipt['prompt']).read_bytes()
+                # macOS exposes /var temporary paths through /private/var.
+                normalized = prompt.replace(str(Path(self.directory.name).resolve()).encode(),
+                                            b'/PROJECT').replace(self.directory.name.encode(), b'/PROJECT')
+                self.assertEqual(hashlib.sha256(normalized).hexdigest(), reference)
+
+    def test_release_none_arms_after_posted_review_and_requires_disarm_before_push(self):
+        self.c['publication'] = {'mode': 'auto_merge', 'release': 'none',
+                                 'review_app': 'review-app', 'hold_label': 'hold',
+                                 'merge_method': 'rebase'}
+        receipt = self.launch()
+        policy = Path(receipt['prompt']).read_text().rsplit('PUBLICATION POLICY', 1)[1]
+        self.assertIn('gh pr merge N --auto --match-head-commit FULL_SHA --rebase', policy)
+        self.assertLess(policy.index('post its PASS'), policy.index('gh pr merge'))
+        self.assertIn('without waiting for CI', policy)
+        self.assertIn('Do not send a release_ready report', policy)
+        self.assertIn('do not arm while either is present', policy)
+        self.assertIn('Before ANY push', policy)
+        self.assertLess(policy.index('disarm native auto-merge'),
+                        policy.index('absent BEFORE pushing'))
+        self.assertIn('new exact head', policy)
+        self.assertIn('before re-arming', policy)
+
+    def test_manual_release_none_is_ignored_by_prompt_generation(self):
+        self.c['publication'] = {'mode': 'manual', 'release': 'none'}
+        receipt = self.launch()
+        normalized = Path(receipt['prompt']).read_bytes().replace(
+            str(Path(self.directory.name).resolve()).encode(), b'/PROJECT').replace(
+            self.directory.name.encode(), b'/PROJECT')
+        self.assertEqual(hashlib.sha256(normalized).hexdigest(),
+                         'e9922e8fb3093c826c4921261559c4c399ecd0297b0a5a19a0c077af7de6da62')
 
     def test_plan_and_override_launches_keep_next_launch_default(self):
         self.c['builder'].update(
