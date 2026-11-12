@@ -29,7 +29,7 @@ class PublicationConfigTests(unittest.TestCase):
         return config.load(self.path)['publication']
 
     def test_omitted_and_empty_policy_default_to_manual(self):
-        expected = {'mode': 'manual', 'review_app': '',
+        expected = {'mode': 'manual', 'release': 'main', 'review_app': '',
                     'hold_label': 'hold', 'merge_method': 'squash'}
         self.assertEqual(self.load(omitted=True), expected)
         self.assertEqual(self.load({}), expected)
@@ -37,13 +37,29 @@ class PublicationConfigTests(unittest.TestCase):
 
     def test_auto_merge_requires_app_and_preserves_project_settings(self):
         for method in ('merge', 'squash', 'rebase'):
-            publication = {'mode': 'auto_merge', 'review_app': 'review-bot-2',
+            publication = {'mode': 'auto_merge', 'release': 'main',
+                           'review_app': 'review-bot-2',
                            'hold_label': 'human hold', 'merge_method': method}
             with self.subTest(method=method):
                 self.assertEqual(self.load(publication), publication)
         self.assertEqual(self.load({'mode': 'auto_merge', 'review_app': 'a'}),
-                         {'mode': 'auto_merge', 'review_app': 'a',
+                         {'mode': 'auto_merge', 'release': 'main', 'review_app': 'a',
                           'hold_label': 'hold', 'merge_method': 'squash'})
+
+    def test_release_values_are_preserved_in_both_modes(self):
+        for mode in ('manual', 'auto_merge'):
+            for release in ('main', 'none'):
+                with self.subTest(mode=mode, release=release):
+                    policy = self.load({'mode': mode, 'release': release,
+                                        'review_app': 'review-app'})
+                    self.assertEqual(policy['mode'], mode)
+                    self.assertEqual(policy['release'], release)
+
+    def test_invalid_release_values_are_rejected_in_both_modes(self):
+        for mode in ('manual', 'auto_merge'):
+            for release in (None, False, True, 0, 1, [], {}, '', 'manual', 'MAIN', 'None'):
+                with self.subTest(mode=mode, release=release), self.assertRaisesRegex(ValueError, 'publication.release'):
+                    self.load({'mode': mode, 'release': release, 'review_app': 'review-app'})
 
     def test_malformed_publication_mapping_is_rejected(self):
         for publication in (None, False, [], 'auto_merge', {'unknown': True}):

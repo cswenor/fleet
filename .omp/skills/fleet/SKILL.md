@@ -453,36 +453,54 @@ second model reviewer is implied.
 ### Opt-in bot/native auto-merge mode
 
 With `publication.mode: auto_merge`, builders NEVER merge directly or with
-`--admin`, and NEVER touch `publication.hold_label` (default `hold`). The two
-gates above remain necessary. Send `thread report REF --kind release_ready
---pr N --head FULL_SHA "evidence"` and wait for Main's **RELEASE** for that exact
-PR/head. Main verifies independent review, required current-head CI, the configured
-`publication.review_app` successful check plus exact-head APPROVE, and no
-hold/draft/unticked Gate box/project veto. Wrong-App, stale/dismissed review or
-unknown provenance is insufficient; generic check success is not eligibility.
+`--admin`, and NEVER touch `publication.hold_label` (default `hold`). Both gates
+above remain necessary for merge, not necessarily for arming.
+`publication.release` accepts `main` (default) or `none` and is ignored in manual
+mode; manual prompts and policy remain unchanged. Fleet's own manual policy,
+including its current PR, still requires exact-head Main GO.
 
-After RELEASE only, the builder or Main may arm
-`gh pr merge N --auto --match-head-commit FULL_SHA --squash`, substituting
-`--merge`/`--rebase` for `publication.merge_method`. Record the actual actor,
-PR/head and release ruling on Pad. A push invalidates RELEASE: obtain fresh
-gates and authorization. Keep `watch-pr` armed through actual merge or closure;
-arming and queue entry never qualify as completion or retirement evidence.
+- `main`: send `thread report REF --kind release_ready --pr N --head FULL_SHA
+  "evidence"` and wait for Main's exact-head **RELEASE**. Main verifies independent
+  review, required current-head CI, the configured `publication.review_app`
+  successful check plus exact-head APPROVE, and no hold/draft/unticked Gate
+  box/project veto. Wrong-App, stale/dismissed review or unknown provenance is
+  insufficient; generic check success is not eligibility.
+- `none`: immediately after independent final-head **PASS is posted on the PR**,
+  the builder arms native auto-merge before CI/App completion, without a Main
+  ruling. GitHub still enforces configured Review App exact-head APPROVE,
+  required checks and `merge-gate`; no bypass is authorized.
+
+Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash`,
+substituting `--merge`/`--rebase` for `publication.merge_method`. Record the actual
+actor and PR/head on Pad, plus the RELEASE ruling for `main`.
+Before **any push after arming**, the builder must disable auto-merge/dequeue and
+verify removal; unknown evidence blocks the push. Then push, obtain a new
+independent exact-head PASS and post it on the PR before rearming. For `main`,
+also obtain fresh CI/App gates and a new RELEASE; the push invalidates the old
+ruling. Keep `watch-pr` armed through actual merge or closure; arming and queue
+entry never qualify as completion or retirement evidence.
 
 The optional generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
 publishes `codex-review` and exact-head reviews; its separate `merge-gate` status
 enforces hold/draft/Gate boxes on PR and synthetic queue heads. Require live
 ruleset protection, App-bound reviews and no builder/admin bypass. Installation,
 tested source/image pinning and rollout need separate approval; this setting
-does not install a service. Emergency holds after arming also require Main to
-disable auto-merge/dequeue and verify removal: asynchronous checks cannot undo
-an already completed merge.
+does not install a service or authorize deployment. Owner/Main stop publication
+with hold plus, after arming, disable auto-merge/dequeue and verified removal.
+Builders never change hold. Asynchronous checks cannot undo a completed merge.
 
 Watch semantic hold/draft, armed/disarmed and queue entry/exit events; unknown
 queue evidence is not exit. Review commit IDs and App metadata must match the
-current head/configured App before Main releases. Auto-mode hold pauses only
-`pr_stuck`, joining existing parked labels; removal restarts the full interval,
-while real failures remain visible. Completion guards use actual task-linked
-merged PRs, independent of the merger's identity.
+current head/configured App for merge eligibility and before Main releases.
+A review matching the current head remains current regardless of App identity;
+that does not establish configured App authority. An older APPROVED head X
+carried as the first parent of a two-parent current head, with its other parent
+proven an ancestor of the base, is displayed only as **unverified carrier of
+reviewed head X**. It is never exact-head approval or release eligibility.
+Do not claim a clean merge without remerge-diff proof.
+Auto-mode hold pauses only `pr_stuck`, joining existing parked labels; removal
+restarts the full interval, while real failures remain visible. Completion
+guards use actual task-linked merged PRs, independent of merger identity.
 
 ## Completion, deployment and retirement
 

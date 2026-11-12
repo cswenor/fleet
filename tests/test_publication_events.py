@@ -289,3 +289,79 @@ class PublicationEventTests(unittest.TestCase):
         exited_again = self.transitions(second, absent)[0]
         self.assertNotEqual(exited['key'], exited_again['key'])
         self.assertEqual(self.transitions(first, first), [])
+
+
+class CarrierReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.c = {'repo': 'owner/project', 'publication': {'review_app': 'review-app'}}
+        self.pr = {'number': 7, 'head': {'sha': 'carrier'}, 'base': {'sha': 'base'}}
+        self.reviews = [{'id': 1, 'state': 'APPROVED', 'commit_id': 'reviewed',
+                         'user': {'type': 'Bot', 'login': 'review-app[bot]',
+                                  'html_url': 'https://github.com/apps/review-app'}}]
+        self.parents = [{'sha': 'reviewed'}, {'sha': 'base'}]
+
+    def normalize(self, comparison=None):
+        unavailable = []
+        def api(c, *args):
+            if '/git/commits/' in args[-1]:
+                return {'parents': self.parents}
+            return comparison
+        with patch.object(github, 'gh', side_effect=api) as request:
+            carrier = github._review_carrier(self.c, self.pr, self.reviews, unavailable)
+        return github._review_snapshot(self.c, self.reviews, 'carrier', carrier), unavailable, request
+
+    def test_base_merge_carrier_is_display_only_not_exact_head_approval(self):
+        reviews, unavailable, request = self.normalize()
+        review = reviews[0]
+        self.assertEqual(review['head_display'], 'unverified carrier of reviewed head reviewed')
+        self.assertEqual(review['classification'], 'carrier_of_reviewed_head')
+        self.assertFalse(review['current_head'])
+        self.assertTrue(review['review_app_match'])
+        self.assertEqual(review['carrier']['cleanliness'], 'unverified')
+        self.assertEqual(unavailable, [])
+        self.assertEqual(request.call_count, 1)
+
+    def test_second_parent_must_be_proven_on_base_history(self):
+        self.parents[1]['sha'] = 'older-base'
+        for comparison, carried in (
+                ({'status': 'ahead', 'merge_base_commit': {'sha': 'older-base'}}, True),
+                ({'status': 'diverged', 'merge_base_commit': {'sha': 'common'}}, False),
+                ({'status': 'ahead', 'merge_base_commit': {'sha': 'common'}}, False)):
+            with self.subTest(comparison=comparison):
+                reviews, _, _ = self.normalize(comparison)
+                self.assertEqual(reviews[0]['carrier'] is not None, carried)
+
+    def test_nonmerge_wrong_first_parent_and_octopus_are_not_carriers(self):
+        for parents in ([{'sha': 'reviewed'}], list(reversed(self.parents)),
+                        self.parents + [{'sha': 'third'}]):
+            with self.subTest(parents=parents):
+                self.parents = parents
+                reviews, _, _ = self.normalize()
+                self.assertEqual(reviews[0]['head_display'], 'stale head')
+                self.assertIsNone(reviews[0]['carrier'])
+
+    def test_exact_head_is_current_independently_of_review_app_identity(self):
+        for user in ({'login': 'human', 'type': 'User'},
+                     {'login': 'other[bot]', 'type': 'Bot',
+                      'html_url': 'https://github.com/apps/other'}):
+            with self.subTest(user=user):
+                self.reviews[0].update(commit_id='carrier', user=user)
+                reviews, _, request = self.normalize()
+                self.assertTrue(reviews[0]['current_head'])
+                self.assertEqual(reviews[0]['head_display'], 'current head')
+                self.assertIsNone(reviews[0]['carrier'])
+                request.assert_not_called()
+
+    def test_dismissed_or_unknown_approval_cannot_prove_carrier(self):
+        for change in ({'state': 'DISMISSED'}, {'commit_id': None}):
+            with self.subTest(change=change):
+                reviews = [{**self.reviews[0], **change}]
+                with patch.object(github, 'gh', return_value={'parents': self.parents}):
+                    self.assertIsNone(github._review_carrier(self.c, self.pr, reviews, []))
+
+    def test_unavailable_ancestry_retains_stale_display_and_reports_uncertainty(self):
+        unavailable = []
+        with patch.object(github, 'gh', side_effect=CommandError('unavailable')):
+            carrier = github._review_carrier(self.c, self.pr, self.reviews, unavailable)
+        self.assertIsNone(carrier)
+        self.assertIn('carrier evidence unavailable', unavailable[0])

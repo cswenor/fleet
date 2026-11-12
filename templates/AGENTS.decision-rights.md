@@ -14,7 +14,7 @@ This is agent policy, not additional `fleet.yml` schema.
 | CI gate | `<required final-head checks>` | GitHub CI |
 | Additional review bot | `<none or project-required bot>` | None |
 | Dispatch mode | `<owner-approved mode>` | Main-confirmed `fleet launch`; no auto-dispatch |
-| Publication mode | `manual` or `auto_merge`; Review App slug / hold label / merge method | `manual` |
+| Publication mode | `manual` or `auto_merge`; release `main` (default) / `none`; Review App slug / hold label / merge method | `manual`; exact-head Main GO |
 
 ## Authority
 
@@ -94,24 +94,44 @@ Do not assume a review bot exists or count CI as a second model review. A projec
 may require its own bot in addition to these gates. Verify the changed real
 surface and retain evidence in the PR and durable task outcome.
 
-In `publication.mode: auto_merge`, those gates remain required but do not
-authorize a builder merge. Builders NEVER merge directly or with admin bypass,
-and NEVER modify the configured hold label. Send `thread report REF --kind
-release_ready --pr N --head FULL_SHA "evidence"` and wait for Main's exact-head
-**RELEASE**. Main verifies independent review, required CI, the configured
-`publication.review_app` successful check and APPROVE on the current head, and
-no hold/draft/veto. Unknown or stale-head/wrong-App evidence cannot authorize
-release; aggregate check success alone is not eligibility.
+In `publication.mode: auto_merge`, both gates remain required for merge, not
+necessarily for arming. Builders NEVER merge directly or with admin bypass, and
+NEVER modify the configured hold label. `publication.release` accepts `main`
+(default) or `none`, and is ignored in manual mode; manual prompts and policy
+stay unchanged. Fleet's own manual policy, including its current PR, still
+requires exact-head Main GO.
 
-Only after RELEASE may the builder or Main arm
-`gh pr merge N --auto --match-head-commit FULL_SHA --squash` (use the configured
-`publication.merge_method`) and record the actor and authorization on Pad.
-A push invalidates RELEASE. Keep watching until GitHub actually merges or closes
-the PR; arming auto-merge or entering the queue is not task completion. Require
-the bot's `merge-gate` on live PR/synthetic heads and App-bound reviews in branch
-rulesets; hold/veto enforcement is not supplied by Fleet's diagnostic watcher.
-Emergency holds after arming also require Main to disable auto-merge/dequeue and
-verify removal: asynchronous label checks cannot revoke an already completed merge.
+- `main`: send `thread report REF --kind release_ready --pr N --head FULL_SHA
+  "evidence"` and wait for Main's exact-head **RELEASE**. Main verifies independent
+  review, required CI, the configured `publication.review_app` successful check
+  and exact-head APPROVE, and no hold/draft/veto. Unknown, stale-head or wrong-App
+  evidence cannot authorize release; aggregate check success is not eligibility.
+- `none`: immediately after independent final-head **PASS is posted on the PR**,
+  the builder arms native auto-merge before CI/App completion, without Main
+  RELEASE. GitHub itself still enforces configured Review App exact-head APPROVE,
+  required checks and `merge-gate`; no bypass is authorized.
+
+Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (use the
+configured `publication.merge_method`), recording the actual actor and PR/head
+on Pad, plus RELEASE for `main`. Before **any push after arming**, disable
+auto-merge/dequeue and verify removal; unknown evidence blocks the push. Then
+push, obtain a new independent exact-head PASS, post it on the PR, and rearm.
+For `main`, also obtain fresh CI/App gates and a new RELEASE; pushing invalidates
+the old ruling. Keep watching until GitHub actually merges or closes the PR;
+arming or queue entry is not task completion.
+
+Require the bot's `merge-gate` on live PR/synthetic heads and App-bound reviews
+in branch rulesets; Fleet's diagnostic watcher does not enforce hold/veto.
+Owner/Main stop publication with hold plus, if armed, disarm/dequeue and verified
+removal. Builders never change hold. Asynchronous checks cannot revoke a completed
+merge. Configuration neither installs a bot nor authorizes deployment.
+
+Display-only review evidence is not authorization: matching the current head
+remains current regardless of App identity, without proving configured App
+authority. An older APPROVED head X carried as the first parent of a two-parent
+current head, with its other parent proven an ancestor of the base, is only an
+**unverified carrier of reviewed head X**, never exact-head approval or release
+eligibility. Do not claim a clean merge without remerge-diff proof.
 
 Pick the next piece by plan priority, usually the same feature; the same ref is
 allowed. Never switch to an unrelated task just to get a different ref.

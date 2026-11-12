@@ -114,8 +114,17 @@ github:
   # Case-insensitive names; [] disables label exclusion, never draft exclusion.
   parked_labels: [parked]
 publication:
-  # manual preserves existing self-publication. auto_merge requires Main RELEASE.
+  # manual preserves existing prompts/self-publication; release is ignored.
   mode: manual
+  # auto_merge arming: main requires exact-head Main RELEASE (default).
+  # none: builder arms immediately after independent final-head PASS posted on PR,
+  # before CI/App completion; GitHub still enforces exact-head App approval,
+  # required checks and merge-gate. No bypass; builder never changes hold.
+  # Before any push after arming: disarm/dequeue and verify removal, then push,
+  # obtain/post new exact-head PASS and rearm (main also needs fresh RELEASE).
+  # Record arming actor; watch until actual merge/close, not just queue entry.
+  # Owner/Main stop: hold plus disarm/dequeue with verified removal.
+  release: main # main | none
   # Required App slug in auto_merge; not a check name or human reviewer login.
   review_app: ''
   hold_label: hold

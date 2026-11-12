@@ -144,14 +144,17 @@ def load(path):
         raise ValueError('github.parked_labels must be a list of nonempty label names')
     publication = c.setdefault('publication', {})
     if (not isinstance(publication, dict) or
-            set(publication) - {'mode', 'review_app', 'hold_label', 'merge_method'}):
-        raise ValueError('publication must map mode, review_app, hold_label and merge_method')
+            set(publication) - {'mode', 'release', 'review_app', 'hold_label', 'merge_method'}):
+        raise ValueError('publication must map mode, release, review_app, hold_label and merge_method')
     publication.setdefault('mode', 'manual')
+    publication.setdefault('release', 'main')
     publication.setdefault('review_app', '')
     publication.setdefault('hold_label', 'hold')
     publication.setdefault('merge_method', 'squash')
     if publication['mode'] not in ('manual', 'auto_merge'):
         raise ValueError('publication.mode must be manual or auto_merge')
+    if publication['release'] not in ('main', 'none'):
+        raise ValueError('publication.release must be main or none')
     app = publication['review_app']
     if (not isinstance(app, str) or
             (app and not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]*[a-z0-9])?', app)) or

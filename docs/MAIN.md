@@ -429,11 +429,14 @@ No model or stock command bypasses the two publication gates.
 ### Opt-in native auto-merge publication
 
 Fleet itself remains `publication.mode: manual` unless separately approved.
+Its exact-head Main GO requirement, including for the current PR, is unchanged.
 Projects opting into `auto_merge` bind `publication.review_app` to the installed
 GitHub App slug, `hold_label` (default `hold`) and `merge_method` (default
-`squash`; also `merge`/`rebase`). This does not install a bot or enable dispatch.
+`squash`; also `merge`/`rebase`). `publication.release` accepts `main` (default)
+or `none` and is ignored in manual mode. This does not install a bot, deploy
+anything or enable dispatch.
 
-For each exact-head `release_ready` request, Main checks:
+With `release: main`, for each exact-head `release_ready` request, Main checks:
 
 1. Independent unadvised reviewer/session evidence and resolved findings.
 2. All required CI on the **current** PR head, not aggregate success alone.
@@ -451,21 +454,40 @@ method), recording who armed it and the exact release/head. Builders never merge
 directly/admin or touch the hold label. A new push invalidates RELEASE and
 requires fresh review/CI/App approval and a new ruling.
 
+With `release: none`, immediately after the independent final-head **PASS is
+posted on the PR**, the builder arms that same native auto-merge command, before
+CI/App completion, without requesting or waiting for Main RELEASE. Record the
+actual arming actor and PR/head on Pad. GitHub itself must enforce configured
+Review App exact-head APPROVE, required checks and `merge-gate`; this policy
+changes arming timing, never merge eligibility or bypass authority.
+
+In either variant, **before any push after arming**, the builder must disable
+auto-merge/dequeue and verify removal. Unknown removal evidence blocks pushing.
+Only then push, obtain a fresh independent exact-head PASS and post it on the PR,
+then rearm; `main` additionally requires fresh CI/App gates and a new RELEASE.
+
 Keep `watch-pr` armed until actual merge or closure. Arming, queue entry and
 generic `checks_conclusion: success` do not prove merge eligibility or completion.
 Inspect semantic hold/draft, armed/disarmed and queue entry/exit events; unavailable
 queue data is unknown, not an exit. Review snapshots retain commit ID, reviewer
-identity and App provenance for exact-head checks. `needs-next`/restart accept an
-actual task-linked merged PR regardless of whether a bot or native queue merged
-it; they never accept auto-merge arming as publication.
+identity and App provenance for exact-head checks. A review matching the current
+head remains current regardless of App identity; that does not establish the
+configured App's authority. An older APPROVED head X carried as the first parent
+of a two-parent current head, whose other parent is proven an ancestor of the
+base, is displayed only as **unverified carrier of reviewed head X**. It is never
+exact-head approval or release eligibility. Do not claim a clean merge without
+remerge-diff proof.
+`needs-next`/restart accept an actual task-linked merged PR regardless of whether
+a bot or native queue merged it; arming is never publication.
 
 The generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
 currently publishes `codex-review`; its distinct `merge-gate` status checks
 hold/draft/Gate boxes, including every synthetic-head member. Pin reviewed source
 and image versions during separately approved installation. A held PR may still
-receive APPROVE, so review success cannot replace the gate. For an emergency hold
-after arming, Main must also disable auto-merge/dequeue and verify removal;
-asynchronous webhook delivery is not an atomic merge fence.
+receive APPROVE, so review success cannot replace the gate. Owner/Main can stop
+publication with a hold; after arming they must also disable auto-merge/dequeue
+and verify removal. Builders never change hold. Asynchronous webhook delivery
+is not an atomic merge fence and cannot undo an already completed merge.
 
 In auto mode hold joins `github.parked_labels` for stuck timers only. Removal
 starts a fresh full interval; real CI/group failures remain visible while held.

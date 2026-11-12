@@ -118,18 +118,27 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 Main's task brief approves `publication.mode: manual | auto_merge`, with default
 manual preserving launch prompt bytes; `review_app` is an App slug, `hold_label`
 defaults to `hold`, and `merge_method` defaults to `squash` (merge/rebase supported).
-Auto mode forbids builder direct/admin merge and hold-label mutation. Independent
-review + required CI lead to an exact-head `release_ready` request. Main verifies
-the configured App's successful check and current-head APPROVE plus no hold/veto,
-then issues RELEASE, not MERGE GO. An authorized actor records itself before
-arming protected native auto-merge. A push invalidates release; queue/arming
-never count as completion.
+Main's later owner-ruling relay adds `publication.release: main | none` (default
+main, ignored in manual). Auto mode forbids builder direct/admin merge and
+hold-label mutation. With release main, independent review + required CI lead to
+exact-head `release_ready`; Main verifies App success/APPROVE and no hold/veto,
+then issues RELEASE, not MERGE GO. With none, the builder arms immediately after
+posting independent exact-head PASS on the PR, without CI/App/Main waiting;
+GitHub's required App/check/merge-gate rules still control actual merge.
+Record the arming actor. Before any armed push, disarm/dequeue and verify removal,
+then push, review/post PASS for the new head and satisfy the configured release
+policy before rearming. Arming/queue entry never count as completion.
 
 The candidate adds hold/draft, auto-merge and native queue evidence/events, review
 commit/App provenance and current-head matching. Generic check conclusions remain
 diagnostic, not eligibility. Auto-mode hold joins existing stuck-timer exclusions;
 removal restarts the full interval while real failures remain visible.
 Completion remains based on actual task-linked merged PRs, not the merging actor.
+Exact-head approvals remain visibly current independently of App identity.
+Display-only carrier evidence requires a two-parent current head whose first
+parent is an APPROVED head and second parent is proven in current base history.
+It says unverified carrier of reviewed head X, never clean or exact-head approval;
+ancestry lookup failure is unknown, never release authority.
 
 Read-only Evermore PR2559 timeline confirms native queue entry, removal,
 re-entry and actual merge at 2026-11-12T15:14:01Z by its Builder App. Live reviews
@@ -147,13 +156,14 @@ separate from this policy change. Shared installation remains Main-owned and
 publication waits for independent final-head Sol-medium review, green CI and
 Main's exact-head GO.
 
-Verification: 358 focused config/launcher/GitHub/watcher/supervisor/completion
-tests passed; 46 event/watcher regressions passed after preserving semantic queue
-exit/disarming alongside terminal merge/close events. Frozen pre-change archive
-and candidate manual prompts share normalized SHA256
+Verification: 368 focused config/launcher/GitHub/watcher/supervisor/completion
+tests passed after the release-none and carrier additions, including arming timing,
+hold/disarm-before-push policy, ancestry rejection and exact-head identity.
+Earlier 46 event/watcher regressions preserve semantic queue exit/disarming
+alongside terminal merge/close. Frozen pre-change and manual prompts share SHA256
 `e9922e8fb3093c826c4921261559c4c399ecd0297b0a5a19a0c077af7de6da62`.
-The temporary auto-mode prompt smoke proved configured rebase arming only after
-RELEASE, actor recording, push invalidation and terminal-outcome watching.
+macOS CI exposed /var versus /private/var normalization in that golden test;
+both spellings are now normalized without re-pinning the frozen bytes.
 The real source CLI `watch-pr 2495` (isolated state/config, read-only) returned
 `DIRTY; draft`. Source-bound PR2559 timeline replay produced three queue entries,
 three exits, auto-merge arm/disarm and merged events; actual captured reviews

@@ -14,6 +14,8 @@ single source of truth for all remaining PLAN-2685 work and acceptance.
 and limitations. Fleet Pad owns PLAN-9 and process lessons DOC-19; elsewhere's
 PLAN-2685 remains historical. Main coordinates, builders use `fleet launch`;
 fresh independent read-only unadvised Sol review then CI are the two PR gates.
+Fleet itself remains manual and requires exact-head Main GO for publication,
+including the current PR; another project's auto-merge policy does not change it.
 The committed host binding has no credentials; private supervisor config is
 `~/.config/fleet/fleet.yml`, token in a mode-0600 EnvironmentFile.
 
@@ -42,6 +44,7 @@ self-publication after independent review + required final-head CI. Opt-in:
 ```yaml
 publication:
   mode: auto_merge
+  release: main # main | none; default main, ignored in manual mode
   review_app: example-review
   hold_label: hold
   merge_method: squash
@@ -60,20 +63,33 @@ If you change `hold_label`, the live merge gate must enforce that same label;
 the stock bot gate uses `hold`. A watcher-only custom label is not a merge veto.
 
 In `auto_merge` mode builders never merge directly or with `--admin`, and never
-add/remove the hold label. After independent review and green CI they send
-`thread report REF --kind release_ready --pr N --head FULL_SHA "evidence"`.
-Main verifies current-head required CI, the configured App's successful check
-and APPROVE on that exact head, plus no hold/draft/veto, then records **RELEASE**
-for that PR/head. The authorized builder or Main records the arming actor on Pad
-and runs `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (substitute
-the configured method). No RELEASE means no arming. A push invalidates RELEASE;
-obtain fresh gates and authorization. Keep `watch-pr` armed until actual merge
-or closure; arming/queue entry is never a completion receipt.
+add/remove the hold label. `publication.release` selects the arming policy:
+
+- `main` (default): after independent review and green CI send
+  `thread report REF --kind release_ready --pr N --head FULL_SHA "evidence"`.
+  Main verifies required current-head CI, the configured App's successful check
+  and exact-head APPROVE, plus no hold/draft/veto, then records **RELEASE** for
+  that PR/head. Only then may the authorized builder or Main arm auto-merge.
+- `none`: immediately after an independent final-head **PASS is posted on the
+  PR**, the builder arms native auto-merge, before CI/App completion, without a
+  Main ruling. GitHub still enforces the configured Review App's exact-head
+  APPROVE, required checks and `merge-gate`; arming is not permission to bypass.
+
+Arm with `gh pr merge N --auto --match-head-commit FULL_SHA --squash` (substitute
+the configured method), recording actual actor and PR/head on Pad, plus RELEASE
+for `main`. Before **any push after arming**, disable auto-merge/dequeue and
+verify removal; unknown evidence blocks the push. Then push, obtain a new
+independent exact-head PASS and post it on the PR before rearming. With `main`,
+also obtain fresh CI/App gates and a new RELEASE; a push invalidates the old one.
+Owner/Main can stop publication with hold plus disarm/dequeue and verified
+removal; builders never touch hold. Keep `watch-pr` armed until actual merge or
+closure; arming/queue entry is never a completion receipt.
 
 Snapshots retain review commit IDs and App identity separately from current-head
 matching, and expose hold/draft, auto-merge and queue transitions. Unknown API
 evidence is not disarmed/dequeued. Overall `checks_conclusion` is diagnostic,
-**not merge eligibility**. Main must inspect the current exact-head evidence.
+**not merge eligibility**. Exact-head approval must match the configured App;
+`release: none` changes arming timing, not GitHub's merge gates.
 `needs-next`, readiness and retirement prove task-linked merged PRs regardless
 of merge actor; a queued or auto-merge-armed PR does not qualify.
 

@@ -28,7 +28,7 @@ def _queued(c, number, *, details=False):
     return entry if details else entry is not None
 
 
-def _review_snapshot(c, reviews, head):
+def _review_snapshot(c, reviews, head, carrier=None):
     """Keep review evidence separate from current-head and producer identity."""
     configured = c.get('publication', {}).get('review_app')
     result = []
@@ -56,20 +56,53 @@ def _review_snapshot(c, reviews, head):
                         if review.get('commit_id') is not None else None)
         match = (slug.casefold() == configured.casefold()
                  if slug and configured else None)
+        carried = bool(carrier and review.get('commit_id') == carrier['reviewed_head']
+                       and review['state'] == 'APPROVED' and current_head is False)
         result.append({
             'id': review['id'], 'state': review['state'],
             'submitted_at': review.get('submitted_at'),
             'commit_id': review.get('commit_id'), 'current_head': current_head,
+            'head_display': ('current head' if current_head is True else
+                             f"unverified carrier of reviewed head {carrier['reviewed_head']}"
+                             if carried else 'stale head' if current_head is False else 'unknown head'),
+            'carrier': carrier if carried else None,
             'user': {field: user.get(field) for field in ('id', 'login', 'type', 'html_url')},
             'performed_via_github_app': review.get('performed_via_github_app'),
             'app_id': (app or {}).get('id'), 'app_slug': slug,
             'app_identity_source': source, 'review_app_match': match,
-            'classification': ('stale' if current_head is False else
+            'classification': ('carrier_of_reviewed_head' if carried else
+                               'stale' if current_head is False else
                                'unknown_head' if current_head is None else
                                'wrong_app' if match is False else
                                'current_review_app' if match is True else
                                'unknown_app')})
     return result
+
+
+def _review_carrier(c, p, reviews, unavailable):
+    """Recognize ancestry for display only; never claim a clean remerge or approval."""
+    approved = {r.get('commit_id') for r in reviews
+                if r['state'] == 'APPROVED' and r.get('commit_id')
+                and r['commit_id'] != p['head']['sha']}
+    base = (p.get('base') or {}).get('sha')
+    if not approved or not base:
+        return None
+    try:
+        commit = gh(c, 'api', f'repos/{c["repo"]}/git/commits/{p["head"]["sha"]}')
+        parents = commit['parents']
+        if len(parents) != 2 or parents[0]['sha'] not in approved:
+            return None
+        second = parents[1]['sha']
+        if second != base:
+            comparison = gh(c, 'api', f'repos/{c["repo"]}/compare/{second}...{base}?per_page=1')
+            if (comparison.get('status') != 'ahead' or
+                    (comparison.get('merge_base_commit') or {}).get('sha') != second):
+                return None
+        return {'reviewed_head': parents[0]['sha'], 'head': p['head']['sha'],
+                'base_parent': second, 'base': base, 'cleanliness': 'unverified'}
+    except (CommandError, ValueError, KeyError, TypeError) as error:
+        unavailable.append(f'PR #{p["number"]} carrier evidence unavailable: {error}')
+        return None
 
 
 def _recent(timestamp, cutoff):
@@ -305,7 +338,8 @@ def collect(c, pr_number=None):
                        'time_to_merge_seconds': int((datetime.fromisoformat(merged.replace('Z', '+00:00')) - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))).total_seconds()) if merged else None,
                        'checks': sorted(checks, key=lambda x: (x['name'], x['id'])),
                        'comments': sorted([{'id': x['id'], 'updated_at': x.get('updated_at', x.get('submitted_at')), 'url': x.get('html_url')} for x in comments], key=lambda x: (x['id'], x['url'] or '')),
-                       'reviews': _review_snapshot(c, reviews, p['head']['sha'])})
+                       'reviews': _review_snapshot(
+                           c, reviews, p['head']['sha'], _review_carrier(c, p, reviews, unavailable))})
     cached = None
     signature = None
     merge_group_unknown = False
