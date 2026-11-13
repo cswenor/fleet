@@ -1,4 +1,5 @@
 from copy import deepcopy
+import base64
 from contextlib import redirect_stderr
 from http.client import HTTPConnection
 from io import StringIO
@@ -598,6 +599,107 @@ class ReviewBotTests(unittest.TestCase):
                         reloaded = config.load(self.path)
                         self.assertEqual(reloaded['review_bot']['ruleset']['id'], 1009)
                         self.assertTrue(verify_live_ruleset(reloaded, github)['verified'])
+
+
+    def test_queue_plan_migrates_only_selected_app_check_and_rolls_back(self):
+        c = self.installed()
+        live = self.existing(c)
+        c['review_bot']['ruleset'].update(id=live['id'], merge_queue=True)
+        live['rules'].append({'type': 'required_signatures'})
+        planned = desired_ruleset(c, live)
+        rules = {rule['type']: rule['parameters'] for rule in planned['rules'] if 'parameters' in rule}
+        self.assertEqual(rules['required_status_checks']['required_status_checks'], [
+            {'context': 'CI', 'integration_id': 15368}, {'context': 'app-approval', 'integration_id': 1007}])
+        self.assertTrue(rules['required_status_checks']['strict_required_status_checks_policy'])
+        self.assertEqual(rules['pull_request']['required_approving_review_count'], 0)
+        self.assertEqual(planned['bypass_actors'], [])
+        self.assertIn({'type': 'required_signatures'}, planned['rules'])
+        for method in ('squash', 'merge', 'rebase'):
+            c['publication'] = {'merge_method': method}
+            candidate = desired_ruleset(c, live)
+            queue = next(rule['parameters'] for rule in candidate['rules'] if rule['type'] == 'merge_queue')
+            self.assertEqual(queue['merge_method'], method.upper())
+            self.assertEqual(queue['grouping_strategy'], 'ALLGREEN')
+        migrated = {**live, **planned}
+        c['review_bot']['ruleset']['merge_queue'] = False
+        rollback = desired_ruleset(c, migrated)
+        self.assertNotIn('merge_queue', [rule['type'] for rule in rollback['rules']])
+        checks = next(rule['parameters']['required_status_checks'] for rule in rollback['rules']
+                      if rule['type'] == 'required_status_checks')
+        self.assertIn({'context': 'codex-review', 'integration_id': 1007}, checks)
+        migrated['name'] = 'owner-policy'
+        with self.assertRaisesRegex(ValueError, 'refusing to remove'):
+            desired_ruleset(c, migrated)
+        c['review_bot']['ruleset']['merge_queue'] = True
+        live['name'] = 'owner-policy'
+        with self.assertRaisesRegex(ValueError, 'refusing to remove codex-review'):
+            desired_ruleset(c, live)
+        live['name'] = 'fleet-review-bot'
+        live['rules'][1]['parameters']['required_status_checks'][1]['integration_id'] = 999
+        with self.assertRaisesRegex(ValueError, 'refusing to remove codex-review'):
+            desired_ruleset(c, live)
+
+    def test_queue_live_authority_rejects_weaker_protection_and_stalling_check(self):
+        c = self.installed()
+        c['review_bot']['ruleset']['merge_queue'] = True
+        live = self.existing(c)
+        c['review_bot']['ruleset']['id'] = live['id']
+        self.assertTrue(verify_live_ruleset(c, self.client(c, live))['verified'])
+        mutations = [
+            lambda value: value.pop('bypass_actors'),
+            lambda value: value.update(bypass_actors=[{'actor_id': 1}]),
+            lambda value: value['rules'].pop(),
+            lambda value: value['rules'][-1]['parameters'].update(merge_method='REBASE'),
+            lambda value: value['rules'][-1]['parameters'].update(grouping_strategy='HEADGREEN'),
+            lambda value: value['rules'][1]['parameters'].update(strict_required_status_checks_policy=False),
+            lambda value: value['rules'][1]['parameters']['required_status_checks'].append(
+                {'context': 'codex-review', 'integration_id': 1007}),
+        ]
+        for context in ('CI', 'app-approval'):
+            for missing in (False, True):
+                changed = deepcopy(live)
+                checks = changed['rules'][1]['parameters']['required_status_checks']
+                if missing:
+                    checks[:] = [check for check in checks if check['context'] != context]
+                else:
+                    next(check for check in checks if check['context'] == context)['integration_id'] = 999
+                with self.subTest(context=context, missing=missing), self.assertRaises(ValueError):
+                    verify_live_ruleset(c, self.client(c, changed))
+        for mutation in mutations:
+            changed = deepcopy(live)
+            mutation(changed)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                verify_live_ruleset(c, self.client(c, changed))
+
+    def test_queue_workflow_preflight_warns_only_readable_matching_missing_trigger(self):
+        c = self.installed()
+        c['review_bot']['ruleset']['merge_queue'] = True
+        client = self.client(c, None)
+        original = client.request
+        workflow = 'on: pull_request\njobs:\n  test:\n    name: CI\n    runs-on: ubuntu-latest\n'
+        def request(method, path, body=None):
+            if '/contents/.github/workflows?' in path:
+                return [{'path': '.github/workflows/ci.yml', 'type': 'file'}]
+            if '/contents/.github/workflows/ci.yml?' in path:
+                return {'encoding': 'base64', 'content': base64.b64encode(workflow.encode()).decode()}
+            return original(method, path, body)
+        client.request = request
+        result = ruleset(c, github=client)
+        self.assertEqual(result['blockers'], [])
+        self.assertIn('lacks a merge_group trigger', result['warnings'][0])
+        for triggers in ('[pull_request, merge_group]', '{pull_request: {}, merge_group: {}}', 'merge_group'):
+            workflow = f'on: {triggers}\njobs:\n  CI:\n    runs-on: ubuntu-latest\n'
+            self.assertEqual(ruleset(c, github=client)['warnings'], [])
+        workflow = 'on: pull_request\njobs:\n  unrelated: {}\n'
+        self.assertEqual(ruleset(c, github=client)['warnings'], [])
+        def unreadable(method, path, body=None):
+            if '/contents/' in path:
+                raise APIError(403)
+            return original(method, path, body)
+        client.request = unreadable
+        result = ruleset(c, github=client)
+        self.assertEqual(result['warnings'], [])
+        self.assertEqual(result['blockers'], [])
 
 
 if __name__ == '__main__':

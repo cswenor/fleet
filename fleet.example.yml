@@ -150,7 +150,7 @@ publication:
 #     name: fleet-review-bot
 #     branch: main
 #     required_checks: [] # configure real project CI contexts + producer integration_id
-#     merge_queue: false
+#     merge_queue: false # true: native ALLGREEN queue; CI must trigger on merge_group (docs/MAIN.md)
 #   deployment:
 #     backend: compose
 #     mode: advisory # approve requires verified live main ruleset on every apply

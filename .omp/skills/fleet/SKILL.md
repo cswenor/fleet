@@ -486,8 +486,16 @@ entry never qualify as completion or retirement evidence.
 The optional generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
 publishes `codex-review`, exact-head reviews and the App-owned `app-approval`
 check, which enforces Review App approval and hold/draft/Gate boxes on PR and
-synthetic queue heads. Require both checks bound to the Review App, project CI
-bound to its producer and visibly no bypass. Plan human approval count 0:
+synthetic queue heads. Require `app-approval` bound to the Review App, project CI
+bound to its producer and visibly no bypass. Outside native queue mode also require
+App-bound `codex-review`; queue mode omits it because it is not published on synthetic
+heads and exact-head App APPROVE already requires passing review. Required CI must
+trigger on `merge_group`; `ruleset --dry-run` gives best-effort readable-workflow warnings.
+Enable `review_bot.ruleset.merge_queue: true` for native queue publication; the queue
+uses `publication.merge_method`, ALLGREEN, and conservative single-entry defaults.
+Main rollback disarms/dequeues with verified removal, sets false and reviews/reapplies
+the ruleset, restoring `codex-review`. Only the selected Fleet-owned ruleset is migrated.
+Plan human approval count 0:
 the read-only Review App's APPROVE does not satisfy GitHub's ordinary count;
 `app-approval` is the exact-head approval authority.
 The generic Actions `merge-gate` is hold-only, not bot-approval authority.
