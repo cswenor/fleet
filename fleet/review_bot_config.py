@@ -15,6 +15,30 @@ PERMISSIONS = {
 }
 
 
+def queue_parameters(c):
+    """Resolve native queue settings; limits follow GitHub's ruleset API."""
+    value = c.get('review_bot', {}).get('ruleset', {}).get('merge_queue', False)
+    if value is False:
+        return None
+    defaults = {'grouping_strategy': 'ALLGREEN', 'max_entries_to_build': 5,
+                'max_entries_to_merge': 5, 'min_entries_to_merge': 1,
+                'min_entries_to_merge_wait_minutes': 0,
+                'check_response_timeout_minutes': 120}
+    if value is not True:
+        _mapping(value, defaults, 'review_bot.ruleset.merge_queue')
+        defaults.update(value)
+    if defaults['grouping_strategy'] not in ('ALLGREEN', 'HEADGREEN'):
+        raise ValueError('review_bot.ruleset.merge_queue.grouping_strategy must be ALLGREEN or HEADGREEN')
+    for key, low, high in (
+            ('max_entries_to_build', 0, 100), ('max_entries_to_merge', 0, 100),
+            ('min_entries_to_merge', 0, 100), ('min_entries_to_merge_wait_minutes', 0, 360),
+            ('check_response_timeout_minutes', 1, 360)):
+        if type(defaults[key]) is not int or not low <= defaults[key] <= high:
+            raise ValueError(f'review_bot.ruleset.merge_queue.{key} must be an integer from {low} to {high}')
+    defaults['merge_method'] = c.get('publication', {}).get('merge_method', 'squash').upper()
+    return defaults
+
+
 def _mapping(value, fields, name):
     if not isinstance(value, dict) or set(value) - set(fields):
         raise ValueError(f'{name} must be a mapping with only documented fields')
@@ -127,8 +151,7 @@ def validate(c):
         _text(rules['name'], 'review_bot.ruleset.name', r'[A-Za-z0-9][A-Za-z0-9 ._-]{0,99}')
     if 'branch' in rules and rules['branch'] != 'main':
         raise ValueError('review_bot.ruleset.branch currently supports main only')
-    if 'merge_queue' in rules and type(rules['merge_queue']) is not bool:
-        raise ValueError('review_bot.ruleset.merge_queue must be a boolean')
+    queue_parameters(c)
     checks = rules.get('required_checks', [])
     if not isinstance(checks, list):
         raise ValueError('review_bot.ruleset.required_checks must be a list')

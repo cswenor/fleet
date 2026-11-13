@@ -1,13 +1,18 @@
 """Reviewable, additive repository rules; never infer replacement or bypass."""
+import base64
 import copy
 import difflib
 import hashlib
 import json
+from urllib.parse import quote
+
+import yaml
 
 from . import state
 from .review_bot_api import APIError, GitHub, app_client, verify_pin
 from .review_bot_apps import prerequisites, verify_app, verify_installation
 from .review_bot_files import read_config, save_config
+from .review_bot_config import queue_parameters
 
 
 def _json(value):
@@ -34,6 +39,16 @@ def _pages(github, path):
 def _body(value):
     return {key: copy.deepcopy(value[key]) for key in
             ('name', 'target', 'enforcement', 'bypass_actors', 'conditions', 'rules') if key in value}
+
+
+def _required_checks(c):
+    bot = c.get('review_bot', {})
+    app_id = bot.get('apps', {}).get('review', {}).get('id')
+    checks = list(bot.get('ruleset', {}).get('required_checks', []))
+    if queue_parameters(c) is None:
+        checks.append({'context': 'codex-review', 'integration_id': app_id})
+    checks.append({'context': 'app-approval', 'integration_id': app_id})
+    return checks
 
 
 def desired_ruleset(c, existing=None):
@@ -77,14 +92,16 @@ def desired_ruleset(c, existing=None):
     checks = parameters.get('required_status_checks', [])
     if not isinstance(checks, list):
         raise ValueError('existing ruleset has invalid required status checks')
-    desired = [*config.get('required_checks', []),
-               {'context': 'codex-review', 'integration_id': app_id},
-               {'context': 'app-approval', 'integration_id': app_id}]
+    desired = _required_checks(c)
     by_context = {}
     for check in checks:
         if not isinstance(check, dict) or not isinstance(check.get('context'), str) or check['context'] in by_context:
             raise ValueError('existing ruleset has ambiguous required status check producers')
         by_context[check['context']] = copy.deepcopy(check)
+    if queue_parameters(c) is not None and 'codex-review' in by_context:
+        if not fleet_owned or by_context['codex-review'].get('integration_id') != app_id:
+            raise ValueError('refusing to remove codex-review outside the selected Fleet-owned App-bound ruleset')
+        del by_context['codex-review']
     for check in desired:
         previous = by_context.get(check['context'])
         if previous and previous.get('integration_id') not in (None, check['integration_id']):
@@ -93,14 +110,13 @@ def desired_ruleset(c, existing=None):
     parameters.update(required_status_checks=list(by_context.values()), strict_required_status_checks_policy=True)
     required['parameters'] = parameters
     replacements = {'pull_request': pull, 'required_status_checks': required}
-    if config.get('merge_queue', False):
-        replacements['merge_queue'] = indexed.get('merge_queue', {
-            'type': 'merge_queue', 'parameters': {
-                'check_response_timeout_minutes': 60, 'grouping_strategy': 'ALLGREEN',
-                'max_entries_to_build': 1, 'max_entries_to_merge': 1, 'merge_method': 'SQUASH',
-                'min_entries_to_merge': 1, 'min_entries_to_merge_wait_minutes': 0}})
+    queue = queue_parameters(c)
+    if queue is not None:
+        replacements['merge_queue'] = {'type': 'merge_queue', 'parameters': queue}
     elif 'merge_queue' in indexed:
-        raise ValueError('refusing to remove an existing merge queue; preserve it in the project configuration')
+        if not fleet_owned:
+            raise ValueError('refusing to remove a merge queue outside the selected Fleet-owned ruleset')
+        rules = [rule for rule in rules if rule['type'] != 'merge_queue']
     output = [replacements.pop(rule['type'], rule) for rule in rules]
     output.extend(replacements.values())
     return {'name': config.get('name', 'fleet-review-bot'), 'target': 'branch', 'enforcement': 'active',
@@ -177,13 +193,19 @@ def verify_live_ruleset(c, github=None, *, require_publication=False):
         if not isinstance(check, dict) or not isinstance(check.get('context'), str) or check['context'] in checks:
             raise ValueError('auto-merge blocked: required check producers are ambiguous')
         checks[check['context']] = check.get('integration_id')
-    expected = [*config['required_checks'],
-                {'context': 'codex-review', 'integration_id': apps['review']['id']},
-                {'context': 'app-approval', 'integration_id': apps['review']['id']}]
+    expected = _required_checks(c)
     if any(checks.get(check['context']) != check['integration_id'] for check in expected):
-        raise ValueError('auto-merge blocked: project CI, codex-review and app-approval must require their exact configured Apps')
-    if config.get('merge_queue', False) and 'merge_queue' not in rules:
-        raise ValueError('auto-merge blocked: configured native merge queue is not enforced')
+        raise ValueError('auto-merge blocked: project CI and required Review App checks must require their exact configured Apps')
+    queue = queue_parameters(c)
+    if queue is not None:
+        live_queue = rules.get('merge_queue', {})
+        if any(type(live_queue.get(key)) is not type(value) or live_queue[key] != value
+               for key, value in queue.items()):
+            raise ValueError('auto-merge blocked: configured native merge queue parameters must be enforced')
+        if 'codex-review' in checks:
+            raise ValueError('auto-merge blocked: codex-review is not published on native merge-group heads; reapply the queue-mode ruleset')
+    elif 'merge_queue' in rules:
+        raise ValueError('auto-merge blocked: live merge queue differs from configured non-queue mode')
     return {'verified': True, 'ruleset_id': config['id'], 'branch': 'main',
             'review_app_id': apps['review']['id'], 'required_checks': expected}
 
@@ -206,6 +228,45 @@ def _matches_requested(actual, expected):
             remaining.pop(match)
         return True
     return type(actual) is type(expected) and actual == expected
+
+
+def _queue_workflow_warnings(c, github):
+    """Best-effort diagnostics only; unreadable workflows never block planning."""
+    root = f'/repos/{c["repo"]}/contents/'
+    try:
+        rows = github.request('GET', root + '.github/workflows?ref=main')
+        if not isinstance(rows, list):
+            return []
+    except ValueError:
+        return []
+    contexts = {check['context'] for check in c['review_bot']['ruleset'].get('required_checks', [])}
+    warnings = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        path = row.get('path', '')
+        if (row.get('type') != 'file' or not isinstance(path, str)
+                or not path.startswith('.github/workflows/')
+                or not path.endswith(('.yml', '.yaml'))):
+            continue
+        try:
+            content = github.request('GET', root + quote(path, safe='/') + '?ref=main')
+            if content.get('encoding') != 'base64':
+                continue
+            workflow = yaml.load(base64.b64decode(content['content']).decode('utf-8'), Loader=yaml.BaseLoader)
+            if not isinstance(workflow, dict) or not isinstance(workflow.get('jobs'), dict):
+                continue
+            names = {job.get('name', key) for key, job in workflow['jobs'].items()
+                     if isinstance(job, dict) and isinstance(job.get('name', key), str)}
+            matched = contexts & names
+            triggers = workflow.get('on', {})
+            if isinstance(triggers, (str, list, dict)) and 'merge_group' not in (
+                    [triggers] if isinstance(triggers, str) else triggers):
+                if matched:
+                    warnings.append(f'{path}: configured CI {", ".join(sorted(matched))} lacks a merge_group trigger; native queue checks will not run')
+        except (ValueError, KeyError, TypeError, AttributeError, UnicodeError, yaml.YAMLError):
+            continue
+    return warnings
 
 
 def ruleset(c, *, apply=False, github=None):
@@ -246,6 +307,12 @@ def ruleset(c, *, apply=False, github=None):
     result['desired'] = desired
     app_id = bot.get('apps', {}).get('review', {}).get('id')
     result['approval authority'] = f'app-approval (Review App {app_id}), human approval count 0'
+    if queue_parameters(c) is not None:
+        result['queue approval authority'] = (
+            'app-approval subsumes codex-review: every member requires a non-dismissed '
+            'exact-head Review App APPROVE, issued only after passing review; '
+            'codex-review is not published on synthetic merge-group heads')
+        result['warnings'] = _queue_workflow_warnings(c, github)
     if not app_id:
         result['blockers'].append('Verified Review App id/slug/installation receipts are required before --apply')
     if not config.get('required_checks'):
@@ -297,7 +364,9 @@ def ruleset(c, *, apply=False, github=None):
         elif any(row.get('name') == desired['name'] for row in refreshed_inventory):
             raise ValueError('a same-name ruleset appeared during verification; reconcile its explicit ID before apply')
         document, encoded = read_config(c)
-        if document.get('review_bot') != bot:
+        if (document.get('review_bot') != bot
+                or document.get('publication', {}).get('merge_method', 'squash')
+                != c.get('publication', {}).get('merge_method', 'squash')):
             raise ValueError('Review Bot configuration changed during verification; reload and review a fresh dry-run before apply')
         if selected is None:
             state.write(c, 'review-bot-ruleset-create', {'digest': digest})

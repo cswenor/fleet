@@ -172,11 +172,13 @@ class ArmingTests(unittest.TestCase):
         self.assertTrue(result['blockers'])
 
     def test_native_queue_entry_without_auto_merge_is_successful_queued_observation(self):
+        self.c['review_bot']['ruleset'] = {'merge_queue': True}
         self.after_process = lambda: None
         self.queue.return_value = {'id': 'native-entry'}
         result = self.arm()
         self.assertEqual(result['state'], 'queued')
         self.assertTrue(result['merge_queue'])
+        self.assertEqual(result['merge_queue_entry'], {'id': 'native-entry'})
         self.assertIsNone(result['arming_actor'])
         self.assertNotIn('blockers', result)
 

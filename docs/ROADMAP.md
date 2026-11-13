@@ -113,6 +113,41 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-140 — Native merge queue approval authority
+
+`review_bot.ruleset.merge_queue: true` plans an ALLGREEN native queue using
+`publication.merge_method`, strict producer-bound project CI and Review App-bound
+`app-approval`, human count 0 and no bypass. Queue mode omits `codex-review`:
+the bot publishes no such synthetic-head check, while `app-approval` requires
+every member's non-dismissed exact-head App APPROVE, issued only after passing review.
+The shared live verifier used by ruleset admission, arming, approve deployment,
+status and launch accepts this shape and rejects missing/wrong producers, bypass,
+missing queue, parameter drift and a stalling codex-review requirement.
+
+Only the explicitly selected Fleet-named ruleset can migrate its configured
+App-bound `codex-review` away. Rollback sets queue false and reapplies that
+selected ruleset, restoring codex-review and removing the queue; unrelated
+protections remain. The Main runbook covers rollout/rollback and mandatory CI
+`merge_group` triggers. Readable matching workflow jobs lacking that trigger
+produce dry-run warnings; unreadable workflows do not block planning or prove readiness.
+Arming retains native queue-entry evidence alongside queued/armed/unknown states.
+Main amendment `msg_7a6677d278d0`: queue accepts true or a parameter mapping,
+including an empty mapping. Defaults ALLGREEN/build5/merge5/min1/wait0/timeout120;
+project overrides validate GitHub's API enums/ranges. Merge method remains
+publication-owned, and the live verifier compares every effective parameter.
+
+Verification: 32 focused Review Bot tests and 17 arming/guard tests passed.
+Fixture-only candidate CLI ruleset dry-run returned exit 0 with REBASE queue,
+App-approval subsumption rationale, strict bound CI/gate and a missing-trigger
+warning. Fixture-only arming CLI returned exit 0 with queued/entry evidence and
+the guarded native `--auto --match-head-commit … --rebase` argv.
+The amended mapping CLI dry-run also returned exit 0 with MERGE,
+build1/merge5/min1/wait0/timeout120 and the same bound checks/trigger warning.
+Read-only v0.1.0 bot source confirmed approval and merge-group gate behavior.
+No live ruleset, App, project config or shared runtime was changed.
+Email Sherpa's Main owns real opt-in/synthetic-head proof after deployment.
+Publication requires independent final-head review, green CI and exact-head Main GO.
+
 ### TASK-139 — App-owned approval authority
 
 Ruleset plans use human approval count 0, strict producer-bound CI and

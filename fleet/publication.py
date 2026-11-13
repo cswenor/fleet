@@ -97,6 +97,7 @@ def _eligible(client, c, pr, head):
 
 def _observed(c, pr, head, pull):
     queue = None
+    entry = None
     if pull.get('state') == 'open' and pull.get('merged') is not True:
         try:
             entry = _queued(c, pr, details=True)
@@ -116,7 +117,8 @@ def _observed(c, pr, head, pull):
              'not_armed' if queue is False and auto is None and 'auto_merge' in pull else 'unknown')
     return {'operation': 'arm', 'repository': c['repo'], 'pr': pr, 'head': head,
             'observed_head': pull.get('head', {}).get('sha'),
-            'state': state, 'arming_actor': actor, 'merge_queue': queue}
+            'state': state, 'arming_actor': actor, 'merge_queue': queue,
+            'merge_queue_entry': entry if queue is True else None}
 
 
 def arm(c, pr, head):

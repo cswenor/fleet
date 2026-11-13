@@ -56,8 +56,11 @@ case-insensitively. This is publication policy, not automatic dispatch or bot
 installation. The generic [Fleet Review Bot](https://github.com/cswenor/fleet-review-bot)
 publishes `codex-review` and the separate **App-owned `app-approval` check**.
 The latter revalidates exact-head Review App APPROVE, hold/draft/Gate boxes and
-every synthetic queue member. Both checks require the Review App integration ID;
-project CI requires its own producer ID. The generic Actions `merge-gate`
+every synthetic queue member. Non-queue mode requires both checks bound to the
+Review App; native queue mode requires only the subsuming `app-approval` because
+`codex-review` is not published on synthetic heads. Project CI requires its own
+producer ID and `merge_group` triggers. See [native queue setup and rollback](docs/MAIN.md#native-merge-queue).
+The generic Actions `merge-gate`
 workflow remains hold-only, not bot-approval authority.
 Auto mode requires a pinned, verified `review_bot` installation and explicit live
 ruleset: active, main-only, no bypass and strict App-bound checks. The App-owned

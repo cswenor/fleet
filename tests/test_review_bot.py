@@ -1,4 +1,5 @@
 from copy import deepcopy
+import base64
 from contextlib import redirect_stderr
 from http.client import HTTPConnection
 from io import StringIO
@@ -598,6 +599,164 @@ class ReviewBotTests(unittest.TestCase):
                         reloaded = config.load(self.path)
                         self.assertEqual(reloaded['review_bot']['ruleset']['id'], 1009)
                         self.assertTrue(verify_live_ruleset(reloaded, github)['verified'])
+
+
+    def test_publication_method_drift_never_applies_a_stale_queue_plan(self):
+        self.raw['review_bot']['ruleset']['merge_queue'] = True
+        c = self.installed()
+        github = self.client(c, None)
+        # The warning probe is optional; keep this fixture focused on mutation safety.
+        with patch('fleet.review_bot_ruleset._queue_workflow_warnings', return_value=[]):
+            ruleset(c, github=github)
+            def owner_change(*args):
+                document = yaml.safe_load(self.path.read_text())
+                document['publication'] = {'merge_method': 'merge'}
+                self.path.write_text(yaml.safe_dump(document))
+            with (patch('fleet.review_bot_ruleset.verify_pin', side_effect=owner_change),
+                  patch('fleet.review_bot_ruleset.app_client'),
+                  patch('fleet.review_bot_ruleset.verify_app'),
+                  patch('fleet.review_bot_ruleset.verify_installation')):
+                with self.assertRaisesRegex(ValueError, 'configuration changed'):
+                    ruleset(c, apply=True, github=github)
+        self.assertEqual(yaml.safe_load(self.path.read_text())['publication']['merge_method'], 'merge')
+
+    def test_queue_mapping_enables_empty_defaults_and_honors_project_overrides(self):
+        for selection in (True, {}, {'max_entries_to_build': 1, 'grouping_strategy': 'HEADGREEN'}):
+            self.raw['review_bot']['ruleset']['merge_queue'] = selection
+            c = self.installed()
+            c['publication'] = {'merge_method': 'merge'}
+            live = self.existing(c)
+            c['review_bot']['ruleset']['id'] = live['id']
+            queue = next(rule['parameters'] for rule in live['rules'] if rule['type'] == 'merge_queue')
+            self.assertEqual(queue, {
+                'grouping_strategy': 'HEADGREEN' if selection and selection is not True else 'ALLGREEN',
+                'max_entries_to_build': 1 if selection and selection is not True else 5,
+                'max_entries_to_merge': 5, 'min_entries_to_merge': 1,
+                'min_entries_to_merge_wait_minutes': 0, 'check_response_timeout_minutes': 120,
+                'merge_method': 'MERGE'})
+            self.assertTrue(verify_live_ruleset(c, self.client(c, live))['verified'])
+            queue['max_entries_to_build'] += 1
+            with self.assertRaisesRegex(ValueError, 'queue parameters'):
+                verify_live_ruleset(c, self.client(c, live))
+
+    def test_queue_config_rejects_unknown_fields_types_and_out_of_api_ranges(self):
+        for key, low, high in (
+                ('max_entries_to_build', 0, 100), ('max_entries_to_merge', 0, 100),
+                ('min_entries_to_merge', 0, 100), ('min_entries_to_merge_wait_minutes', 0, 360),
+                ('check_response_timeout_minutes', 1, 360)):
+            for value in (low, high):
+                self.raw['review_bot']['ruleset']['merge_queue'] = {key: value}
+                self.load()
+            for value in (low - 1, high + 1, True, '1', 1.5, None):
+                self.raw['review_bot']['ruleset']['merge_queue'] = {key: value}
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.load()
+        for selection in (None, [], 1, 'true', {'merge_method': 'MERGE'},
+                          {'grouping_strategy': 'INVALID'}, {'unexpected': 1}):
+            self.raw['review_bot']['ruleset']['merge_queue'] = selection
+            with self.subTest(selection=selection), self.assertRaises(ValueError):
+                self.load()
+
+
+    def test_queue_plan_migrates_only_selected_app_check_and_rolls_back(self):
+        c = self.installed()
+        live = self.existing(c)
+        c['review_bot']['ruleset'].update(id=live['id'], merge_queue=True)
+        live['rules'].append({'type': 'required_signatures'})
+        planned = desired_ruleset(c, live)
+        rules = {rule['type']: rule['parameters'] for rule in planned['rules'] if 'parameters' in rule}
+        self.assertEqual(rules['required_status_checks']['required_status_checks'], [
+            {'context': 'CI', 'integration_id': 15368}, {'context': 'app-approval', 'integration_id': 1007}])
+        self.assertTrue(rules['required_status_checks']['strict_required_status_checks_policy'])
+        self.assertEqual(rules['pull_request']['required_approving_review_count'], 0)
+        self.assertEqual(planned['bypass_actors'], [])
+        self.assertIn({'type': 'required_signatures'}, planned['rules'])
+        for method in ('squash', 'merge', 'rebase'):
+            c['publication'] = {'merge_method': method}
+            candidate = desired_ruleset(c, live)
+            queue = next(rule['parameters'] for rule in candidate['rules'] if rule['type'] == 'merge_queue')
+            self.assertEqual(queue['merge_method'], method.upper())
+            self.assertEqual(queue['grouping_strategy'], 'ALLGREEN')
+        migrated = {**live, **planned}
+        c['review_bot']['ruleset']['merge_queue'] = False
+        rollback = desired_ruleset(c, migrated)
+        self.assertNotIn('merge_queue', [rule['type'] for rule in rollback['rules']])
+        checks = next(rule['parameters']['required_status_checks'] for rule in rollback['rules']
+                      if rule['type'] == 'required_status_checks')
+        self.assertIn({'context': 'codex-review', 'integration_id': 1007}, checks)
+        migrated['name'] = 'owner-policy'
+        with self.assertRaisesRegex(ValueError, 'refusing to remove'):
+            desired_ruleset(c, migrated)
+        c['review_bot']['ruleset']['merge_queue'] = True
+        live['name'] = 'owner-policy'
+        with self.assertRaisesRegex(ValueError, 'refusing to remove codex-review'):
+            desired_ruleset(c, live)
+        live['name'] = 'fleet-review-bot'
+        live['rules'][1]['parameters']['required_status_checks'][1]['integration_id'] = 999
+        with self.assertRaisesRegex(ValueError, 'refusing to remove codex-review'):
+            desired_ruleset(c, live)
+
+    def test_queue_live_authority_rejects_weaker_protection_and_stalling_check(self):
+        c = self.installed()
+        c['review_bot']['ruleset']['merge_queue'] = True
+        live = self.existing(c)
+        c['review_bot']['ruleset']['id'] = live['id']
+        self.assertTrue(verify_live_ruleset(c, self.client(c, live))['verified'])
+        mutations = [
+            lambda value: value.pop('bypass_actors'),
+            lambda value: value.update(bypass_actors=[{'actor_id': 1}]),
+            lambda value: value['rules'].pop(),
+            lambda value: value['rules'][-1]['parameters'].update(merge_method='REBASE'),
+            lambda value: value['rules'][-1]['parameters'].update(grouping_strategy='HEADGREEN'),
+            lambda value: value['rules'][1]['parameters'].update(strict_required_status_checks_policy=False),
+            lambda value: value['rules'][1]['parameters']['required_status_checks'].append(
+                {'context': 'codex-review', 'integration_id': 1007}),
+        ]
+        for context in ('CI', 'app-approval'):
+            for missing in (False, True):
+                changed = deepcopy(live)
+                checks = changed['rules'][1]['parameters']['required_status_checks']
+                if missing:
+                    checks[:] = [check for check in checks if check['context'] != context]
+                else:
+                    next(check for check in checks if check['context'] == context)['integration_id'] = 999
+                with self.subTest(context=context, missing=missing), self.assertRaises(ValueError):
+                    verify_live_ruleset(c, self.client(c, changed))
+        for mutation in mutations:
+            changed = deepcopy(live)
+            mutation(changed)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                verify_live_ruleset(c, self.client(c, changed))
+
+    def test_queue_workflow_preflight_warns_only_readable_matching_missing_trigger(self):
+        c = self.installed()
+        c['review_bot']['ruleset']['merge_queue'] = True
+        client = self.client(c, None)
+        original = client.request
+        workflow = 'on: pull_request\njobs:\n  test:\n    name: CI\n    runs-on: ubuntu-latest\n'
+        def request(method, path, body=None):
+            if '/contents/.github/workflows?' in path:
+                return [{'path': '.github/workflows/ci.yml', 'type': 'file'}]
+            if '/contents/.github/workflows/ci.yml?' in path:
+                return {'encoding': 'base64', 'content': base64.b64encode(workflow.encode()).decode()}
+            return original(method, path, body)
+        client.request = request
+        result = ruleset(c, github=client)
+        self.assertEqual(result['blockers'], [])
+        self.assertIn('lacks a merge_group trigger', result['warnings'][0])
+        for triggers in ('[pull_request, merge_group]', '{pull_request: {}, merge_group: {}}', 'merge_group'):
+            workflow = f'on: {triggers}\njobs:\n  CI:\n    runs-on: ubuntu-latest\n'
+            self.assertEqual(ruleset(c, github=client)['warnings'], [])
+        workflow = 'on: pull_request\njobs:\n  unrelated: {}\n'
+        self.assertEqual(ruleset(c, github=client)['warnings'], [])
+        def unreadable(method, path, body=None):
+            if '/contents/' in path:
+                raise APIError(403)
+            return original(method, path, body)
+        client.request = unreadable
+        result = ruleset(c, github=client)
+        self.assertEqual(result['warnings'], [])
+        self.assertEqual(result['blockers'], [])
 
 
 if __name__ == '__main__':

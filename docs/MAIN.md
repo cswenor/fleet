@@ -493,9 +493,10 @@ With `release: main`, for each exact-head `release_ready` request, Main checks:
    head's commit ID**. A same-named check from another App, stale-head approval,
    dismissed approval, or unknown App provenance is insufficient.
 4. No configured hold label, draft state, unticked Gate box or other project veto.
-   Live branch rules require `codex-review` and `app-approval` bound to the Review
-   App, plus project CI bound to its own producer, on PR/native `merge_group`
-   heads. No builder/admin bypass; stale dismissal and last-push approval apply.
+   Live branch rules require Review App-bound `app-approval` and producer-bound
+   project CI. Non-queue mode additionally requires Review App-bound `codex-review`;
+   native queue mode uses the subsuming approval gate on synthetic heads.
+   No builder/admin bypass; human count 0 does not require last-push approval.
 
 Reply **RELEASE PR N HEAD FULL_SHA** in the original native question thread,
 not MERGE GO, and record the ruling on Pad. The authorized builder or Main may
@@ -542,6 +543,66 @@ precondition are not atomic merge locks and cannot undo a completed merge.
 
 In auto mode hold joins `github.parked_labels` for stuck timers only. Removal
 starts a fresh full interval; real CI/group failures remain visible while held.
+
+### Native merge queue
+
+Use `review_bot.ruleset.merge_queue: true` when concurrent merges cause strict
+up-to-date-head (`BEHIND`) churn. GitHub tests a synthetic head against the latest
+base instead of repeatedly merging main into every PR and triggering full review.
+This is native GitHub queue mode, not the bot's legacy merge lane/batch or a
+branch updater. Repository plan/capability and rollout approval remain prerequisites.
+
+Required checks are producer-bound project CI plus Review App-bound `app-approval`.
+Do **not** require `codex-review` on queue heads: the bot does not publish it there.
+`app-approval` subsumes it because each member must retain a non-dismissed,
+exact-head Review App APPROVE, and the App issues APPROVE only after passing review.
+The App gate also checks hold/draft/Gate boxes. Human approval count stays 0,
+strict checks stay enabled and bypass actors stay empty.
+
+Every required CI workflow must trigger on `merge_group` (normally alongside
+`pull_request`). Read-only `ruleset --dry-run` warns when a readable workflow's
+job name/ID matches a configured CI context but lacks that trigger. Unreadable,
+dynamic/matrix or externally produced checks cannot be fully verified this way:
+no warning is not proof. Project Main must prove every required context on an
+actual synthetic queue head before claiming acceptance.
+
+`merge_queue` accepts `false` (disabled), `true` or a mapping of queue parameters;
+an empty mapping enables defaults. Defaults, from the adopted native queue setup:
+`grouping_strategy: ALLGREEN`, `max_entries_to_build: 5`, `max_entries_to_merge: 5`,
+`min_entries_to_merge: 1`, `min_entries_to_merge_wait_minutes: 0`,
+`check_response_timeout_minutes: 120`. A project can start with:
+
+```yaml
+review_bot:
+  ruleset:
+    merge_queue:
+      max_entries_to_build: 1
+```
+
+Merge this into existing private config, retaining all receipts and checks.
+The queue merge method always follows `publication.merge_method` (default `squash`),
+not a field in the mapping. Grouping allows `ALLGREEN` or `HEADGREEN`.
+[GitHub API ranges](https://docs.github.com/en/rest/repos/rules):
+build/merge/minimum entries 0–100, minimum wait 0–360 minutes, check timeout
+1–360 minutes. Values must be integers, not booleans; unknown fields refuse.
+Dry-run displays all effective parameters; live verification requires their
+exact configured values. Existing queue settings change only in the reviewed diff.
+Review the dry-run diff before apply. Migrating an existing `codex-review`
+requirement is allowed only for the explicitly selected Fleet-named ruleset
+with the configured Review App producer; unrelated checks/protections remain.
+
+Arm only with `fleet --config CONFIG review-bot arm N --head FULL_SHA`.
+Its native `gh pr merge --auto` request enters the queue once GitHub's required
+gates allow it; pending gates may first leave auto-merge armed. Output distinguishes
+`armed`, `queued`, terminal outcomes and unknown queue visibility, retaining the
+observed `merge_queue_entry`. Null actor is unknown, never identity proof.
+Keep the watcher armed through actual merge and disarm/dequeue before any push.
+
+Rollback: Main pauses publication with hold, disables auto-merge/dequeues and
+verifies removal, then sets `merge_queue: false`, reviews `ruleset --dry-run`
+and reapplies. Only the explicitly selected Fleet-named ruleset may have its
+queue removed; planning restores App-bound `codex-review` alongside `app-approval`.
+Other rulesets remain project-owned and can still stall queue or rollback.
 
 ### Review Bot Apps, pins and live protection
 
@@ -653,9 +714,9 @@ matches `review_bot.ruleset.name` (default `fleet-review-bot`), with a verified
 Review App ID and the desired App-bound checks. Higher counts and unrelated
 rulesets remain protected; choose a separately named additive ruleset instead.
 The plan states `approval authority: app-approval (Review App <id>), human approval count 0`.
-Require strict checks: project CI bound to its producer, plus `codex-review`
-and `app-approval` bound to the Review App ID, and no bypass. The Review App
-keeps contents read: GitHub does not count its APPROVE toward the ordinary
+Require strict checks: project CI bound to its producer and `app-approval`
+bound to the Review App ID, plus `codex-review` outside queue mode, and no bypass.
+The Review App keeps contents read: GitHub does not count its APPROVE toward the ordinary
 approval requirement, which cannot name an App anyway. The App-owned
 `app-approval` check supplies authority by requiring a non-dismissed exact-head
 Review App APPROVE, including every merge-group member. Stale dismissal and
@@ -690,7 +751,7 @@ capabilities and no-new-privileges. `review_bot.deployment.mode` accepts `adviso
 remain forced off. Approve plans report live-protection blockers; approve apply
 rechecks the same operator-visible protection as `review-bot arm` immediately
 before Compose mutation: repository-owned active literal-main ruleset, visibly
-empty bypass actors, Review App-bound `codex-review`/`app-approval`,
+empty bypass actors, mode-appropriate Review App-bound checks (see Native merge queue),
 producer-bound project CI and an explicit nonnegative human approval count.
 Missing or unknown protection refuses deployment; pin and App verification remain required.
 
