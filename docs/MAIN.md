@@ -566,10 +566,27 @@ dynamic/matrix or externally produced checks cannot be fully verified this way:
 no warning is not proof. Project Main must prove every required context on an
 actual synthetic queue head before claiming acceptance.
 
-Planning adds an `ALLGREEN` queue with a 60-minute check-response timeout, one
-entry built/merged at a time, minimum one entry and zero minimum-group wait.
-The queue merge method follows `publication.merge_method` (default `squash`).
-Existing queue sizes/timeouts are preserved; method and ALLGREEN are enforced.
+`merge_queue` accepts `false` (disabled), `true` or a mapping of queue parameters;
+an empty mapping enables defaults. Defaults, from the adopted native queue setup:
+`grouping_strategy: ALLGREEN`, `max_entries_to_build: 5`, `max_entries_to_merge: 5`,
+`min_entries_to_merge: 1`, `min_entries_to_merge_wait_minutes: 0`,
+`check_response_timeout_minutes: 120`. A project can start with:
+
+```yaml
+review_bot:
+  ruleset:
+    merge_queue:
+      max_entries_to_build: 1
+```
+
+Merge this into existing private config, retaining all receipts and checks.
+The queue merge method always follows `publication.merge_method` (default `squash`),
+not a field in the mapping. Grouping allows `ALLGREEN` or `HEADGREEN`.
+[GitHub API ranges](https://docs.github.com/en/rest/repos/rules):
+build/merge/minimum entries 0–100, minimum wait 0–360 minutes, check timeout
+1–360 minutes. Values must be integers, not booleans; unknown fields refuse.
+Dry-run displays all effective parameters; live verification requires their
+exact configured values. Existing queue settings change only in the reviewed diff.
 Review the dry-run diff before apply. Migrating an existing `codex-review`
 requirement is allowed only for the explicitly selected Fleet-named ruleset
 with the configured Review App producer; unrelated checks/protections remain.

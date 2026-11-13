@@ -601,6 +601,63 @@ class ReviewBotTests(unittest.TestCase):
                         self.assertTrue(verify_live_ruleset(reloaded, github)['verified'])
 
 
+    def test_publication_method_drift_never_applies_a_stale_queue_plan(self):
+        self.raw['review_bot']['ruleset']['merge_queue'] = True
+        c = self.installed()
+        github = self.client(c, None)
+        # The warning probe is optional; keep this fixture focused on mutation safety.
+        with patch('fleet.review_bot_ruleset._queue_workflow_warnings', return_value=[]):
+            ruleset(c, github=github)
+            def owner_change(*args):
+                document = yaml.safe_load(self.path.read_text())
+                document['publication'] = {'merge_method': 'merge'}
+                self.path.write_text(yaml.safe_dump(document))
+            with (patch('fleet.review_bot_ruleset.verify_pin', side_effect=owner_change),
+                  patch('fleet.review_bot_ruleset.app_client'),
+                  patch('fleet.review_bot_ruleset.verify_app'),
+                  patch('fleet.review_bot_ruleset.verify_installation')):
+                with self.assertRaisesRegex(ValueError, 'configuration changed'):
+                    ruleset(c, apply=True, github=github)
+        self.assertEqual(yaml.safe_load(self.path.read_text())['publication']['merge_method'], 'merge')
+
+    def test_queue_mapping_enables_empty_defaults_and_honors_project_overrides(self):
+        for selection in (True, {}, {'max_entries_to_build': 1, 'grouping_strategy': 'HEADGREEN'}):
+            self.raw['review_bot']['ruleset']['merge_queue'] = selection
+            c = self.installed()
+            c['publication'] = {'merge_method': 'merge'}
+            live = self.existing(c)
+            c['review_bot']['ruleset']['id'] = live['id']
+            queue = next(rule['parameters'] for rule in live['rules'] if rule['type'] == 'merge_queue')
+            self.assertEqual(queue, {
+                'grouping_strategy': 'HEADGREEN' if selection and selection is not True else 'ALLGREEN',
+                'max_entries_to_build': 1 if selection and selection is not True else 5,
+                'max_entries_to_merge': 5, 'min_entries_to_merge': 1,
+                'min_entries_to_merge_wait_minutes': 0, 'check_response_timeout_minutes': 120,
+                'merge_method': 'MERGE'})
+            self.assertTrue(verify_live_ruleset(c, self.client(c, live))['verified'])
+            queue['max_entries_to_build'] += 1
+            with self.assertRaisesRegex(ValueError, 'queue parameters'):
+                verify_live_ruleset(c, self.client(c, live))
+
+    def test_queue_config_rejects_unknown_fields_types_and_out_of_api_ranges(self):
+        for key, low, high in (
+                ('max_entries_to_build', 0, 100), ('max_entries_to_merge', 0, 100),
+                ('min_entries_to_merge', 0, 100), ('min_entries_to_merge_wait_minutes', 0, 360),
+                ('check_response_timeout_minutes', 1, 360)):
+            for value in (low, high):
+                self.raw['review_bot']['ruleset']['merge_queue'] = {key: value}
+                self.load()
+            for value in (low - 1, high + 1, True, '1', 1.5, None):
+                self.raw['review_bot']['ruleset']['merge_queue'] = {key: value}
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.load()
+        for selection in (None, [], 1, 'true', {'merge_method': 'MERGE'},
+                          {'grouping_strategy': 'INVALID'}, {'unexpected': 1}):
+            self.raw['review_bot']['ruleset']['merge_queue'] = selection
+            with self.subTest(selection=selection), self.assertRaises(ValueError):
+                self.load()
+
+
     def test_queue_plan_migrates_only_selected_app_check_and_rolls_back(self):
         c = self.installed()
         live = self.existing(c)

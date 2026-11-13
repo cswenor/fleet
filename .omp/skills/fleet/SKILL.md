@@ -491,8 +491,10 @@ bound to its producer and visibly no bypass. Outside native queue mode also requ
 App-bound `codex-review`; queue mode omits it because it is not published on synthetic
 heads and exact-head App APPROVE already requires passing review. Required CI must
 trigger on `merge_group`; `ruleset --dry-run` gives best-effort readable-workflow warnings.
-Enable `review_bot.ruleset.merge_queue: true` for native queue publication; the queue
-uses `publication.merge_method`, ALLGREEN, and conservative single-entry defaults.
+Enable `review_bot.ruleset.merge_queue: true` or a queue-parameter mapping for native
+queue publication; defaults ALLGREEN/build5/merge5/min1/wait0/timeout120, with the
+merge method from `publication.merge_method`. Dry-run exposes effective values;
+live protection must match. See the Main runbook for API ranges.
 Main rollback disarms/dequeues with verified removal, sets false and reviews/reapplies
 the ruleset, restoring `codex-review`. Only the selected Fleet-owned ruleset is migrated.
 Plan human approval count 0:

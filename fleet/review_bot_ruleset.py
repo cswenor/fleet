@@ -12,6 +12,7 @@ from . import state
 from .review_bot_api import APIError, GitHub, app_client, verify_pin
 from .review_bot_apps import prerequisites, verify_app, verify_installation
 from .review_bot_files import read_config, save_config
+from .review_bot_config import queue_parameters
 
 
 def _json(value):
@@ -44,7 +45,7 @@ def _required_checks(c):
     bot = c.get('review_bot', {})
     app_id = bot.get('apps', {}).get('review', {}).get('id')
     checks = list(bot.get('ruleset', {}).get('required_checks', []))
-    if not bot.get('ruleset', {}).get('merge_queue', False):
+    if queue_parameters(c) is None:
         checks.append({'context': 'codex-review', 'integration_id': app_id})
     checks.append({'context': 'app-approval', 'integration_id': app_id})
     return checks
@@ -97,7 +98,7 @@ def desired_ruleset(c, existing=None):
         if not isinstance(check, dict) or not isinstance(check.get('context'), str) or check['context'] in by_context:
             raise ValueError('existing ruleset has ambiguous required status check producers')
         by_context[check['context']] = copy.deepcopy(check)
-    if config.get('merge_queue', False) and 'codex-review' in by_context:
+    if queue_parameters(c) is not None and 'codex-review' in by_context:
         if not fleet_owned or by_context['codex-review'].get('integration_id') != app_id:
             raise ValueError('refusing to remove codex-review outside the selected Fleet-owned App-bound ruleset')
         del by_context['codex-review']
@@ -109,16 +110,9 @@ def desired_ruleset(c, existing=None):
     parameters.update(required_status_checks=list(by_context.values()), strict_required_status_checks_policy=True)
     required['parameters'] = parameters
     replacements = {'pull_request': pull, 'required_status_checks': required}
-    if config.get('merge_queue', False):
-        queue = copy.deepcopy(indexed.get('merge_queue', {
-            'type': 'merge_queue', 'parameters': {
-                'check_response_timeout_minutes': 60, 'grouping_strategy': 'ALLGREEN',
-                'max_entries_to_build': 1, 'max_entries_to_merge': 1,
-                'min_entries_to_merge': 1, 'min_entries_to_merge_wait_minutes': 0}}))
-        queue['parameters'].update(
-            merge_method=c.get('publication', {}).get('merge_method', 'squash').upper(),
-            grouping_strategy='ALLGREEN')
-        replacements['merge_queue'] = queue
+    queue = queue_parameters(c)
+    if queue is not None:
+        replacements['merge_queue'] = {'type': 'merge_queue', 'parameters': queue}
     elif 'merge_queue' in indexed:
         if not fleet_owned:
             raise ValueError('refusing to remove a merge queue outside the selected Fleet-owned ruleset')
@@ -202,11 +196,12 @@ def verify_live_ruleset(c, github=None, *, require_publication=False):
     expected = _required_checks(c)
     if any(checks.get(check['context']) != check['integration_id'] for check in expected):
         raise ValueError('auto-merge blocked: project CI and required Review App checks must require their exact configured Apps')
-    if config.get('merge_queue', False):
-        queue = rules.get('merge_queue', {})
-        method = c.get('publication', {}).get('merge_method', 'squash').upper()
-        if queue.get('merge_method') != method or queue.get('grouping_strategy') != 'ALLGREEN':
-            raise ValueError('auto-merge blocked: configured native merge queue method and ALLGREEN grouping must be enforced')
+    queue = queue_parameters(c)
+    if queue is not None:
+        live_queue = rules.get('merge_queue', {})
+        if any(type(live_queue.get(key)) is not type(value) or live_queue[key] != value
+               for key, value in queue.items()):
+            raise ValueError('auto-merge blocked: configured native merge queue parameters must be enforced')
         if 'codex-review' in checks:
             raise ValueError('auto-merge blocked: codex-review is not published on native merge-group heads; reapply the queue-mode ruleset')
     elif 'merge_queue' in rules:
@@ -312,7 +307,7 @@ def ruleset(c, *, apply=False, github=None):
     result['desired'] = desired
     app_id = bot.get('apps', {}).get('review', {}).get('id')
     result['approval authority'] = f'app-approval (Review App {app_id}), human approval count 0'
-    if config.get('merge_queue', False):
+    if queue_parameters(c) is not None:
         result['queue approval authority'] = (
             'app-approval subsumes codex-review: every member requires a non-dismissed '
             'exact-head Review App APPROVE, issued only after passing review; '
@@ -369,7 +364,9 @@ def ruleset(c, *, apply=False, github=None):
         elif any(row.get('name') == desired['name'] for row in refreshed_inventory):
             raise ValueError('a same-name ruleset appeared during verification; reconcile its explicit ID before apply')
         document, encoded = read_config(c)
-        if document.get('review_bot') != bot:
+        if (document.get('review_bot') != bot
+                or document.get('publication', {}).get('merge_method', 'squash')
+                != c.get('publication', {}).get('merge_method', 'squash')):
             raise ValueError('Review Bot configuration changed during verification; reload and review a fresh dry-run before apply')
         if selected is None:
             state.write(c, 'review-bot-ruleset-create', {'digest': digest})
