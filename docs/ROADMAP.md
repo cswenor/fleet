@@ -113,6 +113,22 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-141 — Enqueue consumes auto-merge
+
+The shared `watch-pr`/supervisor emitter no longer calls GitHub's cleared
+auto-merge request a disarm when a queue entry is present or the PR merged.
+Enqueue emits `merge_queue entered (auto-merge consumed)`; merge emits only its
+terminal state transition, not disarm/queue-exit noise. A cleared request with
+known-absent queue still reports disarm; unavailable queue evidence reports
+`auto_merge cleared; queue state unknown`.
+
+Verification: 26 publication-event tests and 14 initial-event tests passed.
+Fixture-only candidate `watch-pr` CLI replay proved armed→queued, merged,
+real disarm and unknown-queue outcomes, each without a false disarm.
+Email Sherpa had no open PR available for live queued replay.
+No shared runtime or remote publication state was changed by these probes.
+Publication and shared deployment remain exact-head Main-GO gated.
+
 ### TASK-140 — Native merge queue approval authority
 
 `review_bot.ruleset.merge_queue: true` plans an ALLGREEN native queue using

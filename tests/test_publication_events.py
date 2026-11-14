@@ -305,14 +305,34 @@ class PublicationEventTests(unittest.TestCase):
                 result = watcher.watch({'repo': 'owner/repo', '_state': directory}, 7, timeout=60)
             self.assertEqual([event['subject'] for event in result['events']], [f'PR #7 {detail}'])
 
-    def test_terminal_outcome_remains_distinct_from_disarming_and_queue_exit(self):
+    def test_auto_merge_clear_uses_queue_and_terminal_outcome(self):
+        armed = self.pr(auto_merge={'enabled_by': {'login': 'owner'}})
+        cases = [
+            (self.pr(merge_queue_entry={'id': 'q'}),
+             ['merge_queue entered (auto-merge consumed)']),
+            (self.pr(state='merged'), ['state changed: merged']),
+            (self.pr(), ['auto_merge disarmed']),
+            (self.pr(merge_queue_unknown=True),
+             ['auto_merge cleared; queue state unknown']),
+        ]
+        for after, details in cases:
+            for aggregate in (False, True):
+                with self.subTest(after=after, aggregate=aggregate):
+                    events = self.transitions(armed, after, aggregate_checks=aggregate)
+                    self.assertEqual([event['subject'] for event in events],
+                                     [f'PR #7 {detail}' for detail in details])
+                    self.assertEqual(self.transitions(after, after), [])
+
+    def test_queued_merge_only_reports_terminal_outcome_but_close_keeps_disarm(self):
         before = self.pr(auto_merge={'enabled_by': {'login': 'owner'}},
                          merge_queue_entry={'id': 'q'})
-        for state in ('merged', 'closed'):
+        for state, details in [
+                ('merged', ['state changed: merged']),
+                ('closed', ['auto_merge disarmed', 'merge_queue exited',
+                            'state changed: closed'])]:
             events = self.transitions(before, self.pr(state=state))
             self.assertEqual([event['subject'] for event in events],
-                             ['PR #7 auto_merge disarmed', 'PR #7 merge_queue exited',
-                              f'PR #7 state changed: {state}'])
+                             [f'PR #7 {detail}' for detail in details])
 
     def test_queue_reentry_keeps_distinct_identity_even_without_pr_timestamp_change(self):
         absent = self.pr()

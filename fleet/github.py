@@ -502,15 +502,26 @@ def events(previous, current, *, aggregate_checks=False):
             continue
         old_publication = _publication_state(before)
         publication = _publication_state(p)
+        auto_merge_cleared = (old_publication['auto_merge'] is True and
+                              publication['auto_merge'] is False)
         for field, descriptions in (
                 ('hold', ('hold removed', 'hold added')),
                 ('draft', ('draft ready', 'draft converted')),
                 ('auto_merge', ('auto_merge disarmed', 'auto_merge armed')),
                 ('merge_queue', ('merge_queue exited', 'merge_queue entered'))):
             value = publication[field]
+            # GitHub consumes the auto-merge request on enqueue or merge.
+            if p['state'] == 'merged' and field in ('auto_merge', 'merge_queue'):
+                continue
+            if field == 'auto_merge' and auto_merge_cleared and publication['merge_queue'] is True:
+                continue
             if (value is not None and old_publication[field] is not None and
                     value != old_publication[field]):
                 detail = descriptions[int(value)]
+                if field == 'auto_merge' and auto_merge_cleared and publication['merge_queue'] is None:
+                    detail = 'auto_merge cleared; queue state unknown'
+                elif field == 'merge_queue' and value and auto_merge_cleared:
+                    detail = 'merge_queue entered (auto-merge consumed)'
                 occurrence = p.get('updated_at', p['head'])
                 evidence_field = {'auto_merge': 'auto_merge',
                                   'merge_queue': 'merge_queue_entry'}.get(field)

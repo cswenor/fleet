@@ -244,6 +244,12 @@ entry/exit transitions still wake the watch. Initial-event keys label their
 dedup evidence `failing=[]`: an empty list means no failing-check evidence,
 not that the PR has no checks. Human-readable subject/body omit that list.
 
+TASK-141 treats a cleared auto-merge request with a queue entry as consumed,
+not disarmed. Enqueue reports `merge_queue entered (auto-merge consumed)`;
+merge reports its terminal state without disarm/queue-exit noise. Known-absent
+queue evidence still permits a real disarm; unavailable queue evidence reports
+`auto_merge cleared; queue state unknown`.
+
 
 Stale builder inbox assessment is **read-only**, Main-only and restricted to a
 current configured lane:
