@@ -107,7 +107,7 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
     first = True
     superseded = {'pr': number, 'event': 'superseded'}
     delay = interval
-    missing_since = time.monotonic()
+    evidence_deadline = None
     waiting_snapshot = False
     with github_api.Session(c) as session:
         session.require_app = True
@@ -129,12 +129,15 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                         deferred = error.reset
                     waiting_snapshot = False
                 else:
-                    saved, info = snapshot.shared(c)
-                    if info.get('unavailable') or (
-                            saved is None and time.monotonic() - missing_since >
-                            3 * c.get('interval_seconds', 60) + 15):
+                    _, info = snapshot.shared(c)
+                    if evidence_deadline is None:
+                        period = info.get('period_seconds', c.get('interval_seconds', 60))
+                        evidence_deadline = time.monotonic() + 3 * period + 15
+                    if info.get('unavailable') or time.monotonic() > evidence_deadline:
                         unavailable = True
                     delay = min(interval, 15)
+            if after is not None:
+                evidence_deadline = None
             if c.get('_github_debug'):
                 print(json.dumps({'github_poll': {key: value - started.get(key, 0)
                                                   for key, value in session.stats.items()},

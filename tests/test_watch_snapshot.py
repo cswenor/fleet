@@ -163,6 +163,7 @@ class SharedSnapshotTests(unittest.TestCase):
     def test_status_reuses_github_but_keeps_local_health_current(self):
         self.c.update(builder={'resolved_model': 'default/model'},
                       disk={'path': self.c['_state'], 'min_free_gb': 0})
+        self.current['repo_move_error'] = 'Repository moved; update configuration'
         state.write(self.c, 'snapshot', self.saved)
         with patch.object(snapshot.time, 'time', return_value=1000), \
                 patch.object(snapshot, '_github', side_effect=AssertionError('network')), \
@@ -174,6 +175,7 @@ class SharedSnapshotTests(unittest.TestCase):
         self.assertEqual(result['github'], self.current)
         self.assertEqual(result['github_requests']['requests'], 0)
         self.assertEqual(result['coordinator']['state'], 'current')
+        self.assertEqual(result['errors'], [self.current['repo_move_error']])
 
     def test_legacy_live_capture_uses_publication_not_collection_start(self):
         # TASK-145 real supervisor sample: collection took 61.023115s.
@@ -197,4 +199,20 @@ class SharedSnapshotTests(unittest.TestCase):
             result = self.watch(timeout=300)
         self.assertEqual(result['event'], 'snapshot_unavailable')
         self.assertLessEqual(clock[0], 210)
+
+    def test_fresh_but_unusable_publications_do_not_extend_wait(self):
+        clock = [1000]
+        def publish(seconds=0):
+            clock[0] += seconds
+            state.write(self.c, 'snapshot', {**self.saved, 'generated_at': clock[0],
+                        'collection': {'finished_at': clock[0], 'period_seconds': 60},
+                        'github': None})
+        publish()
+        with patch.object(watcher.time, 'time', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'sleep', side_effect=publish), \
+                patch.object(watcher.github, 'collect', side_effect=AssertionError('network')):
+            result = self.watch(timeout=600)
+        self.assertEqual(result, {'pr': 7, 'event': 'snapshot_unavailable', 'reason': 'unavailable'})
+        self.assertLessEqual(clock[0], 1210)
 

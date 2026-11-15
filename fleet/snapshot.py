@@ -14,10 +14,7 @@ from .display import duration
 def _github(c, result):
     with github_api.Session(c, persistent=True) as session:
         try:
-            collected = github.collect(c)
-            if collected.get('repo_move_error'):
-                result['errors'].append(collected['repo_move_error'])
-            return collected
+            return github.collect(c)
         finally:
             result['github_requests'] = dict(session.stats)
             result['github_auth'] = dict(session.auth)
@@ -97,6 +94,8 @@ def collect(c, *, shared_github=False):
                     ('quota', lambda: quota.collect(c)), ('coordinator', lambda: health.coordinator(c))):
         try:
             result[key] = fn()
+            if key == 'github' and result[key].get('repo_move_error'):
+                result['errors'].append(result[key]['repo_move_error'])
         except github_api.BudgetLow as error:
             result['github_budget'] = {**result.get('github_budget', {}), 'reset': error.reset,
                                        'blocked': True}
