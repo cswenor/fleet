@@ -32,7 +32,7 @@ def _permission_unknown(error, unavailable):
 
 def _queued(c, number, *, details=False):
     owner, name = c['repo'].split('/')
-    query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id}}}}'
+    query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id headCommit{oid}}}}}'
     data = gh(c, 'api', 'graphql', '-f', 'query=' + query,
               '-f', 'owner=' + owner, '-f', 'name=' + name, '-F', f'number={number}')
     if data.get('errors'):
@@ -375,12 +375,16 @@ def collect(c, pr_number=None):
     if refresh:
         try:
             run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100')
-            runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
-                                     'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
-                                     'created_at': r.get('created_at'),
-                                     'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
-                                    for page in run_pages for r in page['workflow_runs']
-                                    if _recent(r.get('created_at'), cutoff)], pr_number=pr_number)
+            runs = [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
+                     'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
+                     'created_at': r.get('created_at'),
+                     'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
+                    for page in run_pages for r in page['workflow_runs']
+                    if _recent(r.get('created_at'), cutoff)]
+            if pr_number is not None:
+                runs = groups.resolve(c, runs, pr_number=pr_number, queued_heads={
+                    (p['merge_queue_entry'].get('headCommit') or {}).get('oid')
+                    for p in result if p.get('merge_queue_entry')})
         except CommandError as error:
             if not _permission_unknown(error, unavailable):
                 raise
@@ -416,6 +420,9 @@ def collect(c, pr_number=None):
         entries = []
         queue_unknown = True
     _queue_progress(c, entries, unavailable)
+    runs = groups.resolve(c, runs, queued_heads={
+        (entry.get('headCommit') or {}).get('oid') for entry in entries
+        if (entry.get('headCommit') or {}).get('oid')})
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
     commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]
     return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': entries,

@@ -53,9 +53,8 @@ class WorkflowChecksTests(unittest.TestCase):
             raise AssertionError(endpoint)
 
         with patch.object(github, 'gh', side_effect=response), \
-                patch.object(github.groups, 'resolve', return_value=[]) as groups:
+                patch.object(github.groups, 'resolve', return_value=[]):
             result = github.collect({'repo': 'owner/repo'}, 7)
-        self.assertEqual(groups.call_args.kwargs, {'pr_number': 7})
         return result['prs'][0]
 
     def test_cancelled_replacement_pending_success_and_failure(self):

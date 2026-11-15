@@ -43,7 +43,8 @@ def newer_group(candidate, older):
                 candidate['head_sha'] != older['head_sha'] and newer(candidate, older))
 
 
-def resolve(c, runs, pr_number=None):
+def resolve(c, runs, pr_number=None, *, queued_heads=()):
+    """Resolve failures, queued heads, and bounded successors in one memoized pass."""
     cache = state.read(c, 'group-members', {})
     memo = {}
 
@@ -52,7 +53,7 @@ def resolve(c, runs, pr_number=None):
         if sha in memo:
             r.update(memo[sha])
             return
-        if sha in cache and (pr_number is None or 'member_heads' in cache[sha]):
+        if sha in cache and 'member_heads' in cache[sha]:
             r.update(cache[sha])
             memo[sha] = cache[sha]
             return
@@ -64,7 +65,7 @@ def resolve(c, runs, pr_number=None):
             try:
                 pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{c["repo"]}/compare/{match[2]}...{sha}?per_page=100')
                 found, complete, heads = members([row for page in pages for row in page['commits']], match[2], sha)
-                associated.update(found)
+                associated = set(found) if complete else associated.union(found)
             except (CommandError, KeyError, ValueError):
                 complete = False
         else:
@@ -75,24 +76,37 @@ def resolve(c, runs, pr_number=None):
         memo[sha] = {'prs': r['prs'], 'membership_complete': complete, 'member_heads': heads}
         if complete:
             cache[sha] = memo[sha]
+    queued_heads = set(queued_heads)
     for r in runs:
-        if r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required'):
+        if (r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required') or
+                r.get('head_sha') in queued_heads):
             resolve_run(r)
         else:
             r['prs'] = []
             r['membership_complete'] = False
-    if pr_number is not None:
-        failed = [r for r in runs if pr_number in r['prs'] and
-                  r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')]
-        # Use the same timestamp/ID ordering for the bounded newest-first search.
-        def order(a, b):
-            return -1 if newer(a, b) else (1 if newer(b, a) else 0)
-        for r in sorted(runs, key=cmp_to_key(order)):
-            if not any(newer_group(r, f) for f in failed):
-                continue
-            resolve_run(r)
-            if r['membership_complete'] and pr_number in r['prs']:
-                break
+    failed = [r for r in runs if
+              r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required')]
+    targets = ({pr_number} if pr_number is not None else
+               {number for r in failed for number in r['prs']})
+    failures = {number: [r for r in failed if number in r['prs']] for number in targets}
+    # A single newest-first search serves all members, stopping independently
+    # once each has a proven successor. Shared synthetic heads are fetched once.
+    def order(a, b):
+        return -1 if newer(a, b) else (1 if newer(b, a) else 0)
+    for r in sorted(runs, key=cmp_to_key(order)):
+        candidates = {number for number, older in failures.items()
+                      if any(newer_group(r, f) for f in older)}
+        if not candidates:
+            continue
+        resolve_run(r)
+        if r['membership_complete']:
+            for number in candidates.intersection(r['prs']):
+                del failures[number]
+    # Different workflows on the same immutable head share the proof, including
+    # runs encountered before a newest-first successor lookup resolved it.
+    for r in runs:
+        if r.get('head_sha') in memo:
+            r.update(memo[r['head_sha']])
     # Cache only proven immutable commit membership, never a transient lookup failure.
     state.write(c, 'group-members', dict(list(cache.items())[-1024:]))
     return runs

@@ -77,20 +77,41 @@ def _shared_snapshot(c, number):
         if not any(p.get('number') == number for p in current['prs']):
             return None, 'pr_absent', saved.get('github_budget')
         if not isinstance(current.get('merge_group_runs'), list):
-            return None, 'unavailable', saved.get('github_budget')
-        pr = next(p for p in current['prs'] if p['number'] == number)
-        if pr.get('state') not in ('merged', 'closed'):
-            failures = [r for r in _initial_view(current, number)['merge_group_runs']
-                        if number in r.get('prs', []) and r.get('conclusion') in
-                        ('failure', 'cancelled', 'timed_out', 'action_required')]
-            # Supervisor collection resolves failed groups only. A per-PR read
-            # also resolves newer candidates before diagnosing an older failure.
-            if any(not r.get('membership_complete') and groups.newer_group(r, failed)
-                   for failed in failures for r in current['merge_group_runs']):
-                return None, 'group_evidence_unavailable', saved.get('github_budget')
+            current = {**current, 'merge_group_runs': []}
+        # Missing group membership must not hide fresh queue or terminal state.
+        # Defer only failures whose supersession is still unproven this cycle.
+        runs = _initial_view(current, number)['merge_group_runs']
+        current = {**current, 'merge_group_runs': [
+            r for r in runs if not (
+                number in r.get('prs', []) and
+                r.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required') and
+                any(not other.get('membership_complete') and groups.newer_group(other, r)
+                    for other in runs))]}
         return current, 'fresh', saved.get('github_budget')
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None, 'unavailable', None
+
+
+def _queue_progress(current, number):
+    if current.get('merge_queue_unknown'):
+        return None
+    entry = next((e for e in current.get('merge_queue', [])
+                  if e.get('pullRequest', {}).get('number') == number), None)
+    if entry is None or entry.get('progress_unknown'):
+        return None
+    return {k: entry.get(k) for k in ('position', 'state', 'headCommit', 'runs')}
+
+
+def _queue_events(before, after, number):
+    old = _queue_progress(before, number)
+    progress = _queue_progress(after, number)
+    pr = next((p for p in after['prs'] if p['number'] == number), {})
+    if old is None or progress is None or old == progress or pr.get('state') != 'open':
+        return []
+    evidence = json.dumps(progress, sort_keys=True)
+    return [{'key': f'pr:{number}:queue_progress:{evidence}', 'pr': number,
+             'subject': f'PR #{number} merge_queue progress',
+             'branch': pr.get('branch'), 'body': pr.get('url', '') + '\n' + evidence}]
 
 
 def watch(c, number, timeout=14400, interval=60, terminal=None, include_seen=False):
@@ -176,6 +197,7 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                             return {'pr': number, 'events': initial}
                     else:
                         changes = [e for e in github.events(before, after) if e.get('pr') == number]
+                        changes += _queue_events(before, after, number)
                         if changes:
                             _receipt(c, caller, number, _initial_events(after, number), record_only=True)
                             return {'pr': number, 'events': changes}
