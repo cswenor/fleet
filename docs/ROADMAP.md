@@ -113,6 +113,42 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-146 — Cheap idle GitHub collection
+
+Main rulings `msg_7340271c1dc5` / `msg_438fbdb52f1b`: normal-cadence cheap REST
+probes continue during idle; only full enrichment/commit scans double spacing
+to 600 seconds. Open/recent PR discovery, repository metadata, default-tip and
+merge-group-run ETag probes detect changes and immediately resume full collection
+on the next normal cycle. Local health/Orca/quota cadence remains unchanged.
+Recent terminal PR discovery retains short-lived PRs; group discovery observes
+reruns without PR/tip changes. Incomplete failed-group membership keeps resolving.
+
+Queue GraphQL is skipped only with authoritative empty open PRs, prior known-empty
+queue and unchanged remaining probes (queue membership requires an open PR).
+Cold/full refresh, any change/open PR or prior nonempty/unknown queue queries
+GraphQL; failed PR discovery still attempts independent queue visibility, except
+during budget deferral. Unknown/error evidence never enables idle backoff.
+Independent `github_collection` probe timing preserves TASK-145 freshness;
+separate full interval/last-finish/expected timing describes enrichment backoff.
+Restart begins cold; one-shot collection and launch admission stay independent.
+Attribution now separates confirmed REST 304s (`not_modified`) from conservative
+REST charges; GraphQL remains attempt counts, not measured rate-limit points.
+
+Before-change read-only Fleet measurement: no open PRs/queue; cold cycle had
+five REST 200s plus one GraphQL 200. Warm cycles had five REST 304s plus one
+GraphQL 200, not six charged requests. Superseded candidate b6a7249 backed off
+all reads; Main required normal probes instead. The revised candidate conditionally
+skips GraphQL on unchanged empty probes and revalidates queue on periodic full
+refreshes. Timed quiet-repository measurements and publication receipts are
+retained on TASK-146; rates are normalized from measured samples, not full-hour
+observations.
+
+Isolated actual candidate `serve --no-deliver --debug` uses private config/state;
+normal probes and local health continue while full enrichment backs off.
+Focused collector, cadence, attribution, watcher-snapshot, supervisor and App
+regressions passed. No shared installation/runtime changed; publication and
+deployment remain exact-head Main-GO gated, rollout only with Email's queue empty.
+
 ### TASK-147 — Queued PRs follow shared snapshots
 
 Fresh snapshots remain usable when merge-group membership is incomplete.

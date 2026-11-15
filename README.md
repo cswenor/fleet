@@ -589,6 +589,25 @@ Only the fingerprint, validators, response bodies and budget metadata are stored
 never credentials or arbitrary headers. Changing credentials discards the cache.
 GraphQL reads remain uncached and use their separate GitHub budget.
 
+Long-running supervisors keep cheap REST discovery probes at normal cadence,
+including during idle backoff. These ETag-backed probes cover open/recent PRs,
+repository metadata, the default-branch tip and merge-group run discovery.
+Only full enrichment/commit scans double their spacing while positively idle,
+up to 600 seconds (never below the configured interval). Local health/Orca/quota
+checks also retain normal cadence. A new PR, queue activity, terminal transition,
+push or group change resumes full collection on the next normal probe.
+
+Queue GraphQL runs on cold/full collection, any observed change or open PR,
+and prior nonempty/unknown queue evidence. It is skipped only when the
+authoritative open-PR list is empty, prior queue known empty and other probes
+unchanged: queue entries require an open PR. Failed PR discovery still attempts
+independent queue visibility, except during budget deferral, and never reuses
+unknown data. Incomplete failed-group membership continues resolving.
+Restart and one-shot collection start without idle reuse.
+Independent `github_collection` timestamps describe actual normal probes;
+`full_interval_seconds`, `full_finished_at` and `full_expected_at` separately
+describe enrichment backoff. Full reuse does not reset its last-completed time.
+
 `watch-pr` first uses the project's persisted supervisor snapshot when its repo
 matches, the PR is present, and publication age is at most one observed cycle
 plus 15 seconds. Supervisors record collection start/finish, cycle period and
@@ -619,10 +638,14 @@ Each Fleet CLI process records request attribution in private `github-usage.json
 project, command kind, PR/ref, PID/process identity and REST/GraphQL counts.
 `status` shows the top ten consumers over the last hour (60-second buckets);
 `status --json` includes `github_usage`. History is capped at 2048 rows and
-reports truncation. Requests include 304s, failures, pagination, direct App HTTP
-calls and native gh commands. gh HTTP traces are captured only in memory to count
-actual outbound attempts and discarded before diagnostics; no tokens, URLs,
-headers or response bodies enter this attribution file. Older installed processes
+reports truncation. REST counts exclude confirmed HTTP 304s, shown separately as
+`not_modified`; failures and requests without an unambiguous response remain
+conservatively charged. GraphQL counts remain attempts, not measured rate-limit
+points. Pagination, direct App HTTP calls and native gh commands are included.
+Session/debug `requests` still counts all outbound attempts, including 304s.
+gh HTTP traces are captured only in memory and discarded before diagnostics;
+no tokens, URLs, headers or response bodies enter this attribution file.
+Older installed processes
 do not contribute until upgraded/restarted. Accounting errors warn without
 turning a successful GitHub mutation into a failure.
 

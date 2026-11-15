@@ -56,18 +56,26 @@ class GitHub:
             headers['Content-Type'] = 'application/json'
         request = Request('https://api.github.com' + path, data=data, method=method, headers=headers)
         from . import github_usage
-        github_usage.record(graphql=1, identity=self.identity) if path.split('?', 1)[0] == '/graphql' else github_usage.record(rest=1, identity=self.identity)
+        is_graphql = path.split('?', 1)[0] == '/graphql'
+        not_modified = False
         try:
             with self.opener.open(request, timeout=30) as response:
+                not_modified = getattr(response, 'status', None) == 304
                 raw = response.read(2 * 1024 * 1024 + 1)
                 if len(raw) > 2 * 1024 * 1024:
                     raise APIError()
                 return json.loads(raw) if raw else None
         except HTTPError as exc:
+            not_modified = exc.code == 304
             # Never include response bodies, request URLs, headers or conversion codes.
             raise APIError(exc.code) from None
         except (OSError, URLError, ValueError):
             raise APIError() from None
+        finally:
+            github_usage.record(rest=int(not is_graphql and not not_modified),
+                                graphql=int(is_graphql),
+                                not_modified=int(not is_graphql and not_modified),
+                                identity=self.identity)
 
 
 def _encoded(value):
