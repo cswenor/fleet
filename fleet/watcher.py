@@ -6,6 +6,7 @@ import sys
 import time
 import uuid
 from . import github, github_api, github_usage, groups, snapshot, state
+from .commands import CommandError
 
 
 def _initial_view(current, number):
@@ -125,10 +126,14 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                 if session.auth.get('kind') == 'app_installation':
                     try:
                         after = github.collect(c, number)
+                        waiting_snapshot = False
                     except github_api.BudgetLow as error:
                         deferred = error.reset
-                    waiting_snapshot = False
-                else:
+                        waiting_snapshot = False
+                    except CommandError as error:
+                        if error.code != 'app_read_unavailable':
+                            raise
+                if waiting_snapshot:
                     _, info = snapshot.shared(c)
                     if evidence_deadline is None:
                         period = info.get('period_seconds', c.get('interval_seconds', 60))

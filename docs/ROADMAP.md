@@ -141,6 +141,10 @@ Independent review found and corrected two edge cases: repeatedly published but
 unusable GitHub evidence cannot extend the three-cycle wait, and snapshot reuse
 preserves repository-move diagnostics. Both have regressions. The corrected
 candidate's real Evermore status returned in 8.97s with zero GitHub requests.
+A subsequent independent review caught App identity loss during refresh returning
+a generic error rather than entering the bounded snapshot wait. The corrected
+transition is covered through the real authenticated transport with stock network
+execution forbidden.
 Publication receipts are retained on TASK-145. Shared installation remains
 Main-owned, exact-head GO gated and held for Email Sherpa's empty queue.
 

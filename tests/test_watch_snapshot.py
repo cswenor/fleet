@@ -216,3 +216,28 @@ class SharedSnapshotTests(unittest.TestCase):
         self.assertEqual(result, {'pr': 7, 'event': 'snapshot_unavailable', 'reason': 'unavailable'})
         self.assertLessEqual(clock[0], 1210)
 
+    def test_app_identity_loss_waits_for_shared_evidence_without_stock_reads(self):
+        self.c.update(root=self.c['_state'], github={'read_auth': {'configured': True}})
+        self.saved.update(generated_at=900, collection={'finished_at': 900, 'period_seconds': 60})
+        state.write(self.c, 'snapshot', self.saved)
+        clock = [1000]
+        resolutions = [0]
+        def resolve(c):
+            resolutions[0] += 1
+            if resolutions[0] <= 2:
+                return {'GH_TOKEN': 'fixture-app-token'}, {'kind': 'app_installation'}
+            return None, {'kind': 'stock', 'fallback': 'invalid'}
+        def publish(seconds):
+            clock[0] += seconds
+            state.write(self.c, 'snapshot', {**self.saved, 'generated_at': clock[0],
+                        'collection': {'finished_at': clock[0], 'period_seconds': 60},
+                        'github': history(pull(state='merged'))})
+        with patch('fleet.github_auth.resolve', side_effect=resolve), \
+                patch('fleet.commands._execute', side_effect=AssertionError('stock network')), \
+                patch.object(watcher.time, 'time', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'sleep', side_effect=publish):
+            result = self.watch(timeout=60)
+        self.assertEqual(result['event'], 'merged')
+        self.assertEqual(clock[0], 1015)
+
