@@ -31,7 +31,8 @@ class WatchOwnershipTests(unittest.TestCase):
         for p in patches:
             self.addCleanup(p.stop)
         self.collect = mocks[-2]
-        mocks[-1].return_value.__enter__.return_value = SimpleNamespace(stats={}, blocked_until=0)
+        mocks[-1].return_value.__enter__.return_value = SimpleNamespace(
+            stats={}, blocked_until=0, auth={'kind': 'app_installation'})
 
     def sleep(self, seconds):
         self.now += seconds

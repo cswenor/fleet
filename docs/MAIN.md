@@ -1150,8 +1150,15 @@ over the `--terminal` fallback; anonymous calls retain repeated initial delivery
 Terminal `event: merged`/`closed` always returns immediately, even with a prior
 receipt: stop looping. `github_budget_deferred` exits 5 with Unix `until`; wait
 until reset in bounded async segments with steering checkpoints before re-arming.
-Watches reuse matching supervisor snapshots through `interval_seconds + 15`
-seconds; `--debug` gives source/fallback reason and zero requests on that path.
+Watches reuse matching supervisor snapshots for one measured completion-to-completion
+cycle plus 15 seconds, including collection duration (legacy: publication mtime).
+`--debug` gives age, period, expected next completion, source and request counters.
+No resolved App read identity means no direct stock/user-token polling:
+wait for publication, then `snapshot_unavailable` (exit 6) after three missed
+cycles plus slack or the bounded watch timeout. Diagnose the supervisor before
+re-arming. Only a resolved App identity permits direct fallback; invalid App
+credentials never permit stock reads. `status` reuses fresh shared GitHub data
+while still refreshing local health/quota; admission remains independent.
 Unchanged armed PRs double their interval to a 300-second cap, resetting on change.
 `fleet status` / JSON `github_usage` shows top hourly process consumers (60-second
 buckets, bounded history), including command kind, PR/ref, PID and REST/GraphQL.

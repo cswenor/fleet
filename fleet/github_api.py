@@ -139,6 +139,7 @@ class Session:
         self._dirty = False
         self.environment = None
         self.auth = {'kind': 'stock'}
+        self.require_app = False
         self._scope = self._identity()
         if persistent and self._scope:
             self._load()
@@ -196,6 +197,8 @@ class Session:
         if c == self.c and is_read(args):
             if self.c.get('github', {}).get('read_auth'):
                 self._refresh_identity()
+            if self.require_app and self.auth.get('kind') != 'app_installation':
+                raise CommandError('App read identity unavailable', code='app_read_unavailable')
             return self.environment
         return None
 
@@ -313,6 +316,8 @@ class Session:
     def _page(self, c, endpoint, headers):
         if self.c.get('github', {}).get('read_auth'):
             self._refresh_identity()
+        if self.require_app and self.auth.get('kind') != 'app_installation':
+            raise CommandError('App read identity unavailable', code='app_read_unavailable')
         parsed = urlsplit(endpoint)
         if self.environment is not None and (parsed.scheme or parsed.netloc) and (
                 parsed.scheme != 'https' or parsed.netloc != 'api.github.com'):

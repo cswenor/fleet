@@ -590,15 +590,28 @@ never credentials or arbitrary headers. Changing credentials discards the cache.
 GraphQL reads remain uncached and use their separate GitHub budget.
 
 `watch-pr` first uses the project's persisted supervisor snapshot when its repo
-matches, the PR is present, and age is at most `interval_seconds + 15` seconds.
-`--debug` identifies `fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent`,
-`unavailable` or `group_evidence_unavailable`, plus request counts (zero for a
-fresh snapshot) and budget metadata. The last reason means newer group membership
-is needed to avoid reporting a superseded failure; supervisor data alone cannot
-answer equivalently. Otherwise it falls back to its own bounded collection. An unchanged armed PR
-doubles its interval up to 300 seconds (never below the requested interval);
-any observed change resets it. Snapshot and fallback paths share event/receipt
-semantics.
+matches, the PR is present, and publication age is at most one observed cycle
+plus 15 seconds. Supervisors record collection start/finish, cycle period and
+expected next completion. The period includes collection time and the sleep
+interval; legacy snapshots infer collection duration from their publication mtime.
+`--debug` reports source, publication age, period, expected next completion,
+request counts (zero for a fresh snapshot) and budget metadata. Reasons include
+`fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent`, `unavailable` and
+`group_evidence_unavailable` (newer group membership is needed to avoid reporting
+a superseded failure).
+
+Without a resolved App read identity, unavailable evidence waits for supervisor
+publication, never polls using stock/user credentials. After three missed cycles
+plus 15 seconds, or the requested watch timeout while still waiting, it returns
+`snapshot_unavailable` (exit 6). Missing/malformed snapshots get a bounded wait
+of three configured intervals plus 15 seconds. Diagnose the supervisor before
+re-arming; this event never authorizes a stock-token fallback. With a resolved
+App installation identity, direct per-PR collection is allowed; credential failure
+cannot silently switch those reads to stock. An unchanged armed PR doubles its
+interval up to 300 seconds (never below the requested interval); any observed
+change resets it. Snapshot and App paths share event/receipt semantics.
+`status` also reuses the fresh snapshot's GitHub section and budget, retaining
+current local health/quota collection; admission still collects independently.
 
 Each Fleet CLI process records request attribution in private `github-usage.json`:
 project, command kind, PR/ref, PID/process identity and REST/GraphQL counts.

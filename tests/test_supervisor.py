@@ -21,6 +21,26 @@ def sample(p):
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_snapshot_completion_period_includes_collection_and_observed_spacing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c = {'_state': directory, 'repo': 'owner/project', 'interval_seconds': 60,
+                 'hooks': {}, 'status': {'url': '', 'token_env': ''},
+                 'coordinator': {'wake': False}}
+            current = sample(pr())
+            current['generated_at'] = 900
+            current['inventory']['builders'] = []
+            for prior, expected in ((800, 200), (0, 160)):
+                state.write(c, 'snapshot', {'collection': {
+                    'finished_at': prior, 'period_seconds': 160}})
+                with patch.object(supervisor.snapshot, 'collect', return_value=current), \
+                        patch.object(supervisor.time, 'time', return_value=1000):
+                    supervisor.cycle(c, deliver=False)
+                timing = state.read(c, 'snapshot')['collection']
+                self.assertEqual(timing['started_at'], 900)
+                self.assertEqual(timing['finished_at'], 1000)
+                self.assertEqual(timing['period_seconds'], expected)
+                self.assertEqual(timing['expected_next_at'], 1000 + expected)
+
     def test_lane_free_reserves_before_unlocked_delivery_and_deduplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             c = {'_state': directory, 'repo': 'owner/project',

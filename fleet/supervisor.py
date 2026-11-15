@@ -813,6 +813,8 @@ def wake_builders(c, ledger, now, deliver):
 
 
 def cycle(c, deliver=True):
+    previous_snapshot = state.read(c, 'snapshot', {})
+    collection_started = time.time()
     s = snapshot.collect(c)
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
     from .threads import _record_next_report
@@ -925,6 +927,16 @@ def cycle(c, deliver=True):
     pending.extend(missing_ready_reports(c, s, ledger, time.time(), lane_free))
     pending.extend(wake_main(c, ledger, time.time(), deliver))
     pending.extend(wake_builders(c, ledger, time.time(), deliver))
+    finished = time.time()
+    started = s.get('generated_at', collection_started)
+    previous = previous_snapshot.get('collection', {})
+    prior = previous.get('finished_at')
+    period = finished - started + c.get('interval_seconds', 60)
+    if (isinstance(prior, (int, float)) and 0 <= started - prior <=
+            3 * previous.get('period_seconds', period) + 15):
+        period = max(period, finished - prior)
+    s['collection'] = {'started_at': started, 'finished_at': finished,
+                       'period_seconds': period, 'expected_next_at': finished + period}
     state.write(c, 'snapshot', s)
     state.write(c, 'supervisor', ledger)
     inventory = s.get('inventory')

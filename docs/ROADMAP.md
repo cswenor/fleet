@@ -113,6 +113,33 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-145 — Cadence-aware shared snapshots and stock-budget protection
+
+Supervisors record collection start/finish, observed cycle period and expected
+next completion. Watches accept publication age through one cycle plus 15s,
+not collection-start age through the configured sleep interval. Legacy snapshots
+infer publication and collection duration from file mtime. Restart downtime does
+not inflate the next cycle's freshness window.
+
+Unavailable watch evidence never falls back to stock/user-token reads.
+Without a resolved App identity, watches await publication and return
+`snapshot_unavailable` (exit 6) after three missed cycles plus slack, or the
+requested timeout while evidence remains unavailable. App fallback requires the
+actual resolved installation identity on every request; invalid credentials
+cannot silently switch pools. `status` reuses fresh shared GitHub data while
+refreshing local health/quota; launch admission remains independent.
+
+Read-only candidate Evermore smoke: `status --debug --json` returned in 5.38s,
+errors empty, GitHub requests=0. A live PR watch used zero requests across
+successive publications and reported a real check transition. Observed collection
+durations were 61.02–62.26s; collection itself is unchanged. Fan-out was not added:
+the shared session's authentication, budget and conditional-cache state is serial,
+so concurrency needs separate design rather than an unmeasured budget tradeoff.
+Focused watcher, App/API, budget, snapshot and supervisor regressions cover cadence,
+legacy timing, bounded no-network waits, invalid App credentials and status reuse.
+Publication receipts are retained on TASK-145. Shared installation remains
+Main-owned, exact-head GO gated and held for Email Sherpa's empty queue.
+
 ### TASK-144 — Per-project GitHub read budget
 
 Optional `github.read_auth` names an existing private Builder App EnvironmentFile

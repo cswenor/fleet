@@ -23,6 +23,9 @@ class InitialStateTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.c = {'repo': 'owner/repo', '_state': directory.name}
+        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
+        auth.start()
+        self.addCleanup(auth.stop)
 
     def test_watch_reports_actionable_initial_state_without_waiting(self):
         scenarios = [
@@ -176,6 +179,9 @@ class GroupTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.c = {'repo': 'owner/repo', '_state': directory.name}
+        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
+        auth.start()
+        self.addCleanup(auth.stop)
 
     def test_synthetic_chain_excludes_side_history_and_includes_every_group_member(self):
         commit = lambda sha, parent, number: {'sha': sha, 'parents': [{'sha': parent}, {'sha': 'side'}], 'commit': {'message': f'Title (#{number})'}}
