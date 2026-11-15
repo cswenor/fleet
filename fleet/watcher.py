@@ -5,7 +5,8 @@ import os
 import sys
 import time
 import uuid
-from . import github, github_api, github_usage, groups, state
+from . import github, github_api, github_usage, groups, snapshot, state
+from .commands import CommandError
 
 
 def _initial_view(current, number):
@@ -67,14 +68,9 @@ def _owns(c, key, generation):
 
 def _shared_snapshot(c, number):
     try:
-        saved = state.read(c, 'snapshot')
-        if saved is None:
-            return None, 'missing', None
-        if saved.get('repo') != c['repo']:
-            return None, 'repo_mismatch', None
-        age = time.time() - saved['generated_at']
-        if not 0 <= age <= c.get('interval_seconds', 60) + 15:
-            return None, 'stale', None
+        saved, info = snapshot.shared(c)
+        if saved is None or info['source'] != 'fresh':
+            return None, info['source'], saved.get('github_budget') if saved else None
         current = saved.get('github')
         if not isinstance(current, dict) or not isinstance(current.get('prs'), list):
             return None, 'unavailable', saved.get('github_budget')
@@ -112,7 +108,10 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
     first = True
     superseded = {'pr': number, 'event': 'superseded'}
     delay = interval
+    evidence_deadline = None
+    waiting_snapshot = False
     with github_api.Session(c) as session:
+        session.require_app = True
         while first or time.monotonic() < deadline:
             first = False
             if not _owns(c, key, generation):
@@ -120,21 +119,43 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
             started = dict(session.stats)
             after, source, budget = _shared_snapshot(c, number)
             deferred = None
+            unavailable = False
+            waiting_snapshot = after is None
             if after is None:
-                try:
-                    after = github.collect(c, number)
-                except github_api.BudgetLow as error:
-                    deferred = error.reset
+                # App configuration can resolve to stock; require actual identity.
+                if session.auth.get('kind') == 'app_installation':
+                    try:
+                        after = github.collect(c, number)
+                        waiting_snapshot = False
+                    except github_api.BudgetLow as error:
+                        deferred = error.reset
+                        waiting_snapshot = False
+                    except CommandError as error:
+                        if error.code != 'app_read_unavailable':
+                            raise
+                if waiting_snapshot:
+                    _, info = snapshot.shared(c)
+                    if evidence_deadline is None:
+                        period = info.get('period_seconds', c.get('interval_seconds', 60))
+                        evidence_deadline = time.monotonic() + 3 * period + 15
+                    if info.get('unavailable') or time.monotonic() > evidence_deadline:
+                        unavailable = True
+                    delay = min(interval, 15)
+            if after is not None:
+                evidence_deadline = None
             if c.get('_github_debug'):
                 print(json.dumps({'github_poll': {key: value - started.get(key, 0)
                                                   for key, value in session.stats.items()},
                                   'snapshot': source, 'snapshot_budget': budget,
+                                  'snapshot_timing': snapshot.shared(c)[1],
                                   'blocked_until': deferred or session.blocked_until}), file=sys.stderr, flush=True)
             # Serialize the ownership check and event/receipt commit with registration.
             # A replacement may have started while collect was in flight.
             with state.lock(c, 'watch-pr-owners', wait_seconds=5):
                 if not _owns(c, key, generation):
                     return superseded
+                if unavailable:
+                    return {'pr': number, 'event': 'snapshot_unavailable', 'reason': source}
                 if deferred is not None:
                     return {'pr': number, 'event': 'github_budget_deferred', 'until': deferred}
                 if after is not None:
@@ -175,6 +196,8 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
     with state.lock(c, 'watch-pr-owners', wait_seconds=5):
         if not _owns(c, key, generation):
             return superseded
+        if waiting_snapshot:
+            return {'pr': number, 'event': 'snapshot_unavailable', 'reason': source}
         result = {'pr': number, 'event': 'timeout', 'seconds': timeout}
         if unknown:
             result['github_unknown'] = unknown

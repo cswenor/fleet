@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import math
 from pathlib import Path
 import shutil
 import time
@@ -13,10 +14,7 @@ from .display import duration
 def _github(c, result):
     with github_api.Session(c, persistent=True) as session:
         try:
-            collected = github.collect(c)
-            if collected.get('repo_move_error'):
-                result['errors'].append(collected['repo_move_error'])
-            return collected
+            return github.collect(c)
         finally:
             result['github_requests'] = dict(session.stats)
             result['github_auth'] = dict(session.auth)
@@ -50,15 +48,54 @@ def _collection_reason(error):
     return (type(error).__name__ + ': ' + health._screen_evidence(message))[:200]
 
 
-def collect(c):
+def shared(c):
+    """Read supervisor evidence; legacy timestamps use measured file publication."""
+    try:
+        saved = state.read(c, 'snapshot')
+        if not isinstance(saved, dict) or saved.get('repo') != c['repo']:
+            return None, {'source': 'missing' if saved is None else 'repo_mismatch'}
+        timing = saved.get('collection', {})
+        started = saved['generated_at']
+        finished = timing.get('finished_at')
+        if finished is None:
+            finished = (state.directory(c) / 'snapshot.json').stat().st_mtime
+        period = timing.get('period_seconds', finished - started + c.get('interval_seconds', 60))
+        if (not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                    for x in (started, finished, period)) or finished < started or period <= 0):
+            raise ValueError('invalid snapshot timing')
+        age = time.time() - finished
+        expected = finished + period
+        info = {'source': 'fresh' if 0 <= age <= period + 15 else 'stale',
+                'age_seconds': age, 'collection_seconds': finished - started,
+                'period_seconds': period, 'expected_next_at': expected,
+                'unavailable': age < 0 or age > 3 * period + 15}
+        return saved, info
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None, {'source': 'unavailable'}
+
+
+def collect(c, *, shared_github=False):
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
+    saved, shared_info = shared(c) if shared_github else (None, {})
+    reuse = (saved is not None and shared_info['source'] == 'fresh'
+             and isinstance(saved.get('github'), dict))
+    if shared_github:
+        result['github_snapshot'] = shared_info
+    if reuse:
+        for key in ('github_auth', 'github_budget'):
+            if key in saved:
+                result[key] = saved[key]
+        result['github_requests'] = {'requests': 0, 'not_modified': 0}
     if c.get('publication', {}).get('mode') == 'auto_merge':
         result['publication'] = publication.guard(c)
-    for key, fn in (('inventory', lambda: health.collect(c, now)), ('github', lambda: _github(c, result)),
+    for key, fn in (('inventory', lambda: health.collect(c, now)),
+                    ('github', lambda: saved['github'] if reuse else _github(c, result)),
                     ('quota', lambda: quota.collect(c)), ('coordinator', lambda: health.coordinator(c))):
         try:
             result[key] = fn()
+            if key == 'github' and result[key].get('repo_move_error'):
+                result['errors'].append(result[key]['repo_move_error'])
         except github_api.BudgetLow as error:
             result['github_budget'] = {**result.get('github_budget', {}), 'reset': error.reset,
                                        'blocked': True}

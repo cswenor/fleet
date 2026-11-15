@@ -16,6 +16,9 @@ def denied(endpoint):
 
 class PermissionTests(unittest.TestCase):
     def setUp(self):
+        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
+        auth.start()
+        self.addCleanup(auth.stop)
         github._pr_group_cache.clear()
         github._workflow_check_cache.clear()
         self.addCleanup(github._pr_group_cache.clear)

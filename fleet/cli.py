@@ -300,12 +300,12 @@ def main():
             result = watch(c, args.number, args.timeout, args.interval,
                            terminal=args.terminal, include_seen=args.include_seen)
             print(json.dumps(result))
-            return 5 if result.get('event') == 'github_budget_deferred' else 0
+            return {'github_budget_deferred': 5, 'snapshot_unavailable': 6}.get(result.get('event'), 0)
         if args.command == 'install-service':
             from .service import install
             print(json.dumps(install(c, args.deliver, args.environment_file)))
             return 0
-        s = snapshot.collect(c)
+        s = snapshot.collect(c, shared_github=True) if args.command == 'status' else snapshot.collect(c)
         if args.command == 'status':
             s['github_usage'] = github_usage.consumers(c)
         if c.get('_github_debug'):

@@ -34,6 +34,19 @@ class SessionTests(unittest.TestCase):
         self.clock = clock.start()
         self.addCleanup(clock.stop)
 
+    def test_app_only_reader_refuses_stock_after_identity_refresh(self):
+        self.c['github'] = {'read_auth': {'configured': True}}
+        app = (dict(os.environ, GH_TOKEN='app-token'), {'kind': 'app_installation'})
+        for args in (('api', 'repos/owner/repo/issues'),
+                     ('api', 'graphql', '-f', 'query=query{viewer{login}}')):
+            with self.subTest(args=args), patch('fleet.github_auth.resolve', return_value=app), \
+                    github_api.Session(self.c) as session:
+                session.require_app = True
+                with patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'stock'})), \
+                        patch.object(commands, '_execute', side_effect=AssertionError('stock network')):
+                    with self.assertRaisesRegex(commands.CommandError, 'App read identity unavailable'):
+                        commands.gh(self.c, *args)
+
     def test_consumer_reuses_304_body_without_leaking_mutations(self):
         session = github_api.Session(self.c)
         replies = [response([{'id': 1}], headers={'ETag': '"one"'}),

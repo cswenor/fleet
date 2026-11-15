@@ -17,6 +17,9 @@ class WatchFalseWakeTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': 'lane-a'})
         self.env.start()
         self.addCleanup(self.env.stop)
+        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
+        auth.start()
+        self.addCleanup(auth.stop)
 
     def watch(self, current, **kwargs):
         with patch.object(github, 'collect', return_value=current):

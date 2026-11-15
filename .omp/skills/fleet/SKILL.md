@@ -441,7 +441,13 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
    PRs. `github_budget_deferred` (exit 5) carries Unix `until`: wait until reset
    in bounded async segments, processing steering between segments, before
    re-arming. Fresh supervisor snapshots serve watches without GitHub requests;
-   `--debug` shows source/fallback reason and per-poll counters.
+   freshness includes collection duration and observed cycle period, plus 15s.
+   `--debug` shows publication age/expected next completion, source and counters.
+   Without a resolved App read identity, watches wait rather than spend stock/user
+   requests. `snapshot_unavailable` (exit 6) means three missed cycles plus slack
+   or watch timeout while evidence is unavailable: diagnose the supervisor before
+   re-arming. Invalid App credentials never authorize stock fallback. `status`
+   reuses fresh GitHub snapshots while refreshing local health/quota.
    PR/check/comment/review/merge-group supervisor relays go only to Main;
    `watch-pr` retains builder visibility. Never rely on retired
    `pr-wait.sh` scripts or a single-workflow `gh run watch` alone. A watcher

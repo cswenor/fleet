@@ -54,6 +54,7 @@ class BudgetFlowTests(unittest.TestCase):
         session = context.__enter__.return_value
         session.stats = {'requests': 0, 'not_modified': 0}
         session.blocked_until = 1000
+        session.auth = {'kind': 'app_installation'}
         with tempfile.TemporaryDirectory() as directory, patch.object(github_api, 'Session', return_value=context), patch.object(
                 watcher.github, 'collect', side_effect=github_api.BudgetLow(1000)) as collect, patch.object(
                 watcher.time, 'time', return_value=100), patch.object(watcher.time, 'sleep') as sleep:
