@@ -97,7 +97,7 @@ def authorized(c, launch, slot, ref):
             approval.get('launch_id') == launch['id']):
         return False
     primary = state.read(c, _name(launch['ref']), {}).get(launch['ref'], {})
-    if primary.get('attempts', {}).get(launch['id'], {}).get('settled') is not False:
+    if primary.get('attempts', {}).get(launch['id'], {}).get('settled') not in (False, True):
         return False
     reconciled = state.read(c, 'reconciliations', {}).get(launch['id'], {})
     retirement = state.read(c, 'retirements', {}).get(slot, {})

@@ -186,9 +186,13 @@ class DispatcherTests(unittest.TestCase):
         self.builder['shell_ready'] = False
         row = next(row for row in self.propose()['tasks'] if row['ref'] == 'TASK-2')
         self.assertIn('carried launch receipt', '; '.join(row['reasons']))
-        for retiring in (None, receipt):
-            with self.assertRaisesRegex(ValueError, 'TASK-2 already assigned.*carried launch receipt'):
-                dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path, retiring=retiring)
+        with self.assertRaisesRegex(ValueError, 'TASK-2 already assigned.*carried launch receipt'):
+            dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path)
+        self.assertEqual(dispatcher.check_launch(
+            self.c, 'TASK-2', self.inventory, self.path, retiring=receipt)['ref'], 'TASK-2')
+        with self.assertRaisesRegex(ValueError, 'carried launch receipt'):
+            dispatcher.check_launch(self.c, 'TASK-2', self.inventory, self.path,
+                                    retiring=dict(receipt, id='other'))
         self.builder['shell_ready'] = True
         self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
 

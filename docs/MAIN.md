@@ -435,9 +435,12 @@ The exact current launch must be live with matching terminal/incarnation and an
 unsettled primary thread. Unknown/settled launch, primary ref, competing ownership,
 non-Main caller or empty evidence refuse. The builder opens the carried ref as a
 separate thread on the same attempt; questions and result are ref-local.
-Carried claims block next/launch/restart until the launch is resolved; settling
-the carried thread alone does not free it. Restart still retires the primary
-ref. Replacement sessions require new approval; no fake Dispatch or Run binding.
+Previously approved carried threads remain independent after primary settlement:
+the builder may still open, ask on and settle them on that same launch. New carry
+approvals still require an unsettled primary. Claims block ordinary next/launch
+until resolution; restart exempts only the exact launch being retired, including
+its carried NEXT claim. Competing launches still block. Restart retires the primary
+ref, never the carried ref. Replacement sessions require new approval.
 
 
 ### Repo moved or renamed
@@ -922,6 +925,21 @@ For OLD == NEXT, a fully recorded valid park for the current launch also qualifi
 Otherwise require a PR carrying that ref merged strictly after the retiring
 launch timestamp, then a handoff on the same ref strictly after the merge with a
 non-empty next-piece description after the ref; Pad done alone never suffices.
+
+For an investigation finished without a PR, Main may instead run:
+
+```sh
+fleet --config CONFIG restart NEXT --slot SLOT --finished-ref OLD --no-pr-evidence 'Investigation closed below threshold; no code change'
+```
+
+This explicit exception requires the configured Run-bound Main terminal, Pad OLD
+`done`, and OLD's exact launch/slot/terminal canonical settled thread result.
+Evidence must be a nonempty printable single line (at most 2000 characters).
+It records Main's evidence and result on Pad before input and in the ordinary
+retirement receipt. Idle/session/foreground, preflight and verified-shell proofs
+below are unchanged. Use the primary launch ref as OLD, even when NEXT was carried.
+It does not qualify a builder for FRESH-READY or relax publication gates.
+
 Its launch must have a canonical `launches.json` binding, dedicated session log
 and live lease. Local Linux `/proc` must bind
 the OLD receipt argv/session directory to the terminal's live foreground OMP process.

@@ -221,6 +221,24 @@ def _finished_completion(c, ref, record):
     raise ValueError('finished task requires a new merged PR after this launch or a validated park receipt')
 
 
+def _investigation_completion(c, finished, record, evidence):
+    item = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'show',
+                     finished, '--format', 'json'], c['root'])
+    if dispatcher.fields(item).get('status') != 'done':
+        raise ValueError('no-PR restart requires Pad done; finish the investigation on Pad first')
+    task = state.read(c, threads._name(finished), {}).get(finished, {})
+    attempt = task.get('attempts', {}).get(record['id'], {})
+    if (not task.get('id') or attempt.get('settled') is not True
+            or not attempt.get('result') or attempt.get('terminal') != record['terminal']
+            or attempt.get('slot') != record['worktree']['path']):
+        raise ValueError('no-PR restart requires the exact launch settled thread result; '
+                         'record fleet thread result before restarting')
+    return {'kind': 'investigation', 'finished_ref': finished, 'pad_status': 'done',
+            'evidence': evidence, 'actor': c['coordinator']['terminal'],
+            'at': time.time(), 'attempt': attempt.get('attempt_id', record['id']),
+            'result': attempt['result']}
+
+
 def _completion(c, ref, finished, record, *, require_handoff=False):
     launched = _launch_time(record)
     same_ref = ref == finished
@@ -243,7 +261,9 @@ def _completion(c, ref, finished, record, *, require_handoff=False):
         moved = github.repo_move_error(c)
         if moved:
             raise ValueError(moved)
-        raise ValueError('finished task has no merged PR carrying its Pad ref')
+        raise ValueError('finished task has no merged PR carrying its Pad ref; for a completed '
+                         'investigation use fleet restart NEXT --slot SLOT --finished-ref FINISHED '
+                         '--no-pr-evidence TEXT (Pad done and settled thread result required)')
     if same_ref or require_handoff:
         prs = [p for p in prs if _timestamp(p['mergedAt']) > launched]
         if not prs:
@@ -448,12 +468,18 @@ def relaunch(c, ref, slot, reason, *, keep_uncommitted=False, model=None, thinki
                     model=model, thinking=thinking)
 
 
-def restart(c, ref, slot, finished_ref, *, model=None, thinking=None):
-    return _replace(c, ref, slot, finished_ref, model=model, thinking=thinking)
+def restart(c, ref, slot, finished_ref, *, model=None, thinking=None, no_pr_evidence=None):
+    if no_pr_evidence is not None:
+        if (not isinstance(no_pr_evidence, str) or not no_pr_evidence.strip()
+                or len(no_pr_evidence) > 2000 or any(not ch.isprintable() for ch in no_pr_evidence)):
+            raise ValueError('no-PR evidence must be a non-empty printable single line (at most 2000 characters)')
+        steering._main(c)
+    return _replace(c, ref, slot, finished_ref, model=model, thinking=thinking,
+                    no_pr_evidence=no_pr_evidence)
 
 
 def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
-             model=None, thinking=None):
+             model=None, thinking=None, no_pr_evidence=None):
     operation = 'relaunch' if reason is not None else 'restart'
     if not sys.platform.startswith('linux'):
         raise ValueError('automatic restart unsupported on this platform: exact local Linux process proof required; use verified manual retirement and reconcile')
@@ -471,7 +497,9 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         if (not record.get('id') or record.get('ref') != finished_ref or
                 record.get('terminal') != target['terminal'] or
                 record.get('worktree', {}).get('id') != tree['id']):
-            raise ValueError('no exact finished-task launch record for slot/terminal; manual reconciliation required')
+            raise ValueError('no exact finished-task launch record for slot/terminal; use the primary '
+                             'launch ref as --finished-ref (not its carried ref), or positively verified '
+                             'manual retirement + fleet reconcile + fleet launch')
         retirements = state.read(c, 'retirements', {})
         previous = retirements.get(slot, {})
         if previous.get('launch_id') == record['id']:
@@ -495,7 +523,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 raise ValueError(f"{exc}; run `fleet thread stop {ref}` first") from exc
             raise
         completion = ({'kind': 'relaunch', 'reason': reason} if reason is not None else
-                      _completion(c, ref, finished_ref, record))
+                      _investigation_completion(c, finished_ref, record, no_pr_evidence)
+                      if no_pr_evidence is not None else _completion(c, ref, finished_ref, record))
         # Validate next task and gates before retiring, then again inside normal launch.
         try:
             s = snapshot.collect(c)
@@ -526,6 +555,15 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                    'finished_ref': finished_ref, 'terminal': target['terminal'],
                    'terminal_incarnation_id': record['terminal_incarnation_id'],
                    'session': proof, 'completion': completion, 'stage': 'exit-attempted'}
+        if no_pr_evidence is not None:
+            threads.pad(c, finished_ref, 'Main authorized investigation-only restart:\n' +
+                        json.dumps(completion, ensure_ascii=True, sort_keys=True))
+            latest = _idle(c, record, tree, target['terminal'], previous=proof)
+            latest_tree, latest_target = _target(c, slot)
+            if (latest_tree != tree or latest_target['terminal'] != target['terminal']
+                    or latest['process'] != proof['process']):
+                raise ValueError('retirement evidence changed after Pad recording; input withheld')
+            receipt['session'] = proof = latest
         if reason is not None:
             receipt['relaunch'] = {
                 'reason': reason, 'at': receipt['at'], 'actor': c['coordinator']['terminal'],

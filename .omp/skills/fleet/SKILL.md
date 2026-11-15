@@ -405,11 +405,13 @@ The exact current launch must have matching live terminal/incarnation and an
 unsettled primary thread; primary ref, competing claim, unknown/settled launch,
 empty evidence and non-Main callers refuse. The builder then opens TASK-N as a
 separate canonical thread on that same attempt. Its questions/results remain
-ref-local; result settles only TASK-N. Carried ownership remains claimed through
-unresolved launch health, blocking next/launch/restart until verified exit,
-retirement or reconciliation. Replacement launches never inherit approval;
-restart OLD/NEXT still uses the primary ref. This is not native Dispatch or
-arbitrary task switching. Keep builder terminals unbound.
+ref-local; primary settlement does not revoke a previously approved carry:
+the builder may open and finish it on that same launch. New carry approval still
+requires an unsettled primary. Carried ownership blocks ordinary next/launch
+until exit, retirement or reconciliation. Restart exempts only the exact retiring
+launch's claims, including carried NEXT; competing launches still block.
+Replacement launches never inherit approval; restart OLD/NEXT uses the primary ref.
+This is not native Dispatch or arbitrary task switching. Keep builder terminals unbound.
 
 
 ## Publication: two independent gates
@@ -588,6 +590,15 @@ Main announces exact change/head/risk to **every affected project's Main**, offe
 per-project pinning, and coordinates rollout/rollback and owner-only approvals.
 Do not change other projects, restart shared services or imply installation from
 merge alone. Verify actual deployed CLI/service/browser and report receipts.
+
+For a completed investigation with no PR, the configured Run-bound Main may use
+`fleet --config CONFIG restart NEXT --slot SLOT --finished-ref OLD --no-pr-evidence TEXT`.
+Require Pad OLD done and OLD's exact launch/slot/terminal settled canonical result.
+Record printable nonempty evidence (at most 2000 characters) on Pad before input
+and in the ordinary retirement receipt. All idle/session/foreground, preflight
+and verified-shell guards remain. OLD is the primary ref, even for carried NEXT.
+This exception does not qualify FRESH-READY or relax publication gates.
+
 
 For finished work, Main can use
 `fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD`.
