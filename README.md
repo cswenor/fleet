@@ -495,9 +495,10 @@ After an Orca restart, refresh the coordinator handle/run configuration.
 Builder handles are re-listed every cycle, never stored as durable identities.
 Terminal-only builder mailboxes expire when their terminal closes; the Run inbox
 is durable across terminal replacement. Fleet never promises replay into a new session.
-Inbox enqueue does not prove the agent woke or read it. `watch-pr` first reports
-an already-DIRTY, failing, merged or closed PR immediately, unless that caller
-already received its current initial-event key. Receipts are private Fleet state,
+Inbox enqueue does not prove the agent woke or read it. `watch-pr` always returns
+`{"event":"merged"}` or `{"event":"closed"}` (exit 0) for terminal PRs, even if
+already seen; **stop looping on merged/closed**. Already-DIRTY or failing initial
+events are deduplicated. Receipts are private Fleet state,
 scoped to caller terminal, repository and PR. `ORCA_TERMINAL_HANDLE` takes precedence
 over the `--terminal HANDLE` fallback; without either, initial events always return.
 `--include-seen` forces initial re-emission. A new head, PR update or failed-check
@@ -547,6 +548,28 @@ Only the fingerprint, validators, response bodies and budget metadata are stored
 never credentials or arbitrary headers. Changing credentials discards the cache.
 GraphQL reads remain uncached and use their separate GitHub budget.
 
+`watch-pr` first uses the project's persisted supervisor snapshot when its repo
+matches, the PR is present, and age is at most `interval_seconds + 15` seconds.
+`--debug` identifies `fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent`,
+`unavailable` or `group_evidence_unavailable`, plus request counts (zero for a
+fresh snapshot) and budget metadata. The last reason means newer group membership
+is needed to avoid reporting a superseded failure; supervisor data alone cannot
+answer equivalently. Otherwise it falls back to its own bounded collection. An unchanged armed PR
+doubles its interval up to 300 seconds (never below the requested interval);
+any observed change resets it. Snapshot and fallback paths share event/receipt
+semantics.
+
+Each Fleet CLI process records request attribution in private `github-usage.json`:
+project, command kind, PR/ref, PID/process identity and REST/GraphQL counts.
+`status` shows the top ten consumers over the last hour (60-second buckets);
+`status --json` includes `github_usage`. History is capped at 2048 rows and
+reports truncation. Requests include 304s, failures, pagination, direct App HTTP
+calls and native gh commands. gh HTTP traces are captured only in memory to count
+actual outbound attempts and discarded before diagnostics; no tokens, URLs,
+headers or response bodies enter this attribution file. Older installed processes
+do not contribute until upgraded/restarted. Accounting errors warn without
+turning a successful GitHub mutation into a failure.
+
 PR watches read PR/check data first. Cold polls discover historical group failures;
 unchanged nonqueued polls then omit group history unless an own-group or unresolved
 pending/failed group needs tracking. Queue entry and head/check/PR changes refresh it. Hour-bucketed
@@ -555,7 +578,11 @@ Existing group and workflow supersession rules are unchanged.
 
 Below 10% REST remaining, or on a rate-limit 403/429, GitHub reads defer until reset
 (at most one hour; secondary limits honor `Retry-After`). Permission-denied 403s
-are not rate exhaustion. Watch sleep respects its timeout. Supervisors continue
+are not rate exhaustion. A watch returns `github_budget_deferred` with Unix `until`
+and exit 5 instead of silently timing out; do not re-arm until that reset (use
+bounded async waits and process steering between segments). A fresh usable
+supervisor snapshot still answers with zero calls despite budget deferral.
+Supervisors continue
 terminal/quota/disk collection and emit one nonurgent `github budget low` report
 per reset window instead of repeated collection errors; unavailable GitHub visibility
 still withholds launches. `watch-pr --debug` prints per-poll request/304 counts to

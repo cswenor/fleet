@@ -158,6 +158,7 @@ def main():
     p = bot_commands.add_parser('status', help='observe exact deployed image, HTTPS health, Apps and webhook delivery metadata')
     p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
     args = parser.parse_args()
+    usage_token = None
     try:
         if args.command == 'wait' and args.summary and not args.save:
             raise ValueError('--summary requires --save to preserve complete mail payloads')
@@ -171,6 +172,12 @@ def main():
                 print(json.dumps(install_central(c, args.environment_file)))
             return 0
         c = load(args.config)
+        from . import github_usage
+        kind = ('supervisor' if args.command == 'serve' else
+                getattr(args, 'review_bot_command', None) or args.command)
+        usage_token = github_usage.configure(
+            c, kind, pr=getattr(args, 'number', None) or getattr(args, 'pr', None),
+            ref=getattr(args, 'ref', None))
         if args.command == 'review-bot':
             if args.review_bot_command == 'init':
                 from .review_bot_apps import initialize
@@ -290,14 +297,17 @@ def main():
             if args.timeout < 1 or args.interval < 1 or args.number < 1:
                 raise ValueError('watch-pr arguments must be positive')
             from .watcher import watch
-            print(json.dumps(watch(c, args.number, args.timeout, args.interval,
-                                   terminal=args.terminal, include_seen=args.include_seen)))
-            return 0
+            result = watch(c, args.number, args.timeout, args.interval,
+                           terminal=args.terminal, include_seen=args.include_seen)
+            print(json.dumps(result))
+            return 5 if result.get('event') == 'github_budget_deferred' else 0
         if args.command == 'install-service':
             from .service import install
             print(json.dumps(install(c, args.deliver, args.environment_file)))
             return 0
         s = snapshot.collect(c)
+        if args.command == 'status':
+            s['github_usage'] = github_usage.consumers(c)
         if c.get('_github_debug'):
             print(json.dumps({'github_requests': s.get('github_requests', {})}), file=sys.stderr)
         if args.command == 'may-start':
@@ -314,6 +324,9 @@ def main():
         prefix = 'DRILL ' if getattr(args, 'drill_usage_file', None) else ''
         print(f'{prefix}fleet: {e}', file=sys.stderr)
         return 4 if isinstance(e, state.LauncherBusy) else 2
+    finally:
+        if usage_token is not None:
+            github_usage.reset(usage_token)
 
 
 if __name__ == '__main__':
