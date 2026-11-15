@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from fleet import commands, github_api, github_auth, snapshot
+from fleet import commands, github_api, github_auth, github_usage, snapshot
 
 
 class ReadAuthTests(unittest.TestCase):
@@ -105,8 +105,12 @@ import json, os, sys
 if '-i' in sys.argv:
     print('HTTP/2.0 200 OK\r\nX-RateLimit-Limit: 15000\r\nX-RateLimit-Remaining: 14999\r\nX-RateLimit-Reset: 6000\r\n\r')
 print(json.dumps({'actor': os.environ['GH_TOKEN']}))
+if os.environ.get('GH_DEBUG') == 'api':
+    sys.stderr.write('> POST /graphql HTTP/1.1\n' if 'graphql' in sys.argv else '> GET /fixture HTTP/1.1\n')
 ''')
         executable.chmod(0o700)
+        usage_token = github_usage.configure(self.c, 'status')
+        self.addCleanup(github_usage.reset, usage_token)
         with patch.dict(os.environ, {'PATH': self.directory.name + os.pathsep + os.environ['PATH']}), \
                 patch('fleet.github_usage.enabled', return_value=True):
             for root in (self.directory.name, '/'):
@@ -122,6 +126,9 @@ print(json.dumps({'actor': os.environ['GH_TOKEN']}))
                 snapshot._github(self.c, result)
             self.assertEqual(result['github_auth']['kind'], 'app_installation')
             self.assertIn('REST budget 14999/15000', snapshot.render({'repo': 'owner/repo', **result}))
+            consumers = {row['identity']: (row['rest'], row['graphql'])
+                         for row in github_usage.consumers(self.c)['consumers']}
+            self.assertEqual(consumers, {'app_installation:42': (3, 1), 'stock': (1, 1)})
 
     def test_identity_switch_discards_cached_body_and_backoff(self):
         with github_api.Session(self.c, persistent=True) as session:

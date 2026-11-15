@@ -151,7 +151,7 @@ def arm(c, pr, head):
     token = issued.get('token') if isinstance(issued, dict) else None
     if not isinstance(token, str) or not token or any(char.isspace() for char in token):
         raise ValueError('Builder installation token unavailable')
-    scoped = GitHub(token)
+    scoped = GitHub(token, identity=f'app_installation:{installation}')
     observed = None
     try:
         # Authentication/installation checks can take time; protection must still
@@ -176,11 +176,11 @@ def arm(c, pr, head):
                 stderr=subprocess.PIPE if github_usage.enabled() else subprocess.DEVNULL,
                 timeout=60, check=False)
             if github_usage.enabled():
-                github_usage.trace(result.stderr)
+                github_usage.trace(result.stderr, identity=f'app_installation:{installation}')
             failed = result.returncode != 0
         except (OSError, subprocess.SubprocessError) as error:
             if github_usage.enabled() and isinstance(error, subprocess.TimeoutExpired):
-                github_usage.trace(error.stderr)
+                github_usage.trace(error.stderr, identity=f'app_installation:{installation}')
             failed = True
         observed = _observed(c, pr, head, _pull(owner, c, pr))
         observed['command_succeeded'] = not failed

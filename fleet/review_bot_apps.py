@@ -174,7 +174,7 @@ def verify_installation(c, role, client):
     token = issued.get('token') if isinstance(issued, dict) else None
     if not isinstance(token, str) or not token or any(char.isspace() for char in token):
         raise ValueError('App installation token unavailable')
-    scoped = GitHub(token)
+    scoped = GitHub(token, identity=f'app_installation:{installation["id"]}')
     try:
         verify_repository_scope(scoped, c['repo'])
     finally:

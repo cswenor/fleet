@@ -61,7 +61,7 @@ class GhError(CommandError):
         super().__init__(f'GitHub {self.endpoint}: {detail}' + (f': {reason}' if reason else ''),
                          code='github_request_failed')
 
-def _execute(argv, cwd=None, timeout=60, *, text=True, env=None):
+def _execute(argv, cwd=None, timeout=60, *, text=True, env=None, github_identity='stock'):
     from . import github_usage
     traced = argv[0] == 'gh' and github_usage.enabled()
     kwargs = {'env': env} if env is not None else {}
@@ -71,10 +71,10 @@ def _execute(argv, cwd=None, timeout=60, *, text=True, env=None):
         p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout, **kwargs)
     except (OSError, subprocess.TimeoutExpired) as e:
         if traced and isinstance(e, subprocess.TimeoutExpired):
-            github_usage.trace(e.stderr)
+            github_usage.trace(e.stderr, identity=github_identity)
         raise CommandError(f'{argv[0].split("/")[-1]} unavailable or timed out') from e
     if traced:
-        github_usage.trace(p.stderr)
+        github_usage.trace(p.stderr, identity=github_identity)
         diagnostic = p.stderr.decode(errors='replace') if isinstance(p.stderr, bytes) else p.stderr
         statuses = re.findall(r'^< HTTP/\S+ (\d{3})', diagnostic or '', re.M)
         # Do not let captured HTTP bodies/headers escape via existing diagnostics.
@@ -191,7 +191,9 @@ def gh(c, *args):
             return session.request(c, args)
         session.observe(c, args)
     env = session.read_environment(c, args) if session is not None else None
-    process = _execute(['gh', *args], c['root'], **({'env': env} if env is not None else {}))
+    options = ({'env': env, 'github_identity': f'app_installation:{session.auth["installation_id"]}'}
+               if env is not None else {})
+    process = _execute(['gh', *args], c['root'], **options)
     if process.returncode:
         raise GhError(_gh_target(args), stderr=process.stderr)
     try:

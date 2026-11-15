@@ -88,3 +88,15 @@ class UsageTests(unittest.TestCase):
             self.assertEqual(commands.gh(self.c, 'api', 'graphql'), {})
         self.assertIn('attribution unavailable', stderr.getvalue())
         self.assertNotIn('secret', stderr.getvalue())
+
+    def test_identity_pools_and_legacy_unknown_rows_do_not_coalesce(self):
+        github_usage.configure(self.c, 'status')
+        github_usage.record(rest=1)
+        legacy = state.read(self.c, 'github-usage')
+        del legacy['rows'][0]['identity']
+        state.write(self.c, 'github-usage', legacy)
+        github_usage.record(rest=2)
+        github_usage.record(rest=3, identity='app_installation:42')
+        totals = {row['identity']: row['rest']
+                  for row in github_usage.consumers(self.c)['consumers']}
+        self.assertEqual(totals, {'unknown': 1, 'stock': 2, 'app_installation:42': 3})

@@ -287,6 +287,10 @@ before collection. Required grants: metadata, contents, pull_requests, issues,
 checks, statuses, actions and merge_queues, each read (write grants satisfy read;
 tokens request only read). Subsequent permission errors/low budget do not switch
 pools or silently discard statuses/checks. Compare only like identities.
+Request-attribution consumer rows include the selected identity pool; legacy
+rows remain `unknown`. App JWT maintenance requests are separate from
+installation-token reads. Stock labels describe the existing gh credential
+source, not proof of a personal account.
 The owning project's Main configures/proves its own installation; never borrow
 another project's private file. Writes, publication gates and rollout approvals
 are unchanged. Merge does not authorize shared installation or service restart.

@@ -329,7 +329,10 @@ class Session:
         if cached:
             argv.extend(['-H', 'If-None-Match: ' + cached['etag']])
         self.stats['requests'] += 1
-        process = commands._execute(argv, c['root'], **({'env': self.environment} if self.environment is not None else {}))
+        options = ({'env': self.environment,
+                    'github_identity': f'app_installation:{self.auth["installation_id"]}'}
+                   if self.environment is not None else {})
+        process = commands._execute(argv, c['root'], **options)
         try:
             status, response_headers, body = _response(process.stdout)
         except CommandError:

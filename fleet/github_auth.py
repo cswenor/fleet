@@ -56,7 +56,7 @@ def resolve(c):
             # Inspect an unrestricted token so repository narrowing cannot hide a
             # broad installation. Revoke this verification token, as onboarding does.
             issued = client.request('POST', f'/app/installations/{auth["installation_id"]}/access_tokens', {})
-            probe = GitHub(_token(issued))
+            probe = GitHub(_token(issued), identity=f'app_installation:{auth["installation_id"]}')
             try:
                 from .review_bot_apps import verify_repository_scope
                 verify_repository_scope(probe, c['repo'])

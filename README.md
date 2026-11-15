@@ -575,6 +575,11 @@ installation ID or sanitized fallback reason, and `github_budget`. Text status
 shows the same identity and last observed REST remaining/limit (`?` if unknown).
 Never infer one identity's budget from another; stock auth may itself be an App
 token supplied by the operator.
+Request-attribution rows also separate `stock`, `app_installation:ID` read pools,
+and `app:ID` JWT maintenance calls. Installation calls without a known receipt
+use `app_installation`; unauthenticated calls use `anonymous`. Legacy rows are
+`unknown`, never guessed to belong to the personal pool. These labels are
+credential-source metadata, not authenticated actor names; no token is stored.
 
 REST GETs revalidate each page with `If-None-Match`; HTTP 304 reuses its cached
 body and does not consume GitHub's authenticated primary rate limit. `watch-pr`

@@ -128,8 +128,8 @@ Status identifies the selected read pool and last REST remaining/limit.
 Conditional caches remain token-fingerprinted and discard stale bodies/backoff
 on identity changes; token caches also isolate repository/installation/credentials.
 
-Verification: 43 focused GitHub tests, 32 App/onboarding tests and five shared
-watcher-snapshot tests passed after integration with TASK-143.
+Verification: 44 focused GitHub tests, 32 App/onboarding tests, 50 publication
+tests and five shared watcher-snapshot tests passed after TASK-143 integration.
 Coverage includes mint/cache expiry, fallback, installation boundaries,
 credential/repository scoping, cwd independence, write preservation and status
 budget identity. Isolated candidate `status --json` exercised actual RSA signing
@@ -140,6 +140,11 @@ with the same isolated budgets. Fleet has no configured App installation receipt
 so live App proof remains project-owned.
 The merged candidate CLI also proved request-attribution tracing preserves App
 credentials while adding `GH_DEBUG=api`, using an actual fixture `gh` process.
+Attribution counters additionally separate stock/App-installation/App-JWT pools
+within each process/ref bucket; legacy rows remain unknown rather than being
+assigned to a user's budget.
+Candidate CLI fixture reads recorded separate App42 REST=1/GraphQL=1 and stock
+fallback REST=1/GraphQL=1 counters, both exit 0.
 No shared installation/config/service has changed. Publication receipts are
 retained on TASK-144.
 Publication and shared rollout remain exact-head Main-GO gated.

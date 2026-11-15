@@ -171,6 +171,6 @@ def render(s):
         for row in usage['consumers']:
             target = f" PR #{row['pr']}" if row.get('pr') else ''
             target += f" {row['ref']}" if row.get('ref') else ''
-            lines.append(f"  {row['kind']} pid={row['pid']}{target}: REST={row['rest']} GraphQL={row['graphql']}")
+            lines.append(f"  {row['kind']} pid={row['pid']}{target} identity={row.get('identity', 'unknown')}: REST={row['rest']} GraphQL={row['graphql']}")
     lines.extend('ERROR: ' + x for x in s['errors'])
     return '\n'.join(lines)
