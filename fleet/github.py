@@ -33,7 +33,7 @@ def _permission_unknown(error, unavailable):
 
 def _queued(c, number, *, details=False):
     owner, name = c['repo'].split('/')
-    query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id}}}}'
+    query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeQueueEntry{id headCommit{oid}}}}}'
     data = gh(c, 'api', 'graphql', '-f', 'query=' + query,
               '-f', 'owner=' + owner, '-f', 'name=' + name, '-F', f'number={number}')
     if data.get('errors'):
@@ -300,11 +300,14 @@ def _repository_queue(c, unavailable, metadata=None):
 
 
 def _idle_groups(runs):
-    # Resolution can fail without a transport-level unavailable diagnostic.
-    # Keep retrying failed groups until every member can receive its event.
-    return all(r.get('status') == 'completed' and
-               (r.get('conclusion') not in ('failure', 'cancelled', 'timed_out', 'action_required')
-                or r.get('membership_complete') is True) for r in runs)
+    # Failed membership and unresolved successors need retries after compare
+    # recovery, even when run status/conclusion and repository probes are stable.
+    failed = [r for r in runs if r.get('conclusion') in
+              ('failure', 'cancelled', 'timed_out', 'action_required')]
+    return (all(r.get('status') == 'completed' for r in runs) and
+            all(f.get('membership_complete') is True and
+                all(r.get('membership_complete') is True or not groups.newer_group(r, f)
+                    for r in runs) for f in failed))
 
 
 def _idle_history(previous, cutoff, since):
@@ -467,12 +470,16 @@ def collect(c, pr_number=None, *, idle_previous=None, idle_full=False):
         try:
             run_pages = (probe_runs if probe_runs is not None else
                          gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100'))
-            runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
-                                     'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
-                                     'created_at': r.get('created_at'),
-                                     'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
-                                    for page in run_pages for r in page['workflow_runs']
-                                    if _recent(r.get('created_at'), cutoff)], pr_number=pr_number)
+            runs = [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
+                     'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
+                     'created_at': r.get('created_at'),
+                     'status': r['status'], 'conclusion': r['conclusion'], 'url': r['html_url']}
+                    for page in run_pages for r in page['workflow_runs']
+                    if _recent(r.get('created_at'), cutoff)]
+            if pr_number is not None:
+                runs = groups.resolve(c, runs, pr_number=pr_number, queued_heads={
+                    (p['merge_queue_entry'].get('headCommit') or {}).get('oid')
+                    for p in result if p.get('merge_queue_entry')})
         except CommandError as error:
             if not _permission_unknown(error, unavailable):
                 raise
@@ -492,6 +499,9 @@ def collect(c, pr_number=None, *, idle_previous=None, idle_full=False):
     repo_metadata, entries, queue_unknown = probe or _repository_queue(c, unavailable)
     default_branch = repo_metadata['default_branch']
     _queue_progress(c, entries, unavailable)
+    runs = groups.resolve(c, runs, queued_heads={
+        (entry.get('headCommit') or {}).get('oid') for entry in entries
+        if (entry.get('headCommit') or {}).get('oid')})
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
     commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]
     return {'prs': sorted(result, key=lambda x: x['number']), 'merge_queue': entries,

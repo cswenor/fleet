@@ -615,9 +615,11 @@ expected next completion. The period includes collection time and the sleep
 interval; legacy snapshots infer collection duration from their publication mtime.
 `--debug` reports source, publication age, period, expected next completion,
 request counts (zero for a fresh snapshot) and budget metadata. Reasons include
-`fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent`, `unavailable` and
-`group_evidence_unavailable` (newer group membership is needed to avoid reporting
-a superseded failure).
+`fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent` and `unavailable`.
+Missing merge-group membership does not invalidate a fresh snapshot: only an
+older failure with unresolved newer candidates is deferred. Queue position,
+state and synthetic-head check/job progress still wake the watch; merged/closed
+and proven group failure/ejection remain observable without extra GitHub reads.
 
 Without a resolved App read identity, unavailable evidence waits for supervisor
 publication, never polls using stock/user credentials. After three missed cycles
