@@ -49,22 +49,18 @@ class BudgetFlowTests(unittest.TestCase):
             self.assertIn('inventory', result)
             self.assertFalse(snapshot.may_start(c, result)['may_start'])
 
-    def test_watcher_budget_sleep_is_bounded_by_deadline(self):
+    def test_watcher_returns_budget_deferral_without_sleeping(self):
         context = MagicMock()
         session = context.__enter__.return_value
         session.stats = {'requests': 0, 'not_modified': 0}
         session.blocked_until = 1000
-        clock = [0]
-        def advance(seconds):
-            clock[0] += seconds
         with tempfile.TemporaryDirectory() as directory, patch.object(github_api, 'Session', return_value=context), patch.object(
                 watcher.github, 'collect', side_effect=github_api.BudgetLow(1000)) as collect, patch.object(
-                watcher.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(
-                watcher.time, 'time', return_value=100), patch.object(watcher.time, 'sleep', side_effect=advance) as sleep:
+                watcher.time, 'time', return_value=100), patch.object(watcher.time, 'sleep') as sleep:
             result = watcher.watch({'repo': 'o/r', '_state': directory}, 1, timeout=20, interval=1)
-        self.assertEqual(result['event'], 'timeout')
+        self.assertEqual(result, {'pr': 1, 'event': 'github_budget_deferred', 'until': 1000})
         collect.assert_called_once()
-        sleep.assert_called_once_with(20)
+        sleep.assert_not_called()
 
     def test_supervisor_retains_group_failures_across_optional_history_outage(self):
         import copy

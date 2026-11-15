@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -202,13 +203,23 @@ def merged_prs(repo, start, end):
       }
     }'''
     owner, name = repo.split('/')
+    from . import github_usage
+    base = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state'))
+    github_usage.configure({'repo': repo, '_state': str(base / 'fleet' / repo.replace('/', '--'))},
+                           'metrics')
     cursor, numbers = None, set()
     while True:
         args = ['gh', 'api', 'graphql', '-f', 'query=' + query,
                 '-f', 'owner=' + owner, '-f', 'name=' + name]
         if cursor:
             args += ['-f', 'cursor=' + cursor]
-        result = subprocess.run(args, capture_output=True, text=True, timeout=120)
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=120,
+                                    env={**os.environ, 'GH_DEBUG': 'api'})
+        except subprocess.TimeoutExpired as error:
+            github_usage.trace(error.stderr)
+            raise
+        github_usage.trace(result.stderr)
         if result.returncode:
             raise MeasurementError('GitHub query failed; no partial result')
         payload = json.loads(result.stdout)

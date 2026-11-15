@@ -65,6 +65,28 @@ def _owns(c, key, generation):
     return state.read(c, 'watch-pr-owners', {}).get(key) == generation
 
 
+def _shared_snapshot(c, number):
+    try:
+        saved = state.read(c, 'snapshot')
+        if saved is None:
+            return None, 'missing', None
+        if saved.get('repo') != c['repo']:
+            return None, 'repo_mismatch', None
+        age = time.time() - saved['generated_at']
+        if not 0 <= age <= c.get('interval_seconds', 60) + 15:
+            return None, 'stale', None
+        current = saved.get('github')
+        if not isinstance(current, dict) or not isinstance(current.get('prs'), list):
+            return None, 'unavailable', saved.get('github_budget')
+        if not any(p.get('number') == number for p in current['prs']):
+            return None, 'pr_absent', saved.get('github_budget')
+        if not isinstance(current.get('merge_group_runs'), list):
+            return None, 'unavailable', saved.get('github_budget')
+        return current, 'fresh', saved.get('github_budget')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None, 'unavailable', None
+
+
 def watch(c, number, timeout=14400, interval=60, terminal=None, include_seen=False):
     caller = os.environ.get('ORCA_TERMINAL_HANDLE') or terminal
     with _ownership(c, caller, number) as (key, generation):
@@ -77,31 +99,44 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
     unknown = []
     first = True
     superseded = {'pr': number, 'event': 'superseded'}
+    delay = interval
     with github_api.Session(c) as session:
         while first or time.monotonic() < deadline:
             first = False
             if not _owns(c, key, generation):
                 return superseded
             started = dict(session.stats)
-            try:
-                after = github.collect(c, number)
-            except github_api.BudgetLow:
-                after = None
+            after, source, budget = _shared_snapshot(c, number)
+            deferred = None
+            if after is None:
+                try:
+                    after = github.collect(c, number)
+                except github_api.BudgetLow as error:
+                    deferred = error.reset
             if c.get('_github_debug'):
                 print(json.dumps({'github_poll': {key: value - started.get(key, 0)
                                                   for key, value in session.stats.items()},
-                                  'blocked_until': session.blocked_until}), file=sys.stderr, flush=True)
+                                  'snapshot': source, 'snapshot_budget': budget,
+                                  'blocked_until': deferred or session.blocked_until}), file=sys.stderr, flush=True)
             # Serialize the ownership check and event/receipt commit with registration.
             # A replacement may have started while collect was in flight.
             with state.lock(c, 'watch-pr-owners', wait_seconds=5):
                 if not _owns(c, key, generation):
                     return superseded
+                if deferred is not None:
+                    return {'pr': number, 'event': 'github_budget_deferred', 'until': deferred}
                 if after is not None:
                     if after.get('unavailable', []) != unknown:
                         unknown = after.get('unavailable', [])
                         if unknown:
                             print(json.dumps({'pr': number, 'github_unknown': unknown}),
                                   file=sys.stderr, flush=True)
+                    pr = next((p for p in after['prs'] if p['number'] == number), {})
+                    if pr.get('state') in ('merged', 'closed'):
+                        events = (_initial_events(after, number) if before is None else
+                                  [e for e in github.events(before, after) if e.get('pr') == number])
+                        _receipt(c, caller, number, _initial_events(after, number), record_only=True)
+                        return {'pr': number, 'event': pr['state'], 'events': events}
                     if before is None:
                         initial = _receipt(c, caller, number, _initial_events(after, number), include_seen)
                         if initial:
@@ -111,8 +146,14 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                         if changes:
                             _receipt(c, caller, number, _initial_events(after, number), record_only=True)
                             return {'pr': number, 'events': changes}
+                    # Snapshot equality includes comments/checks and non-waking metadata:
+                    # any observed progress resets the unchanged armed-PR backoff.
+                    if before == after and pr.get('auto_merge') is not None:
+                        delay = min(delay * 2, max(interval, 300))
+                    else:
+                        delay = interval
                     before = after
-            delay = max(interval, session.blocked_until - time.time())
+            delay = max(delay, session.blocked_until - time.time())
             remaining = max(0, deadline - time.monotonic())
             if remaining:
                 time.sleep(min(delay, remaining))

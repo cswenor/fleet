@@ -53,6 +53,8 @@ class GitHub:
         if data is not None:
             headers['Content-Type'] = 'application/json'
         request = Request('https://api.github.com' + path, data=data, method=method, headers=headers)
+        from . import github_usage
+        github_usage.record(graphql=1) if path.split('?', 1)[0] == '/graphql' else github_usage.record(rest=1)
         try:
             with self.opener.open(request, timeout=30) as response:
                 raw = response.read(2 * 1024 * 1024 + 1)

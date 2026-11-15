@@ -113,6 +113,31 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-143 — Shared GitHub watches and request attribution
+
+`watch-pr` reuses a same-repo supervisor snapshot with the requested PR through
+`interval_seconds + 15` seconds, otherwise diagnoses its bounded fallback in
+`--debug`. Already-terminal PRs always return `merged`/`closed` (exit 0), bypassing
+seen receipts; builders stop looping. Unchanged armed PRs double polling delay
+to 300 seconds, resetting on observed changes. Budget exhaustion returns
+`github_budget_deferred` with Unix `until` and exit 5; usable fresh snapshots
+still answer without network calls.
+
+All Fleet CLI GitHub transports attribute REST/GraphQL attempts to process kind,
+project, PR/ref and PID in private bounded hourly state (60-second buckets,
+2048 rows, truncation reported). Status lists top consumers. Counts include
+pagination, 304s, failed requests, App HTTP and native gh commands. No tokens,
+URLs or response bodies enter attribution state; gh traces stay in memory and
+are discarded before diagnostics. Attribution failure warns without changing
+a successful GitHub mutation's outcome.
+
+Verification: focused watcher/API/publication/metrics checks passed; actual
+candidate `watch-pr 17 --debug` reused the fresh supervisor snapshot with
+zero requests and returned merged immediately. Candidate `status --debug`
+showed status REST=5/GraphQL=1 and watch-pr REST=0/GraphQL=0.
+Open-PR snapshot proof and publication receipts are recorded on TASK-143.
+No shared runtime was updated; publication/deployment require exact-head Main GO.
+
 ### TASK-141 — Enqueue consumes auto-merge
 
 The shared `watch-pr`/supervisor emitter no longer calls GitHub's cleared

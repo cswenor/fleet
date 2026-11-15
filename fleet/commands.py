@@ -62,10 +62,26 @@ class GhError(CommandError):
                          code='github_request_failed')
 
 def _execute(argv, cwd=None, timeout=60, *, text=True):
+    from . import github_usage
+    traced = argv[0] == 'gh' and github_usage.enabled()
+    kwargs = {'env': {**os.environ, 'GH_DEBUG': 'api'}} if traced else {}
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout)
+        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout, **kwargs)
     except (OSError, subprocess.TimeoutExpired) as e:
+        if traced and isinstance(e, subprocess.TimeoutExpired):
+            github_usage.trace(e.stderr)
         raise CommandError(f'{argv[0].split("/")[-1]} unavailable or timed out') from e
+    if traced:
+        github_usage.trace(p.stderr)
+        diagnostic = p.stderr.decode(errors='replace') if isinstance(p.stderr, bytes) else p.stderr
+        statuses = re.findall(r'^< HTTP/\S+ (\d{3})', diagnostic or '', re.M)
+        # Do not let captured HTTP bodies/headers escape via existing diagnostics.
+        diagnostic = 'GitHub command failed' + (f' (HTTP {statuses[-1]})' if statuses else '')
+        reasons = re.findall(r'^(?:gh:|GraphQL:) .+', p.stderr.decode(errors='replace')
+                             if isinstance(p.stderr, bytes) else p.stderr or '', re.M)
+        if reasons:
+            diagnostic += ': ' + _gh_reason(reasons[-1])
+        p.stderr = diagnostic if text else diagnostic.encode()
     return p
 
 
