@@ -113,6 +113,42 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-144 — Per-project GitHub read budget
+
+Optional `github.read_auth` names an existing private Builder App EnvironmentFile
+and installation ID. Fleet validates the active single-repository installation,
+then caches short-lived read-only tokens in process memory until near expiry.
+REST/GraphQL query subprocess environments explicitly override cwd credentials;
+writes retain their existing identities. Credential/mint/scope unavailability
+falls back to stock authentication with a sanitized status reason. Preflight
+requires metadata/contents/pull_requests/issues/checks/statuses/actions/merge_queues
+read grants and names missing permissions before stock fallback. Subsequent API
+permission failures and exhausted App budgets do not silently switch pools.
+Status identifies the selected read pool and last REST remaining/limit.
+Conditional caches remain token-fingerprinted and discard stale bodies/backoff
+on identity changes; token caches also isolate repository/installation/credentials.
+
+Verification: 44 focused GitHub tests, 32 App/onboarding tests, 50 publication
+tests and five shared watcher-snapshot tests passed after TASK-143 integration.
+Coverage includes mint/cache expiry, fallback, installation boundaries,
+credential/repository scoping, cwd independence, write preservation and status
+budget identity. Isolated candidate `status --json` exercised actual RSA signing
+and a fixture `gh` child: App REST 14990/15000, then stock 4990/5000 after an
+unsafe credential-file mode forced fallback; both exited 0. An amended CLI
+fixture also proved named `statuses:read` preflight fallback before collection,
+with the same isolated budgets. Fleet has no configured App installation receipt,
+so live App proof remains project-owned.
+The merged candidate CLI also proved request-attribution tracing preserves App
+credentials while adding `GH_DEBUG=api`, using an actual fixture `gh` process.
+Attribution counters additionally separate stock/App-installation/App-JWT pools
+within each process/ref bucket; legacy rows remain unknown rather than being
+assigned to a user's budget.
+Candidate CLI fixture reads recorded separate App42 REST=1/GraphQL=1 and stock
+fallback REST=1/GraphQL=1 counters, both exit 0.
+No shared installation/config/service has changed. Publication receipts are
+retained on TASK-144.
+Publication and shared rollout remain exact-head Main-GO gated.
+
 ### TASK-143 — Shared GitHub watches and request attribution
 
 `watch-pr` reuses a same-repo supervisor snapshot with the requested PR through

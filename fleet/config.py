@@ -143,6 +143,13 @@ def load(path):
     if (not isinstance(github['parked_labels'], list) or
             any(not isinstance(label, str) or not label.strip() for label in github['parked_labels'])):
         raise ValueError('github.parked_labels must be a list of nonempty label names')
+    if 'read_auth' in github:
+        auth = github['read_auth']
+        if (not isinstance(auth, dict) or set(auth) != {'app_env_file', 'installation_id'}
+                or not isinstance(auth['app_env_file'], str)
+                or not Path(auth['app_env_file']).is_absolute()
+                or type(auth['installation_id']) is not int or auth['installation_id'] < 1):
+            raise ValueError('github.read_auth requires an absolute app_env_file and positive installation_id')
     publication = c.setdefault('publication', {})
     if (not isinstance(publication, dict) or
             set(publication) - {'mode', 'release', 'review_app', 'hold_label', 'merge_method'}):

@@ -113,6 +113,10 @@ interval_seconds: 60
 github:
   # Case-insensitive names; [] disables label exclusion, never draft exclusion.
   parked_labels: [parked]
+  # Optional read-budget isolation; explicit existing Builder App credentials.
+  # read_auth:
+  #   app_env_file: /absolute/private/project-builder.env  # owned 0600, outside Git
+  #   installation_id: 12345  # active installation selecting ONLY this repo
 publication:
   # manual preserves existing prompts/self-publication; release is ignored.
   mode: manual

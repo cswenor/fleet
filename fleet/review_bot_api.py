@@ -28,8 +28,10 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class GitHub:
-    def __init__(self, token=None):
+    def __init__(self, token=None, *, identity=None):
         self.token = token
+        self.identity = identity or ('anonymous' if token is None else
+                                     'app_installation' if token.startswith('ghs_') else 'stock')
         self.opener = build_opener(_NoRedirect())
 
     @classmethod
@@ -54,7 +56,7 @@ class GitHub:
             headers['Content-Type'] = 'application/json'
         request = Request('https://api.github.com' + path, data=data, method=method, headers=headers)
         from . import github_usage
-        github_usage.record(graphql=1) if path.split('?', 1)[0] == '/graphql' else github_usage.record(rest=1)
+        github_usage.record(graphql=1, identity=self.identity) if path.split('?', 1)[0] == '/graphql' else github_usage.record(rest=1, identity=self.identity)
         try:
             with self.opener.open(request, timeout=30) as response:
                 raw = response.read(2 * 1024 * 1024 + 1)
@@ -100,7 +102,7 @@ def app_client(app, role, *, values=None):
                                     input=message, capture_output=True, timeout=15)
             if signed.returncode or not signed.stdout:
                 raise ValueError()
-        return GitHub((message + b'.' + _encoded(signed.stdout)).decode())
+        return GitHub((message + b'.' + _encoded(signed.stdout)).decode(), identity=f'app:{app["id"]}')
     except (KeyError, ValueError, OSError, subprocess.TimeoutExpired):
         raise ValueError(f'{role} App credentials are unavailable or do not match the receipt') from None
 

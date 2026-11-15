@@ -61,18 +61,20 @@ class GhError(CommandError):
         super().__init__(f'GitHub {self.endpoint}: {detail}' + (f': {reason}' if reason else ''),
                          code='github_request_failed')
 
-def _execute(argv, cwd=None, timeout=60, *, text=True):
+def _execute(argv, cwd=None, timeout=60, *, text=True, env=None, github_identity='stock'):
     from . import github_usage
     traced = argv[0] == 'gh' and github_usage.enabled()
-    kwargs = {'env': {**os.environ, 'GH_DEBUG': 'api'}} if traced else {}
+    kwargs = {'env': env} if env is not None else {}
+    if traced:
+        kwargs['env'] = {**(env if env is not None else os.environ), 'GH_DEBUG': 'api'}
     try:
         p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout, **kwargs)
     except (OSError, subprocess.TimeoutExpired) as e:
         if traced and isinstance(e, subprocess.TimeoutExpired):
-            github_usage.trace(e.stderr)
+            github_usage.trace(e.stderr, identity=github_identity)
         raise CommandError(f'{argv[0].split("/")[-1]} unavailable or timed out') from e
     if traced:
-        github_usage.trace(p.stderr)
+        github_usage.trace(p.stderr, identity=github_identity)
         diagnostic = p.stderr.decode(errors='replace') if isinstance(p.stderr, bytes) else p.stderr
         statuses = re.findall(r'^< HTTP/\S+ (\d{3})', diagnostic or '', re.M)
         # Do not let captured HTTP bodies/headers escape via existing diagnostics.
@@ -179,13 +181,19 @@ def orca(c, *args, timeout=60):
 
 
 def gh(c, *args):
-    from .github_api import active_session
+    from .github_api import Session, active_session, is_read
     session = active_session()
+    if session is None and c.get('github', {}).get('read_auth') and is_read(args):
+        with Session(c):
+            return gh(c, *args)
     if session is not None:
         if session.handles(c, args):
             return session.request(c, args)
         session.observe(c, args)
-    process = _execute(['gh', *args], c['root'])
+    env = session.read_environment(c, args) if session is not None else None
+    options = ({'env': env, 'github_identity': f'app_installation:{session.auth["installation_id"]}'}
+               if env is not None else {})
+    process = _execute(['gh', *args], c['root'], **options)
     if process.returncode:
         raise GhError(_gh_target(args), stderr=process.stderr)
     try:
