@@ -190,6 +190,8 @@ input acceptance. Pick the next piece by plan priority, usually the same feature
 the same ref is allowed. Never switch to an unrelated task just to get a different
 ref. FRESH-READY requires this session's NEXT piece merged after its launch and a
 concrete next-piece handoff written after that merge; never an inherited boundary.
+Investigation-only completion may instead use Pad done plus an exact-launch
+settled result with a standalone `No-PR: reason` line (details below).
 After the primary `thread result` settles, the builder's last lane action is
 `fleet --config CONFIG thread ready NEXT [--body TEXT]`, then end its turn with a
 final message: no further tool calls or background jobs, never wait on its own
@@ -205,8 +207,8 @@ launch ruling; the builder stops after sending and does not wait for the reply.
 
 TASK-83 completion without a next ref uses `fleet --config CONFIG thread
 needs-next REF` after primary settlement, then ends the turn. It sends one
-`NEEDS-NEXT-REF` decision request per launch after proving a newer merged PR or
-explicit pushed-WIP park completion. Do not substitute a status report.
+`NEEDS-NEXT-REF` decision request per launch after proving a newer merged PR,
+explicit pushed-WIP park completion, or the no-PR completion below.
 The supervisor's once-per-launch `Lane free: … needs next task` question covers
 settled, positively idle OMP/shell lanes with verified completion and no report;
 it replaces generic idle/missing-ready relays only for those proven lanes.
@@ -938,7 +940,13 @@ Evidence must be a nonempty printable single line (at most 2000 characters).
 It records Main's evidence and result on Pad before input and in the ordinary
 retirement receipt. Idle/session/foreground, preflight and verified-shell proofs
 below are unchanged. Use the primary launch ref as OLD, even when NEXT was carried.
-It does not qualify a builder for FRESH-READY or relax publication gates.
+Builder-side handoff also supports no-PR completion: put a standalone
+`No-PR: reason` line in the canonical `thread result` and set Pad OLD done.
+The exact launch/slot/terminal result must settle after launch. `thread needs-next`
+then accepts it without a handoff; `thread ready NEXT` still requires a concrete
+handoff on NEXT strictly after that settlement, including same-ref readiness.
+An exact-launch Main no-PR retirement completion receipt matching the result
+also qualifies. No fake PR URL is stored or reported. Publication gates remain.
 
 Its launch must have a canonical `launches.json` binding, dedicated session log
 and live lease. Local Linux `/proc` must bind

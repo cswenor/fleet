@@ -542,8 +542,11 @@ Unresolved decisions prevent settlement. Keep reusable slots. Pick the next piec
 by plan priority, usually the same feature; the same ref is allowed. Never switch
 to an unrelated task just to get a different ref. FRESH-READY requires this
 session's NEXT piece merged after its launch and a concrete next-piece handoff
-written after that merge, never an inherited boundary. After the primary thread
-result settles, make this the last lane action, then stop:
+written after that merge, never an inherited boundary.
+Investigation-only exception: Pad done plus an exact-launch settled result with
+a standalone `No-PR: reason` line qualifies without a PR, with the concrete
+handoff strictly after settlement instead of merge (including same-ref).
+After the primary thread result settles, make this the last lane action, then stop:
 
 ```sh
 fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece handoff'
@@ -551,7 +554,8 @@ fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece h
 
 When complete but no concrete next ref exists, settle `thread result`, then make
 `fleet --config CONFIG thread needs-next REF` the last lane action and end the
-turn. It proves a newer merged PR or explicit park completion and sends one
+turn. It proves a newer merged PR, explicit park completion or validated no-PR
+completion and sends one
 `NEEDS-NEXT-REF` native question per launch. Never substitute a status report.
 The supervisor also requests the next task once per launch for a canonically
 settled, positively idle OMP/shell with verified merge/park completion and no
@@ -597,7 +601,11 @@ Require Pad OLD done and OLD's exact launch/slot/terminal settled canonical resu
 Record printable nonempty evidence (at most 2000 characters) on Pad before input
 and in the ordinary retirement receipt. All idle/session/foreground, preflight
 and verified-shell guards remain. OLD is the primary ref, even for carried NEXT.
-This exception does not qualify FRESH-READY or relax publication gates.
+Builder ready/needs-next also accept Pad done plus a canonical exact-launch
+settled result marked by a standalone `No-PR: reason` line. Settlement must
+follow launch; ready still requires a concrete handoff on NEXT strictly after
+settlement, including same-ref. An exact-launch Main no-PR retirement receipt
+matching the result also qualifies. Publication gates are unchanged.
 
 
 For finished work, Main can use

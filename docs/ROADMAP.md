@@ -124,8 +124,12 @@ Main's explicit `restart --no-pr-evidence TEXT` path accepts a completed
 investigation without a PR only with Pad done and an exact launch/terminal/slot
 settled canonical result. It records evidence on Pad before input and in the normal
 retirement receipt, retaining idle/session/foreground and preflight/shell guards.
-It does not broaden FRESH-READY or publication gates. Regression and fixture CLI
-receipts are retained on TASK-149. Shared installation remains Main-owned,
+Main extension `msg_33e92e64b66d` also permits builder ready/needs-next with
+Pad done plus an exact-launch settled result marked `No-PR: reason`, or matching
+Main-recorded no-PR retirement evidence. Ready retains a concrete handoff strictly
+after settlement; needs-next needs no next-ref handoff. No fake PR is reported.
+Publication gates remain. Regression and fixture CLI receipts are on TASK-149.
+Shared installation remains Main-owned,
 exact-head GO gated and held for Email Sherpa's empty queue.
 
 

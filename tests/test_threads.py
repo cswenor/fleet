@@ -324,6 +324,73 @@ class ReadyTests(unittest.TestCase):
         self.sent.clear()
         self.pads.clear()
 
+    def investigation(self):
+        self.prs = []
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one'].update(
+            result='No-PR: investigation closed below threshold', settled_at=1767225600)
+        state.write(self.c, 'threads-TASK-1', ledger)
+
+    def test_no_pr_ready_requires_later_concrete_handoff_and_preserves_idempotency(self):
+        self.investigation()
+        self.comments[0]['body'] = 'TASK-1 handoff:'
+        with self.assertRaisesRegex(ValueError, 'concrete handoff'):
+            threads.ready(self.c, 'TASK-2')
+        self.comments[0].update(body='TASK-1 handoff: implement next piece',
+                                created_at='2026-01-01T00:00:00Z')
+        with self.assertRaisesRegex(ValueError, 'after settlement'):
+            threads.ready(self.c, 'TASK-2')
+        self.comments[0]['created_at'] = '2026-01-01T00:00:01Z'
+        first = threads.ready(self.c, 'TASK-2')
+        second = threads.ready(self.c, 'TASK-2')
+        self.assertEqual(first['message_id'], second['message_id'])
+        self.assertEqual(first['completion']['kind'], 'investigation')
+        self.assertEqual(first['handoff'], 'handoff-1')
+        self.assertNotIn('pr', first)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Investigation complete (no PR)', first['body'])
+
+    def test_no_pr_needs_next_accepts_explicit_result_without_handoff(self):
+        self.investigation()
+        self.comments = []
+        first = threads.needs_next(self.c, 'TASK-1')
+        self.assertEqual(first['completion']['kind'], 'investigation')
+        self.assertEqual(first['message_id'], threads.needs_next(self.c, 'TASK-1')['message_id'])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_no_pr_reports_require_done_and_current_settled_result(self):
+        from fleet import restart
+        self.investigation()
+        for report in (lambda: threads.ready(self.c, 'TASK-2'),
+                       lambda: threads.needs_next(self.c, 'TASK-1')):
+            with patch.object(restart, 'json_run', return_value={'fields': {'status': 'in-progress'}}):
+                with self.assertRaisesRegex(ValueError, 'Pad done'):
+                    report()
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one']['settled_at'] = self.launch['at']
+        state.write(self.c, 'threads-TASK-1', ledger)
+        for report in (lambda: threads.ready(self.c, 'TASK-2'),
+                       lambda: threads.needs_next(self.c, 'TASK-1')):
+            with self.assertRaisesRegex(ValueError, 'settlement after this launch'):
+                report()
+        self.assertEqual(self.sent, [])
+
+    def test_no_pr_same_ref_ready_uses_post_settlement_handoff(self):
+        self.investigation()
+        self.assertEqual(threads.ready(self.c, 'TASK-1')['handoff'], 'handoff-1')
+
+    def test_main_recorded_no_pr_evidence_qualifies_without_result_marker(self):
+        self.investigation()
+        ledger = state.read(self.c, 'threads-TASK-1')
+        ledger['TASK-1']['attempts']['one']['result'] = 'Investigation complete'
+        state.write(self.c, 'threads-TASK-1', ledger)
+        state.write(self.c, 'retirements', {self.temp.name: {
+            'launch_id': 'one', 'completion': {'kind': 'investigation',
+                'actor': self.c['coordinator']['terminal'], 'result': 'Investigation complete',
+                'evidence': 'Main confirms investigation closed without PR'}}})
+        self.assertEqual(threads.needs_next(self.c, 'TASK-1')['completion']['evidence'],
+                         'Main confirms investigation closed without PR')
+
     def test_ready_cli_after_settle_is_idempotent_and_records_message_on_pad(self):
         argv = ['fleet', 'thread', 'ready', 'TASK-2', '--body', 'Ready to retire.']
         receipts = []

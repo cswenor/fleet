@@ -64,6 +64,12 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   merge, never the inherited boundary. Except for a valid fully recorded park
   on the current launch, same-ref restart requires both on that ref; Pad done
   alone is insufficient. PARKED never qualifies for FRESH-READY.
+  Investigation-only exception: Pad done plus an exact-launch canonical settled
+  result with a standalone `No-PR: reason` line, or matching Main no-PR retirement
+  evidence, qualifies without merge. Settlement must follow launch; ready still
+  needs a concrete handoff on NEXT strictly after settlement, including same-ref.
+  Main-only `restart --no-pr-evidence TEXT` accepts Pad done and an exact-launch
+  settled result while retaining all idle/session/process and preflight guards.
   Settle the primary `thread result`, then make
   `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action
   and end your turn with a final message: no further tool calls or background jobs,
@@ -75,8 +81,8 @@ apply here. Record approvals in the assigned fleet Pad task comments.
   Ready reports do not schedule launches; Main approves the fresh launch.
 - If complete without a concrete next ref, settle `thread result`, then make
   `fleet --config CONFIG thread needs-next REF` the last lane action and end the
-  turn. It sends one next-ref decision request after new-merge/park proof; never
-  substitute an ordinary status report.
+  turn. It sends one next-ref decision request after new-merge/park/no-PR proof;
+  never substitute an ordinary status report.
 - On a durable quota PARK request: finish the current step, commit and push WIP
   to the task branch, write a concrete Pad resume comment, then make
   `fleet --config CONFIG thread parked REF --resume-note COMMENT_ID` the last
