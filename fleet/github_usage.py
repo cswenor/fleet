@@ -14,8 +14,11 @@ MAX_ROWS = 2048
 
 
 def configure(c, kind, pr=None, ref=None):
-    _ACTIVE.set((c, kind, pr, ref))
-    record()
+    return _ACTIVE.set((c, kind, pr, ref))
+
+
+def reset(token):
+    _ACTIVE.reset(token)
 
 
 def enabled():

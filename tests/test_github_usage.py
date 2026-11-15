@@ -72,6 +72,7 @@ class UsageTests(unittest.TestCase):
             self.assertEqual(github_usage.consumers(self.c)['consumers'], [])
             with patch.object(github_usage, 'MAX_ROWS', 1):
                 github_usage.configure(self.c, 'status')
+                github_usage.record(rest=1)
                 with patch.object(github_usage, '_PROCESS', 'third'):
                     github_usage.configure(self.c, 'arm', pr=9)
                     github_usage.record(rest=1)

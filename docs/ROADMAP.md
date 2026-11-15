@@ -135,7 +135,10 @@ Verification: focused watcher/API/publication/metrics checks passed; actual
 candidate `watch-pr 17 --debug` reused the fresh supervisor snapshot with
 zero requests and returned merged immediately. Candidate `status --debug`
 showed status REST=5/GraphQL=1 and watch-pr REST=0/GraphQL=0.
-Open-PR snapshot proof and publication receipts are recorded on TASK-143.
+Open-PR snapshot proof also returned zero requests on PR #18 (age 32.38s).
+Independent review found rolling `since` timestamps defeating backoff; the
+comparison now isolates selected-PR/group progress, with a regression varying
+both the rolling window and unrelated PRs. Publication receipts are on TASK-143.
 No shared runtime was updated; publication/deployment require exact-head Main GO.
 
 ### TASK-141 — Enqueue consumes auto-merge

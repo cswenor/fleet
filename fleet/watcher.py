@@ -5,7 +5,7 @@ import os
 import sys
 import time
 import uuid
-from . import github, github_api, groups, state
+from . import github, github_api, github_usage, groups, state
 
 
 def _initial_view(current, number):
@@ -95,7 +95,9 @@ def watch(c, number, timeout=14400, interval=60, terminal=None, include_seen=Fal
 
 def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
     deadline = time.monotonic() + timeout
+    github_usage.record()
     before = None
+    previous_progress = None
     unknown = []
     first = True
     superseded = {'pr': number, 'event': 'superseded'}
@@ -146,12 +148,15 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                         if changes:
                             _receipt(c, caller, number, _initial_events(after, number), record_only=True)
                             return {'pr': number, 'events': changes}
-                    # Snapshot equality includes comments/checks and non-waking metadata:
-                    # any observed progress resets the unchanged armed-PR backoff.
-                    if before == after and pr.get('auto_merge') is not None:
+                    # Ignore rolling collection windows and unrelated repository
+                    # activity; retain all selected-PR progress, even non-waking updates.
+                    progress = (pr, [r for r in after['merge_group_runs'] if number in r.get('prs', [])],
+                                after.get('unavailable', []))
+                    if previous_progress == progress and pr.get('auto_merge') is not None:
                         delay = min(delay * 2, max(interval, 300))
                     else:
                         delay = interval
+                    previous_progress = progress
                     before = after
             delay = max(delay, session.blocked_until - time.time())
             remaining = max(0, deadline - time.monotonic())

@@ -72,6 +72,8 @@ class SharedSnapshotTests(unittest.TestCase):
         samples = []
         for i in range(7):
             current = copy.deepcopy(self.current)
+            current['since'] = f'rolling-window-{i}'
+            current['prs'].append(pull(number=8, head=f'unrelated-head-{i}'))
             if i >= 5:
                 current['prs'][0]['updated_at'] = 'later'
             samples.append(current)

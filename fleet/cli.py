@@ -158,6 +158,7 @@ def main():
     p = bot_commands.add_parser('status', help='observe exact deployed image, HTTPS health, Apps and webhook delivery metadata')
     p.add_argument('--config', default=argparse.SUPPRESS, help='private project config (also accepted globally)')
     args = parser.parse_args()
+    usage_token = None
     try:
         if args.command == 'wait' and args.summary and not args.save:
             raise ValueError('--summary requires --save to preserve complete mail payloads')
@@ -174,8 +175,9 @@ def main():
         from . import github_usage
         kind = ('supervisor' if args.command == 'serve' else
                 getattr(args, 'review_bot_command', None) or args.command)
-        github_usage.configure(c, kind, pr=getattr(args, 'number', None) or getattr(args, 'pr', None),
-                               ref=getattr(args, 'ref', None))
+        usage_token = github_usage.configure(
+            c, kind, pr=getattr(args, 'number', None) or getattr(args, 'pr', None),
+            ref=getattr(args, 'ref', None))
         if args.command == 'review-bot':
             if args.review_bot_command == 'init':
                 from .review_bot_apps import initialize
@@ -322,6 +324,9 @@ def main():
         prefix = 'DRILL ' if getattr(args, 'drill_usage_file', None) else ''
         print(f'{prefix}fleet: {e}', file=sys.stderr)
         return 4 if isinstance(e, state.LauncherBusy) else 2
+    finally:
+        if usage_token is not None:
+            github_usage.reset(usage_token)
 
 
 if __name__ == '__main__':
