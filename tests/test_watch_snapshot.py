@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fleet import groups, snapshot, state, watcher
+from fleet import snapshot, state, watcher
 from test_initial_events import history, pull
 
 
@@ -59,28 +59,70 @@ class SharedSnapshotTests(unittest.TestCase):
                 collect.assert_called_once_with(self.c, 7)
                 self.assertEqual(json.loads(stderr.getvalue())['snapshot'], reason)
 
-    def test_snapshot_without_group_supersession_evidence_uses_per_pr_resolution(self):
-        base = 'a' * 40
-        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
-        auth.start()
-        self.addCleanup(auth.stop)
-        runs = [{'id': n, 'head_sha': f'group-{n}', 'conclusion': conclusion,
-                 'branch': f'gh-readonly-queue/main/pr-7-{base}', 'url': f'https://example/run/{n}'}
-                for n, conclusion in [(1, 'failure'), (2, 'success')]]
-        def compare(c, *args):
-            head = args[-1].split('...')[1].split('?')[0]
-            return [{'commits': [{'sha': head, 'parents': [{'sha': base}, {'sha': 'sha'}],
-                                  'commit': {'message': 'Feature (#7)'}}]}]
-        with patch.object(groups, 'gh', side_effect=compare):
-            supervisor_view = history(pull(), runs=groups.resolve(self.c, copy.deepcopy(runs)))
-            direct_view = history(pull(), runs=groups.resolve(self.c, copy.deepcopy(runs), pr_number=7))
-        self.assertFalse(supervisor_view['merge_group_runs'][1]['membership_complete'])
-        self.assertTrue(direct_view['merge_group_runs'][1]['membership_complete'])
-        state.write(self.c, 'snapshot', {**self.saved, 'github': supervisor_view})
-        with patch.object(watcher.time, 'time', return_value=1000), patch.object(
-                watcher.github, 'collect', return_value=direct_view) as collect:
-            self.assertEqual(self.watch()['event'], 'timeout')
-        collect.assert_called_once_with(self.c, 7)
+    def follow(self, samples):
+        clock = [1000]
+        samples = iter(samples)
+        def publish():
+            self.saved.update(github=next(samples), generated_at=clock[0],
+                              collection={'finished_at': clock[0], 'period_seconds': 60})
+            state.write(self.c, 'snapshot', self.saved)
+        def sleep(seconds):
+            clock[0] += seconds
+            publish()
+        publish()
+        with patch.object(watcher.time, 'time', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(watcher.time, 'sleep', side_effect=sleep), \
+                patch.object(watcher.github, 'collect', side_effect=AssertionError('network')):
+            return self.watch(timeout=600)
+
+    def queued(self, *, position=2, runs=(), state='open', queued=True):
+        current = history(pull(state=state, auto_merge=None,
+                               merge_queue_entry={'id': 'q'} if queued else None,
+                               merge_queue_unknown=False), runs=runs)
+        current['merge_queue'] = ([{
+            'position': position, 'state': 'QUEUED', 'headCommit': None,
+            'pullRequest': {'number': 7}, 'runs': []}] if queued else [])
+        return current
+
+    def test_missing_group_evidence_keeps_following_until_merged(self):
+        failed = {'id': 1, 'head_sha': 'old', 'prs': [7],
+                  'member_heads': {'7': 'sha'}, 'membership_complete': True,
+                  'conclusion': 'failure', 'url': 'https://example/run/1'}
+        unknown = {'id': 2, 'head_sha': 'new', 'prs': [],
+                   'membership_complete': False, 'conclusion': None}
+        missing = self.queued()
+        missing.pop('merge_group_runs')
+        result = self.follow([self.queued(runs=[failed, unknown]),
+                              missing, self.queued(state='merged', queued=False)])
+        self.assertEqual(result['event'], 'merged')
+        self.assertFalse(any('group:' in e['key'] for e in result['events']))
+
+    def test_queue_position_progress_then_merged(self):
+        first = self.queued()
+        progress = self.queued(position=1)
+        result = self.follow([first, progress])
+        self.assertEqual([e['subject'] for e in result['events']],
+                         ['PR #7 merge_queue progress'])
+        result = self.follow([progress, self.queued(state='merged', queued=False)])
+        self.assertEqual(result['event'], 'merged')
+
+    def test_queue_group_checks_progress(self):
+        first = self.queued()
+        first['merge_queue'][0]['runs'] = [{'id': 4, 'status': 'queued', 'conclusion': None}]
+        progress = copy.deepcopy(first)
+        progress['merge_queue'][0]['runs'][0]['status'] = 'in_progress'
+        result = self.follow([first, progress])
+        self.assertEqual([e['subject'] for e in result['events']],
+                         ['PR #7 merge_queue progress'])
+
+    def test_queue_failure_and_ejection_are_both_reported(self):
+        failed = {'id': 3, 'head_sha': 'new', 'prs': [7],
+                  'member_heads': {'7': 'sha'}, 'membership_complete': True,
+                  'conclusion': 'failure', 'url': 'https://example/run/3'}
+        result = self.follow([self.queued(), self.queued(runs=[failed], queued=False)])
+        self.assertEqual({e['subject'] for e in result['events']},
+                         {'PR #7 merge_queue exited', 'Merge group 3 failure'})
 
     def test_terminal_result_bypasses_seen_receipts_every_time(self):
         for terminal in ('merged', 'closed'):

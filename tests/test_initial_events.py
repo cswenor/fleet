@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -191,7 +192,7 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(groups.members(commits[0:1], 'base', 'group-b'),
                          ([8], False, {'8': 'side'}))
 
-    def test_per_pr_resolution_bounds_pending_lookups_and_preserves_supervisor(self):
+    def test_resolution_bounds_pending_lookups_for_aggregate_and_per_pr(self):
         base = 'a' * 40
         def run(n, conclusion=None):
             return {'id': n, 'head_sha': f'group-{n}', 'conclusion': conclusion,
@@ -201,7 +202,7 @@ class GroupTests(unittest.TestCase):
             head = args[-1].split('...')[1].split('?')[0]
             return [{'commits': [{'sha': head, 'parents': [{'sha': base}, {'sha': 'pr-head'}],
                                   'commit': {'message': 'Feature (#7)'}}]}]
-        for number, expected in [(None, ['group-2']), (7, ['group-2', 'group-5'])]:
+        for number, expected in [(None, ['group-2', 'group-5']), (7, ['group-2', 'group-5'])]:
             with self.subTest(number=number), patch.object(groups.state, 'read', return_value={}), \
                     patch.object(groups.state, 'write'), patch.object(groups, 'gh', side_effect=compare) as gh:
                 resolved = groups.resolve({'repo': 'owner/repo'},
@@ -211,7 +212,7 @@ class GroupTests(unittest.TestCase):
             by_id = {r['id']: r for r in resolved}
             self.assertEqual(by_id[1]['prs'], [])
             self.assertEqual(by_id[3]['prs'], [])
-            self.assertEqual(by_id[5]['prs'], [7] if number else [])
+            self.assertEqual(by_id[5]['prs'], [7])
             self.assertEqual(by_id[2]['member_heads'], {'7': 'pr-head'})
 
     def test_failed_pending_lookup_is_memoized_only_within_collection(self):
@@ -228,6 +229,127 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(gh.call_count, 2)
         self.assertEqual(save.call_args.args[-1], {})
         self.assertFalse(runs[-1]['membership_complete'])
+
+    def test_queued_heads_resolve_pending_and_success_without_failures(self):
+        base = 'a' * 40
+        for conclusion in (None, 'success'):
+            with self.subTest(conclusion=conclusion):
+                run = {'id': 1, 'head_sha': 'group', 'conclusion': conclusion,
+                       'branch': f'gh-readonly-queue/main/pr-8-{base}'}
+                commits = [
+                    {'sha': 'group', 'parents': [{'sha': 'first'}, {'sha': 'head-8'}],
+                     'commit': {'message': 'Second (#8)'}},
+                    {'sha': 'first', 'parents': [{'sha': base}, {'sha': 'head-7'}],
+                     'commit': {'message': 'First (#7)'}}]
+                with patch.object(groups, 'gh', return_value=[{'commits': commits}]) as compare:
+                    resolved = groups.resolve(self.c, [run, run | {'id': 2}],
+                                              queued_heads={'group'})
+                self.assertEqual(compare.call_count, 1 if conclusion is None else 0)
+                for evidence in resolved:
+                    self.assertEqual(evidence['prs'], [7, 8])
+                    self.assertTrue(evidence['membership_complete'])
+                    self.assertEqual(evidence['member_heads'], {'7': 'head-7', '8': 'head-8'})
+
+    def test_aggregate_successors_are_bounded_for_each_failed_member(self):
+        base = 'a' * 40
+        runs = [
+            {'id': n, 'head_sha': f'group-{n}', 'conclusion': 'failure' if n == 1 else None,
+             'branch': f'gh-readonly-queue/main/pr-8-{base}'} for n in range(1, 6)]
+        membership = {1: [7, 8], 2: [7, 8], 3: [7], 4: [8], 5: [99]}
+        def compare(c, *args):
+            head = args[-1].split('...')[1].split('?')[0]
+            numbers = membership[int(head.split('-')[-1])]
+            commits = []
+            parent = base
+            for index, number in enumerate(numbers):
+                sha = head if index == len(numbers) - 1 else head + '-first'
+                commits.append({'sha': sha, 'parents': [{'sha': parent}, {'sha': f'head-{number}'}],
+                                'commit': {'message': f'Feature (#{number})'}})
+                parent = sha
+            return [{'commits': commits}]
+        with patch.object(groups, 'gh', side_effect=compare) as lookup:
+            resolved = groups.resolve(self.c, runs)
+        self.assertEqual([call.args[-1].split('...')[1].split('?')[0]
+                          for call in lookup.call_args_list],
+                         ['group-1', 'group-5', 'group-4', 'group-3'])
+        self.assertFalse(resolved[1]['membership_complete'])
+        self.assertEqual(resolved[2]['member_heads'], {'7': 'head-7'})
+        self.assertEqual(resolved[3]['member_heads'], {'8': 'head-8'})
+        self.assertEqual(resolved[4]['prs'], [99])
+
+    def test_collection_resolves_shared_queue_and_ejected_failure_evidence(self):
+        base = 'a' * 40
+        now = datetime.now(timezone.utc).isoformat()
+        prs = [
+            {'number': number, 'title': 'Feature', 'html_url': f'https://example/pr/{number}',
+             'head': {'sha': f'head-{number}', 'ref': f'feature-{number}'}, 'state': 'open',
+             'mergeable_state': 'clean', 'created_at': now, 'updated_at': now,
+             'closed_at': None} for number in (7, 8)]
+        def run(n, head, conclusion):
+            return {'id': n, 'head_sha': head, 'conclusion': conclusion,
+                    'status': 'in_progress' if conclusion is None else 'completed',
+                    'head_branch': f'gh-readonly-queue/main/pr-8-{base}',
+                    'html_url': f'https://example/run/{n}', 'created_at': now}
+        for conclusion, queued, old_failure in [
+                (None, True, False), ('success', True, False),
+                (None, True, True), ('success', False, True), ('failure', False, False)]:
+            with self.subTest(conclusion=conclusion, queued=queued, old_failure=old_failure):
+                github._pr_group_cache.clear()
+                runs = ([run(1, 'old', 'failure')] if old_failure else []) + [
+                    run(2, 'new', conclusion), run(3, 'new', conclusion)]
+                # IDs order equal timestamps, as GitHub timestamps can tie.
+                for row in runs:
+                    row.pop('created_at')
+                entry = {'id': 'queue-entry', 'headCommit': {'oid': 'new'}}
+                entries = [{'position': index, 'state': 'QUEUED',
+                            'headCommit': {'oid': 'new'}, 'pullRequest': {'number': number}}
+                           for index, number in enumerate((7, 8))] if queued else []
+                def response(c, *args):
+                    endpoint = args[-1]
+                    if args[1] == 'graphql':
+                        if any(arg.startswith('number=') for arg in args):
+                            return {'data': {'repository': {'pullRequest': {
+                                'mergeQueueEntry': entry if queued else None}}}}
+                        return {'data': {'repository': {'mergeQueue': {'entries': {
+                            'nodes': entries, 'pageInfo': {'hasNextPage': False}}}}}}
+                    if endpoint == 'repos/owner/repo':
+                        return {'default_branch': 'main', 'full_name': 'owner/repo'}
+                    if endpoint in ('repos/owner/repo/pulls/7', 'repos/owner/repo/pulls/8'):
+                        return prs[int(endpoint[-1]) - 7]
+                    if '/pulls?' in endpoint:
+                        return [prs] if '--slurp' in args else prs
+                    if '/check-runs?' in endpoint:
+                        return [{'check_runs': []}]
+                    if '/actions/runs?' in endpoint:
+                        return [{'workflow_runs': [] if 'head_sha=' in endpoint else runs}]
+                    if any(part in endpoint for part in
+                           ('/statuses?', '/comments?', '/reviews?', '/commits?')):
+                        return [[]]
+                    raise AssertionError(endpoint)
+                def compare(c, *args):
+                    head = args[-1].split('...')[1].split('?')[0]
+                    return [{'commits': [
+                        {'sha': head, 'parents': [{'sha': head + '-first'}, {'sha': 'head-8'}],
+                         'commit': {'message': 'Second (#8)'}},
+                        {'sha': head + '-first', 'parents': [{'sha': base}, {'sha': 'head-7'}],
+                         'commit': {'message': 'First (#7)'}}]}]
+                with patch.object(github, 'gh', side_effect=response), \
+                        patch.object(groups, 'gh', side_effect=compare) as lookup, \
+                        patch.object(groups.state, 'read', return_value={}), \
+                        patch.object(groups.state, 'write'):
+                    aggregate = github.collect(self.c)
+                    aggregate_calls = lookup.call_count
+                    direct = github.collect(self.c, 7)
+                self.assertEqual(aggregate['merge_group_runs'], direct['merge_group_runs'])
+                self.assertEqual(aggregate_calls, 2 if old_failure else 1)
+                for evidence in aggregate['merge_group_runs']:
+                    self.assertTrue(evidence['membership_complete'])
+                    self.assertEqual(evidence['prs'], [7, 8])
+                    self.assertEqual(evidence['member_heads'], {'7': 'head-7', '8': 'head-8'})
+                self.assertEqual(aggregate['merge_group_runs'][-1]['conclusion'], conclusion)
+                self.assertEqual(aggregate['merge_group_runs'][-1]['status'],
+                                 'in_progress' if conclusion is None else 'completed')
+        github._pr_group_cache.clear()
 
     def test_secondary_group_member_receives_failure_even_when_head_checks_do_not_change(self):
         a, b = pull(), pull(number=8, branch='second')

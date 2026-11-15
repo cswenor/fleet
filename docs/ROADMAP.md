@@ -113,6 +113,23 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-147 — Queued PRs follow shared snapshots
+
+Fresh snapshots remain usable when merge-group membership is incomplete.
+The watch defers only an older failure whose supersession cannot yet be proved,
+while following queue position/state, synthetic-head runs/jobs and terminal PR
+state without stock-token reads. Aggregate collection resolves queued synthetic
+heads and newer candidates for known failed members in one cached membership pass.
+Queue ejection and proven group failure remain separate observable events.
+
+Read-only source CLI proof against Evermore's live snapshot followed queued
+PR #2598 for two seconds, returning timeout rather than snapshot_unavailable;
+both samples were fresh with zero GitHub requests. Capture retained privately.
+Captured-snapshot CLI replay also reported a simulated position change and then
+merged, with zero GitHub requests across all four samples.
+Shared installation remains Main-owned, exact-head GO gated and held for Email
+Sherpa's empty queue. Publication receipts are retained on TASK-147.
+
 ### TASK-145 — Cadence-aware shared snapshots and stock-budget protection
 
 Supervisors record collection start/finish, observed cycle period and expected
