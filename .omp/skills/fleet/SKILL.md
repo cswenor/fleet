@@ -437,6 +437,11 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
    background command. Process each event and re-arm after every completion
    (including timeout/error) until merged or closed. Exception: `superseded`
    means a newer watch owns the same repo/PR/terminal; do not re-arm the old job.
+   Stop looping on `event: merged` or `closed` (exit 0), including already-terminal
+   PRs. `github_budget_deferred` (exit 5) carries Unix `until`: wait until reset
+   in bounded async segments, processing steering between segments, before
+   re-arming. Fresh supervisor snapshots serve watches without GitHub requests;
+   `--debug` shows source/fallback reason and per-poll counters.
    PR/check/comment/review/merge-group supervisor relays go only to Main;
    `watch-pr` retains builder visibility. Never rely on retired
    `pr-wait.sh` scripts or a single-workflow `gh run watch` alone. A watcher

@@ -164,15 +164,23 @@ def arm(c, pr, head):
         env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR')
                if key in os.environ}
         env.update(GH_TOKEN=token, GH_HOST='github.com', GH_PROMPT_DISABLED='1')
+        from . import github_usage
+        if github_usage.enabled():
+            env['GH_DEBUG'] = 'api'
         failed = False
         try:
             result = subprocess.run(
                 ['gh', 'pr', 'merge', str(pr), '--repo', c['repo'], '--auto',
                  '--match-head-commit', head, '--' + method], cwd=c['root'], env=env,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE if github_usage.enabled() else subprocess.DEVNULL,
                 timeout=60, check=False)
+            if github_usage.enabled():
+                github_usage.trace(result.stderr)
             failed = result.returncode != 0
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as error:
+            if github_usage.enabled() and isinstance(error, subprocess.TimeoutExpired):
+                github_usage.trace(error.stderr)
             failed = True
         observed = _observed(c, pr, head, _pull(owner, c, pr))
         observed['command_succeeded'] = not failed

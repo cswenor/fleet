@@ -107,7 +107,8 @@ if '-i' in sys.argv:
 print(json.dumps({'actor': os.environ['GH_TOKEN']}))
 ''')
         executable.chmod(0o700)
-        with patch.dict(os.environ, {'PATH': self.directory.name + os.pathsep + os.environ['PATH']}):
+        with patch.dict(os.environ, {'PATH': self.directory.name + os.pathsep + os.environ['PATH']}), \
+                patch('fleet.github_usage.enabled', return_value=True):
             for root in (self.directory.name, '/'):
                 self.c['root'] = root
                 self.assertEqual(commands.gh(self.c, 'api', 'repos/owner/repo')['actor'], 'ghs_app_2')

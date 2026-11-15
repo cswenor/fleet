@@ -1143,6 +1143,14 @@ until merged or closed; work on actionable items or use a wait of at most 600
 seconds only when blocked. Unchanged initial events are deduped per caller terminal/repo/PR
 in private state; `--include-seen` re-emits them. Native `ORCA_TERMINAL_HANDLE` wins
 over the `--terminal` fallback; anonymous calls retain repeated initial delivery.
+Terminal `event: merged`/`closed` always returns immediately, even with a prior
+receipt: stop looping. `github_budget_deferred` exits 5 with Unix `until`; wait
+until reset in bounded async segments with steering checkpoints before re-arming.
+Watches reuse matching supervisor snapshots through `interval_seconds + 15`
+seconds; `--debug` gives source/fallback reason and zero requests on that path.
+Unchanged armed PRs double their interval to a 300-second cap, resetting on change.
+`fleet status` / JSON `github_usage` shows top hourly process consumers (60-second
+buckets, bounded history), including command kind, PR/ref, PID and REST/GraphQL.
 Fix reported failures even if re-arm now waits; inbox silence is not success.
 Cancelled/non-success head workflow checks are omitted only with a proven newer
 same-workflow/head run; bounded or unknown linkage retains failures. Healthy or

@@ -164,5 +164,13 @@ def render(s):
     lines.append(f"Quota: {q.get('provider', '?')} {q.get('reason', 'unknown')} {q.get('windows', [])}")
     d = s.get('disk', {})
     lines.append(f"Disk: {d.get('free_gb', '?')} GB free; reserve {d.get('min_free_gb', '?')} GB")
+    usage = s.get('github_usage')
+    if usage is not None:
+        lines.append('GitHub consumers, last hour (60s buckets)' +
+                     (' [bounded history truncated]' if usage.get('truncated') else '') + ':')
+        for row in usage['consumers']:
+            target = f" PR #{row['pr']}" if row.get('pr') else ''
+            target += f" {row['ref']}" if row.get('ref') else ''
+            lines.append(f"  {row['kind']} pid={row['pid']}{target}: REST={row['rest']} GraphQL={row['graphql']}")
     lines.extend('ERROR: ' + x for x in s['errors'])
     return '\n'.join(lines)

@@ -43,7 +43,7 @@ class WatchFalseWakeTests(unittest.TestCase):
         self.assertEqual(self.watch(current)['event'], 'timeout')
 
     def test_fallback_identity_and_anonymous_compatibility(self):
-        current = history(pull(state='closed'))
+        current = history(pull(merge_state='DIRTY'))
         with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': ''}):
             self.assertIn('events', self.watch(current, terminal='fallback'))
             self.assertEqual(self.watch(current, terminal='fallback')['event'], 'timeout')
