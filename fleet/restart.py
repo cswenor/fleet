@@ -225,6 +225,10 @@ def _finished_completion(c, ref, record):
 
 
 def _investigation_completion(c, finished, record, evidence=None):
+    if not record.get('id'):
+        if evidence is not None:
+            raise ValueError('no-PR completion requires an exact launch ID')
+        return None
     task = state.read(c, threads._name(finished), {}).get(finished, {})
     attempt = task.get('attempts', {}).get(record['id'], {})
     result = attempt.get('result', '')
