@@ -278,10 +278,10 @@ def _queue_progress(c, entries, unavailable):
             entry['runs'] = by_head[head]
 
 
-def _repository_queue(c, unavailable):
+def _repository_queue(c, unavailable, metadata=None):
     repo = c['repo']
     owner, name = repo.split('/')
-    metadata = gh(c, 'api', f'repos/{repo}')
+    metadata = metadata if metadata is not None else gh(c, 'api', f'repos/{repo}')
     branch = metadata['default_branch']
     query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{position state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
     try:
@@ -299,6 +299,14 @@ def _repository_queue(c, unavailable):
         return metadata, [], True
 
 
+def _idle_groups(runs):
+    # Resolution can fail without a transport-level unavailable diagnostic.
+    # Keep retrying failed groups until every member can receive its event.
+    return all(r.get('status') == 'completed' and
+               (r.get('conclusion') not in ('failure', 'cancelled', 'timed_out', 'action_required')
+                or r.get('membership_complete') is True) for r in runs)
+
+
 def _idle_history(previous, cutoff, since):
     # Advance the rolling window without rescanning unchanged GitHub history.
     return {**previous,
@@ -306,10 +314,10 @@ def _idle_history(previous, cutoff, since):
             'commits': [r for r in previous['commits'] if _recent(r['date'], cutoff)],
             'merge_group_runs': [r for r in previous['merge_group_runs']
                                  if _recent(r.get('created_at'), cutoff)],
-            'since': since, 'idle': True}
+            'since': since, 'idle': True, 'full_collection': False}
 
 
-def collect(c, pr_number=None, *, idle_previous=None):
+def collect(c, pr_number=None, *, idle_previous=None, idle_full=False):
     repo = c['repo']
     unavailable = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=1)
@@ -321,18 +329,28 @@ def collect(c, pr_number=None, *, idle_previous=None):
         p = gh(c, 'api', f'repos/{repo}/pulls/{pr_number}')
         by_number = {pr_number: p}
     else:
-        prs = []
-        page = 1
-        while True:
-            rows = gh(c, 'api', f'repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page={page}')
-            prs.extend(p for p in rows if p['state'] == 'open' or p['updated_at'] >= since)
-            if len(rows) < 100 or all(p['updated_at'] < since for p in rows):
-                break
-            page += 1
-        # Old open PRs can be below the updated cutoff.
-        open_prs = pages(c, f'repos/{repo}/pulls?state=open&per_page=100')
-        by_number = {p['number']: p for p in prs}
-        by_number.update({p['number']: p for p in open_prs})
+        try:
+            prs = []
+            page = 1
+            while True:
+                rows = gh(c, 'api', f'repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page={page}')
+                prs.extend(p for p in rows if p['state'] == 'open' or p['updated_at'] >= since)
+                if len(rows) < 100 or all(p['updated_at'] < since for p in rows):
+                    break
+                page += 1
+            # Old open PRs can be below the updated cutoff.
+            open_prs = pages(c, f'repos/{repo}/pulls?state=open&per_page=100')
+            by_number = {p['number']: p for p in prs}
+            by_number.update({p['number']: p for p in open_prs})
+        except (CommandError, ValueError, KeyError, TypeError) as error:
+            # Unknown discovery must not be used as proof of an empty queue.
+            # Still attempt independent queue visibility, except during budget deferral.
+            if idle_previous is not None and getattr(error, 'code', None) != 'github_budget_low':
+                try:
+                    _repository_queue(c, unavailable)
+                except (CommandError, ValueError, KeyError, TypeError):
+                    pass
+            raise
     probe = None
     quiet = False
     idle_signature = None
@@ -340,11 +358,9 @@ def collect(c, pr_number=None, *, idle_previous=None):
     if pr_number is None and idle_previous is not None:
         # REST discovery is ETag-gated by Session. Include recent terminal PRs:
         # open+queue alone would miss a PR opened and closed between observations.
-        probe = _repository_queue(c, unavailable)
-        metadata, entries, queue_unknown = probe
-        quiet = (not any(p['state'] == 'open' for p in by_number.values())
-                 and not entries and not queue_unknown and not repo_move_error(c, metadata))
-        if quiet:
+        metadata = gh(c, 'api', f'repos/{repo}')
+        no_open = not any(p['state'] == 'open' for p in by_number.values())
+        if no_open and not repo_move_error(c, metadata):
             branch = metadata['default_branch']
             tip = gh(c, 'api', f'repos/{repo}/git/ref/heads/{quote(branch, safe="")}')['object']['sha']
             try:
@@ -360,12 +376,22 @@ def collect(c, pr_number=None, *, idle_previous=None):
                 'runs': [[(r['id'], r['status'], r['conclusion'], r.get('run_attempt'),
                            r.get('updated_at'), r['head_sha'])
                           for r in page['workflow_runs']] for page in probe_runs or []]}
-            if (idle_signature == idle_previous.get('_idle_signature')
-                    and not unavailable and not idle_previous.get('unavailable')
-                    and not idle_previous.get('merge_group_unknown')
-                    and all(r.get('status') == 'completed'
-                            for r in idle_previous.get('merge_group_runs', []))):
-                return _idle_history(idle_previous, cutoff, since)
+        unchanged = (idle_signature is not None
+                     and idle_signature == idle_previous.get('_idle_signature')
+                     and not unavailable and not idle_previous.get('unavailable')
+                     and not idle_previous.get('merge_group_unknown')
+                     and _idle_groups(idle_previous.get('merge_group_runs', [])))
+        # Main-approved invariant: queue entries require an open PR. Reconfirm
+        # via GraphQL on full refreshes or any changed/nonempty/unknown evidence.
+        skip_queue = (not idle_full and unchanged and
+                      idle_previous.get('merge_queue') == [] and
+                      idle_previous.get('merge_queue_unknown') is False)
+        probe = ((metadata, [], False) if skip_queue else
+                 _repository_queue(c, unavailable, metadata))
+        _, entries, queue_unknown = probe
+        quiet = no_open and not entries and not queue_unknown and not repo_move_error(c, metadata)
+        if skip_queue:
+            return _idle_history(idle_previous, cutoff, since)
     result = []
     check_signatures = {}
     for p in by_number.values():
@@ -474,8 +500,9 @@ def collect(c, pr_number=None, *, idle_previous=None):
             'default_branch': default_branch, 'unavailable': unavailable,
             'repo_move_error': repo_move_error(c, repo_metadata),
             'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since,
-            **({'idle': quiet and not unavailable and not idle_previous
-                       and all(r.get('status') == 'completed' for r in runs),
+            **({'idle': quiet and not unavailable and _idle_groups(runs)
+                       and (not idle_previous or idle_signature == idle_previous.get('_idle_signature')),
+                'full_collection': True,
                 '_idle_signature': idle_signature} if idle_previous is not None else {})}
 
 

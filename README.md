@@ -589,18 +589,24 @@ Only the fingerprint, validators, response bodies and budget metadata are stored
 never credentials or arbitrary headers. Changing credentials discards the cache.
 GraphQL reads remain uncached and use their separate GitHub budget.
 
-Long-running supervisors double GitHub collection spacing while the repository
-is positively idle, up to 600 seconds (never below the configured interval).
-Local terminal/Orca/quota checks keep their normal cadence. Each due collection
-revalidates open/recent PRs, repository metadata, the default-branch tip and
-merge-group run discovery with REST ETags, plus the uncached queue query.
-Unchanged empty PR/queue evidence skips commit scans and group enrichment.
-New PRs, queue entries, terminal PR transitions, default-branch pushes or group
-changes restore normal spacing when observed, with detection latency bounded
-by the current idle spacing plus collection time. Unknown/error evidence never
-enables idle backoff. Restart and one-shot collection start without idle reuse.
-Independent `github_collection` timestamps retain the last actual GitHub read
-and planned cadence across local-only snapshot publications.
+Long-running supervisors keep cheap REST discovery probes at normal cadence,
+including during idle backoff. These ETag-backed probes cover open/recent PRs,
+repository metadata, the default-branch tip and merge-group run discovery.
+Only full enrichment/commit scans double their spacing while positively idle,
+up to 600 seconds (never below the configured interval). Local health/Orca/quota
+checks also retain normal cadence. A new PR, queue activity, terminal transition,
+push or group change resumes full collection on the next normal probe.
+
+Queue GraphQL runs on cold/full collection, any observed change or open PR,
+and prior nonempty/unknown queue evidence. It is skipped only when the
+authoritative open-PR list is empty, prior queue known empty and other probes
+unchanged: queue entries require an open PR. Failed PR discovery still attempts
+independent queue visibility, except during budget deferral, and never reuses
+unknown data. Incomplete failed-group membership continues resolving.
+Restart and one-shot collection start without idle reuse.
+Independent `github_collection` timestamps describe actual normal probes;
+`full_interval_seconds`, `full_finished_at` and `full_expected_at` separately
+describe enrichment backoff. Full reuse does not reset its last-completed time.
 
 `watch-pr` first uses the project's persisted supervisor snapshot when its repo
 matches, the PR is present, and publication age is at most one observed cycle

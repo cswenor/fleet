@@ -1,10 +1,11 @@
 import copy
 from datetime import datetime, timezone, timedelta
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from fleet import github
+from fleet import github, github_idle
 from fleet.commands import CommandError
 
 
@@ -79,7 +80,7 @@ class IdleCollectionTests(unittest.TestCase):
         self.assertFalse(opened['idle'])
         self.assertEqual(opened['prs'][0]['state'], 'open')
         self.assertTrue(any('/check-runs?' in path for path in self.paths))
-        self.prs = []
+        self.prs = [self.pr()]
         self.entries = [{'position': 1, 'state': 'QUEUED', 'headCommit': {'oid': 'group'},
                          'pullRequest': {'number': 7}}]
         queued = self.collect(quiet)
@@ -111,6 +112,7 @@ class IdleCollectionTests(unittest.TestCase):
 
     def test_unknown_queue_never_reuses_idle_history(self):
         first = self.collect({})
+        first['merge_queue_unknown'] = True
         self.queue_unknown = True
         unknown = self.collect(first)
         self.assertFalse(unknown['idle'])
@@ -137,3 +139,60 @@ class IdleCollectionTests(unittest.TestCase):
         second = self.collect(first)
         self.assertEqual([r['sha'] for r in second['commits']], ['base'])
         self.assertFalse(any('/commits?' in path for path in self.paths))
+
+    def test_new_pr_during_full_backoff_is_detected_on_next_normal_probe(self):
+        clock = [0]
+        scheduler = github_idle.Scheduler(60)
+        def collect(c, result, **kwargs):
+            return github.collect(c, **kwargs)
+        with patch.object(github_idle, 'time', SimpleNamespace(
+                time=lambda: clock[0], monotonic=lambda: clock[0])):
+            for expected in (120, 240, 480, 600):
+                scheduler.collect(self.c, {}, collect)
+                self.assertEqual(scheduler.interval, expected)
+                if expected != 600:
+                    clock[0] = scheduler.due
+            clock[0] += 60
+            self.prs = [self.pr()]
+            result = {}
+            opened = scheduler.collect(self.c, result, collect)
+        self.assertEqual(opened['prs'][0]['state'], 'open')
+        self.assertTrue(opened['full_collection'])
+        self.assertEqual(scheduler.interval, 60)
+        self.assertTrue(any('branch=main' == path for path in self.paths))
+
+    def test_failed_open_probe_still_queries_queue_and_never_reuses_history(self):
+        first = self.collect({})
+        respond = self.response
+        self.paths.clear()
+        def failed(c, *args):
+            if '/pulls?state=open' in args[-1]:
+                raise CommandError('open PR read unavailable')
+            return respond(c, *args)
+        with patch.object(github, 'gh', side_effect=failed):
+            with self.assertRaisesRegex(CommandError, 'open PR read unavailable'):
+                github.collect(self.c, idle_previous=first)
+        self.assertIn('branch=main', self.paths)
+
+    def test_unresolved_failed_group_retries_membership_and_delivers_recovered_member(self):
+        self.runs = [{'id': 1, 'status': 'completed', 'conclusion': 'failure',
+                      'head_sha': 'group', 'head_branch': 'gh-readonly-queue/main/pr-7-x',
+                      'created_at': self.now, 'html_url': 'https://example/run/1'}]
+        partial = {**self.runs[0], 'prs': [7], 'membership_complete': False,
+                   'url': 'https://example/run/1'}
+        complete = {**partial, 'prs': [7, 8], 'membership_complete': True}
+        with patch.object(github.groups, 'resolve', side_effect=[[partial], [complete]]):
+            first = self.collect({})
+            recovered = self.collect(first)
+        self.assertFalse(first['idle'])
+        self.assertEqual([(e['pr'], e['subject']) for e in github.events(first, recovered)],
+                         [(8, 'Merge group 1 failure')])
+
+    def test_full_refresh_rechecks_queue_and_commits_even_when_idle_probes_unchanged(self):
+        first = self.collect({})
+        self.paths.clear()
+        refreshed = github.collect(self.c, idle_previous=first, idle_full=True)
+        self.assertTrue(refreshed['full_collection'])
+        self.assertTrue(refreshed['idle'])
+        self.assertIn('branch=main', self.paths)
+        self.assertTrue(any('/commits?' in path for path in self.paths))
