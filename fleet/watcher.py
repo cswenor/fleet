@@ -82,6 +82,16 @@ def _shared_snapshot(c, number):
             return None, 'pr_absent', saved.get('github_budget')
         if not isinstance(current.get('merge_group_runs'), list):
             return None, 'unavailable', saved.get('github_budget')
+        pr = next(p for p in current['prs'] if p['number'] == number)
+        if pr.get('state') not in ('merged', 'closed'):
+            failures = [r for r in _initial_view(current, number)['merge_group_runs']
+                        if number in r.get('prs', []) and r.get('conclusion') in
+                        ('failure', 'cancelled', 'timed_out', 'action_required')]
+            # Supervisor collection resolves failed groups only. A per-PR read
+            # also resolves newer candidates before diagnosing an older failure.
+            if any(not r.get('membership_complete') and groups.newer_group(r, failed)
+                   for failed in failures for r in current['merge_group_runs']):
+                return None, 'group_evidence_unavailable', saved.get('github_budget')
         return current, 'fresh', saved.get('github_budget')
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None, 'unavailable', None

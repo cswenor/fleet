@@ -550,9 +550,11 @@ GraphQL reads remain uncached and use their separate GitHub budget.
 
 `watch-pr` first uses the project's persisted supervisor snapshot when its repo
 matches, the PR is present, and age is at most `interval_seconds + 15` seconds.
-`--debug` identifies `fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent` or
-`unavailable`, plus request counts (zero for a fresh snapshot) and budget metadata.
-Otherwise it falls back to its own bounded collection. An unchanged armed PR
+`--debug` identifies `fresh`, `missing`, `stale`, `repo_mismatch`, `pr_absent`,
+`unavailable` or `group_evidence_unavailable`, plus request counts (zero for a
+fresh snapshot) and budget metadata. The last reason means newer group membership
+is needed to avoid reporting a superseded failure; supervisor data alone cannot
+answer equivalently. Otherwise it falls back to its own bounded collection. An unchanged armed PR
 doubles its interval up to 300 seconds (never below the requested interval);
 any observed change resets it. Snapshot and fallback paths share event/receipt
 semantics.

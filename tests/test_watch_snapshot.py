@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fleet import state, watcher
+from fleet import groups, state, watcher
 from test_initial_events import history, pull
 
 
@@ -53,6 +53,26 @@ class SharedSnapshotTests(unittest.TestCase):
                     self.watch()
                 collect.assert_called_once_with(self.c, 7)
                 self.assertEqual(json.loads(stderr.getvalue())['snapshot'], reason)
+
+    def test_snapshot_without_group_supersession_evidence_uses_per_pr_resolution(self):
+        base = 'a' * 40
+        runs = [{'id': n, 'head_sha': f'group-{n}', 'conclusion': conclusion,
+                 'branch': f'gh-readonly-queue/main/pr-7-{base}', 'url': f'https://example/run/{n}'}
+                for n, conclusion in [(1, 'failure'), (2, 'success')]]
+        def compare(c, *args):
+            head = args[-1].split('...')[1].split('?')[0]
+            return [{'commits': [{'sha': head, 'parents': [{'sha': base}, {'sha': 'sha'}],
+                                  'commit': {'message': 'Feature (#7)'}}]}]
+        with patch.object(groups, 'gh', side_effect=compare):
+            supervisor_view = history(pull(), runs=groups.resolve(self.c, copy.deepcopy(runs)))
+            direct_view = history(pull(), runs=groups.resolve(self.c, copy.deepcopy(runs), pr_number=7))
+        self.assertFalse(supervisor_view['merge_group_runs'][1]['membership_complete'])
+        self.assertTrue(direct_view['merge_group_runs'][1]['membership_complete'])
+        state.write(self.c, 'snapshot', {**self.saved, 'github': supervisor_view})
+        with patch.object(watcher.time, 'time', return_value=1000), patch.object(
+                watcher.github, 'collect', return_value=direct_view) as collect:
+            self.assertEqual(self.watch()['event'], 'timeout')
+        collect.assert_called_once_with(self.c, 7)
 
     def test_terminal_result_bypasses_seen_receipts_every_time(self):
         for terminal in ('merged', 'closed'):

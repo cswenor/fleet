@@ -139,6 +139,10 @@ Open-PR snapshot proof also returned zero requests on PR #18 (age 32.38s).
 Independent review found rolling `since` timestamps defeating backoff; the
 comparison now isolates selected-PR/group progress, with a regression varying
 both the rolling window and unrelated PRs. Publication receipts are on TASK-143.
+The next review found incomplete supervisor membership for newer successful
+merge groups. Watches now report `group_evidence_unavailable` and fall back to
+per-PR resolution only when needed to avoid resurrecting a superseded failure.
+The regression derives both views through the actual group resolver.
 No shared runtime was updated; publication/deployment require exact-head Main GO.
 
 ### TASK-141 — Enqueue consumes auto-merge
