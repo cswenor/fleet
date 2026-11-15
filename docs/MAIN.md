@@ -274,6 +274,24 @@ unknown data instead of terminating a watch. Required errors include sanitized
 endpoint paths and bounded diagnostics. Never transfer another project's token
 for a probe; its owning Main runs post-deployment installation-token acceptance.
 
+TASK-144: configure `github.read_auth.app_env_file` and `installation_id` to
+isolate supervisor/status/watch reads from the shared personal GitHub pool.
+Use the project's owned 0600 Builder App EnvironmentFile outside Git; an existing
+review-bot Builder receipt can be named explicitly. The installation must select
+only that project's repository. Fleet injects short-lived read-only tokens through
+the child environment, never cwd credential helpers, argv or persisted state.
+`status` shows App-installation versus stock identity and the last REST budget.
+App credential/mint/scope failures report sanitized stock fallback.
+Missing installation grants report `read_auth App lacks NAME:read` and fall back
+before collection. Required grants: metadata, contents, pull_requests, issues,
+checks, statuses, actions and merge_queues, each read (write grants satisfy read;
+tokens request only read). Subsequent permission errors/low budget do not switch
+pools or silently discard statuses/checks. Compare only like identities.
+The owning project's Main configures/proves its own installation; never borrow
+another project's private file. Writes, publication gates and rollout approvals
+are unchanged. Merge does not authorize shared installation or service restart.
+
+
 Completed idle builders do not alert when their exact current launch has a
 canonical thread result plus Pad done or a verified post-publication handoff on
 a different next item. Unknown evidence still alerts. Positive completion is

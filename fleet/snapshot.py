@@ -19,6 +19,7 @@ def _github(c, result):
             return collected
         finally:
             result['github_requests'] = dict(session.stats)
+            result['github_auth'] = dict(session.auth)
             if session.budget:
                 result['github_budget'] = dict(session.budget)
             if session.blocked_until > time.time():
@@ -126,6 +127,14 @@ def may_start(c, s):
 
 def render(s):
     lines = [f"Fleet {s['repo']}"]
+    auth = s.get('github_auth', {})
+    budget = s.get('github_budget', {})
+    if auth:
+        label = auth['kind']
+        if auth.get('installation_id'):
+            label += f" {auth['installation_id']}"
+        lines.append(f"GitHub reads: {label}; REST budget {budget.get('remaining', '?')}/{budget.get('limit', '?')}"
+                     + (f"; {auth['fallback']}" if auth.get('fallback') else ''))
     protection = s.get('publication')
     if protection is not None:
         lines.append('Publication: ' + ('live protection verified' if protection.get('verified') is True

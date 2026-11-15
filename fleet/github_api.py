@@ -113,6 +113,12 @@ def _next(headers, endpoint):
     return None
 
 
+def is_read(args):
+    query = next((a[6:].lstrip() for a in args if a.startswith('query=')), '')
+    return (_arguments(args) is not None or
+            (args[:2] == ('api', 'graphql') and bool(re.match(r'query(?:\s|\(|\{)', query))))
+
+
 class Session:
     """Activate gh REST GET interception; retain this object across polling cycles.
 
@@ -131,6 +137,8 @@ class Session:
         self._size = 0
         self._tokens = []
         self._dirty = False
+        self.environment = None
+        self.auth = {'kind': 'stock'}
         self._scope = self._identity()
         if persistent and self._scope:
             self._load()
@@ -151,6 +159,11 @@ class Session:
         return c == self.c and _arguments(args) is not None
 
     def _identity(self):
+        from .github_auth import resolve
+        self.environment, self.auth = resolve(self.c)
+        if self.environment is not None:
+            token = self.environment['GH_TOKEN']
+            return hashlib.sha256(('github.com\0' + token).encode()).hexdigest()
         host = os.environ.get('GH_HOST', 'github.com')
         names = (('GH_TOKEN', 'GITHUB_TOKEN') if host in ('github.com', 'api.github.com')
                  else ('GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'))
@@ -175,6 +188,16 @@ class Session:
             self.budget = None
             if self.persistent and scope:
                 self._load()
+
+
+    def read_environment(self, c, args):
+        # GraphQL POST is a read only when its document is explicitly a query.
+        # Mutations and all other non-GET commands retain their original identity.
+        if c == self.c and is_read(args):
+            if self.c.get('github', {}).get('read_auth'):
+                self._refresh_identity()
+            return self.environment
+        return None
 
     def observe(self, c, args):
         if c == self.c and args[:1] == ('api',):
@@ -288,6 +311,12 @@ class Session:
         raise CommandError('invalid command JSON')
 
     def _page(self, c, endpoint, headers):
+        if self.c.get('github', {}).get('read_auth'):
+            self._refresh_identity()
+        parsed = urlsplit(endpoint)
+        if self.environment is not None and (parsed.scheme or parsed.netloc) and (
+                parsed.scheme != 'https' or parsed.netloc != 'api.github.com'):
+            raise CommandError('App reads require the GitHub API host')
         if self.blocked_until > time.time():
             raise BudgetLow(self.blocked_until)
         self.blocked_until = 0
@@ -300,7 +329,7 @@ class Session:
         if cached:
             argv.extend(['-H', 'If-None-Match: ' + cached['etag']])
         self.stats['requests'] += 1
-        process = commands._execute(argv, c['root'])
+        process = commands._execute(argv, c['root'], **({'env': self.environment} if self.environment is not None else {}))
         try:
             status, response_headers, body = _response(process.stdout)
         except CommandError:

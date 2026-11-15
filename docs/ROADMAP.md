@@ -113,6 +113,35 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-144 — Per-project GitHub read budget
+
+Optional `github.read_auth` names an existing private Builder App EnvironmentFile
+and installation ID. Fleet validates the active single-repository installation,
+then caches short-lived read-only tokens in process memory until near expiry.
+REST/GraphQL query subprocess environments explicitly override cwd credentials;
+writes retain their existing identities. Credential/mint/scope unavailability
+falls back to stock authentication with a sanitized status reason. Preflight
+requires metadata/contents/pull_requests/issues/checks/statuses/actions/merge_queues
+read grants and names missing permissions before stock fallback. Subsequent API
+permission failures and exhausted App budgets do not silently switch pools.
+Status identifies the selected read pool and last REST remaining/limit.
+Conditional caches remain token-fingerprinted and discard stale bodies/backoff
+on identity changes; token caches also isolate repository/installation/credentials.
+
+Verification: 38 focused GitHub tests and 32 App/onboarding tests passed.
+Coverage includes mint/cache expiry, fallback, installation boundaries,
+credential/repository scoping, cwd independence, write preservation and status
+budget identity. Isolated candidate `status --json` exercised actual RSA signing
+and a fixture `gh` child: App REST 14990/15000, then stock 4990/5000 after an
+unsafe credential-file mode forced fallback; both exited 0. An amended CLI
+fixture also proved named `statuses:read` preflight fallback before collection,
+with the same isolated budgets. Fleet has no configured App installation receipt,
+so live App proof remains project-owned.
+No shared installation/config/service has changed. Publication receipts are
+retained on TASK-144.
+Publication and shared rollout remain exact-head Main-GO gated.
+
+
 ### TASK-141 — Enqueue consumes auto-merge
 
 The shared `watch-pr`/supervisor emitter no longer calls GitHub's cleared

@@ -61,9 +61,9 @@ class GhError(CommandError):
         super().__init__(f'GitHub {self.endpoint}: {detail}' + (f': {reason}' if reason else ''),
                          code='github_request_failed')
 
-def _execute(argv, cwd=None, timeout=60, *, text=True):
+def _execute(argv, cwd=None, timeout=60, *, text=True, env=None):
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout)
+        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=text, timeout=timeout, **({'env': env} if env is not None else {}))
     except (OSError, subprocess.TimeoutExpired) as e:
         raise CommandError(f'{argv[0].split("/")[-1]} unavailable or timed out') from e
     return p
@@ -163,13 +163,17 @@ def orca(c, *args, timeout=60):
 
 
 def gh(c, *args):
-    from .github_api import active_session
+    from .github_api import Session, active_session, is_read
     session = active_session()
+    if session is None and c.get('github', {}).get('read_auth') and is_read(args):
+        with Session(c):
+            return gh(c, *args)
     if session is not None:
         if session.handles(c, args):
             return session.request(c, args)
         session.observe(c, args)
-    process = _execute(['gh', *args], c['root'])
+    env = session.read_environment(c, args) if session is not None else None
+    process = _execute(['gh', *args], c['root'], **({'env': env} if env is not None else {}))
     if process.returncode:
         raise GhError(_gh_target(args), stderr=process.stderr)
     try:

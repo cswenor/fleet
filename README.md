@@ -537,8 +537,44 @@ check suite. A replacement that fails remains actionable; legacy statuses are un
 
 ### GitHub read budget and token permissions
 
-Fleet uses stock `gh` authentication; supervisors and builder installation tokens
-can have separate rate-limit pools. Do not infer one token's budget from another.
+Fleet defaults to stock `gh` authentication. To isolate a project's read budget,
+configure an existing GitHub App installation explicitly:
+
+```yaml
+github:
+  read_auth:
+    app_env_file: /absolute/private/project-builder.env
+    installation_id: 12345
+```
+
+The owned regular EnvironmentFile must be mode 0600, outside Git, and use the
+existing Builder App format: `BUILDER_GITHUB_APP_ID`,
+`BUILDER_GITHUB_APP_CLIENT_ID`, `BUILDER_GITHUB_APP_PRIVATE_KEY_B64`.
+An existing `review_bot.apps.builder.env_file` and installation ID can be reused
+by naming them here; no automatic credential discovery or App creation occurs.
+The installation must be active, selected-repository, and cover **only** this
+project repository. Fleet verifies that scope with a temporary unrestricted token
+and revokes it, then mints a token restricted to the exact read permission set:
+`metadata`, `contents`, `pull_requests`, `issues`, `checks`, `statuses`, `actions`,
+and `merge_queues`, all `read`. Every grant is verified before any collection;
+an installation's `write` grant satisfies read access, but minted tokens never
+request write access. Missing grants visibly fall back to stock auth, naming
+each missing permission, e.g. `read_auth App lacks statuses:read`.
+
+Tokens are cached only in process memory until 60 seconds before expiry, scoped
+by repository, installation, credential file and credential fingerprint. REST and
+GraphQL query reads receive explicit `GH_TOKEN`/`GITHUB_TOKEN` subprocess
+environments, independent of caller or configured root cwd. Parent environments
+and write identities do not change. App unavailability/invalid credentials or
+missing installation grants fall back to stock authentication. Subsequent API
+permission errors and exhausted App budgets remain ordinary read errors/backoff,
+not a switch to the personal pool. Statuses/checks are never silently omitted.
+`status --json` reports `github_auth.kind` (`app_installation` or `stock`), the
+installation ID or sanitized fallback reason, and `github_budget`. Text status
+shows the same identity and last observed REST remaining/limit (`?` if unknown).
+Never infer one identity's budget from another; stock auth may itself be an App
+token supplied by the operator.
+
 REST GETs revalidate each page with `If-None-Match`; HTTP 304 reuses its cached
 body and does not consume GitHub's authenticated primary rate limit. `watch-pr`
 keeps a bounded process-local cache; snapshot/supervisor collection persists a
@@ -566,12 +602,18 @@ GitHub Apps need repository access and the following read permissions:
 
 | Data | GitHub App permission | If unavailable |
 |---|---|---|
+| Repository metadata | Metadata: read | Required |
+| Native merge queue | Merge queues: read | Optional API failures report unknown |
 | PRs, reviews, review comments, merge queue | Pull requests: read | Required PR reads fail; optional queue reads become unknown |
 | Issue comments | Issues: read | Required; fail loudly |
 | Check runs | Checks: read | Required; fail loudly |
 | Commit statuses | Commit statuses: read | Required; fail loudly |
 | Commits, synthetic group comparisons | Contents: read | Required commit reads fail; unresolved group lineage retains failures |
 | Actions workflow/group history | Actions: read | Optional; 403/404 retains failing checks and reports unknown history |
+
+All eight permissions are mandatory for opting into `github.read_auth`, including
+those used by optional collectors. The table's degraded behavior still applies
+to stock auth and API-time failures after preflight.
 
 Optional queue/group/workflow permission errors never certify a healthy result:
 checks remain actionable without supersession proof, and known group failures are

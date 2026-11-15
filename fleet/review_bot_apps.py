@@ -176,14 +176,20 @@ def verify_installation(c, role, client):
         raise ValueError('App installation token unavailable')
     scoped = GitHub(token)
     try:
-        repositories = scoped.request('GET', '/installation/repositories?per_page=100')
-        rows = repositories.get('repositories', []) if isinstance(repositories, dict) else []
-        if (not isinstance(repositories, dict) or repositories.get('total_count') != 1 or len(rows) != 1
-                or rows[0].get('full_name', '').lower() != c['repo'].lower()):
-            raise ValueError(f'{role} App installation must select ONLY this repository')
+        verify_repository_scope(scoped, c['repo'])
     finally:
         scoped.request('DELETE', '/installation/token')
     return installation['id']
+
+
+def verify_repository_scope(client, repo):
+    repositories = client.request('GET', '/installation/repositories?per_page=100')
+    rows = repositories.get('repositories', []) if isinstance(repositories, dict) else []
+    if (not isinstance(repositories, dict) or repositories.get('total_count') != 1
+            or not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict)
+            or not isinstance(rows[0].get('full_name'), str)
+            or rows[0].get('full_name', '').lower() != repo.lower()):
+        raise ValueError('App installation must select ONLY this repository')
 
 
 def initialize(c, *, apply=False, release='main', timeout=600, github=None,
