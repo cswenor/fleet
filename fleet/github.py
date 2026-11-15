@@ -2,6 +2,7 @@
 from datetime import datetime, timezone, timedelta
 import json
 from urllib.parse import urlsplit
+from urllib.parse import quote
 from .commands import CommandError, gh
 from . import groups
 
@@ -277,7 +278,38 @@ def _queue_progress(c, entries, unavailable):
             entry['runs'] = by_head[head]
 
 
-def collect(c, pr_number=None):
+def _repository_queue(c, unavailable):
+    repo = c['repo']
+    owner, name = repo.split('/')
+    metadata = gh(c, 'api', f'repos/{repo}')
+    branch = metadata['default_branch']
+    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{position state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
+    try:
+        queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner,
+                   '-f', 'name=' + name, '-f', 'branch=' + branch)
+        if queue.get('errors'):
+            raise ValueError('GitHub queue query failed')
+        mq = queue['data']['repository'].get('mergeQueue')
+        if mq and mq['entries']['pageInfo']['hasNextPage']:
+            raise ValueError('merge queue exceeds 100 entries')
+        entries = sorted(mq['entries']['nodes'], key=lambda entry: entry['position']) if mq else []
+        return metadata, entries, False
+    except (CommandError, ValueError, KeyError) as error:
+        unavailable.append(f'Merge queue unavailable: {error}')
+        return metadata, [], True
+
+
+def _idle_history(previous, cutoff, since):
+    # Advance the rolling window without rescanning unchanged GitHub history.
+    return {**previous,
+            'prs': [p for p in previous['prs'] if _recent(p['updated_at'], cutoff)],
+            'commits': [r for r in previous['commits'] if _recent(r['date'], cutoff)],
+            'merge_group_runs': [r for r in previous['merge_group_runs']
+                                 if _recent(r.get('created_at'), cutoff)],
+            'since': since, 'idle': True}
+
+
+def collect(c, pr_number=None, *, idle_previous=None):
     repo = c['repo']
     unavailable = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=1)
@@ -301,6 +333,39 @@ def collect(c, pr_number=None):
         open_prs = pages(c, f'repos/{repo}/pulls?state=open&per_page=100')
         by_number = {p['number']: p for p in prs}
         by_number.update({p['number']: p for p in open_prs})
+    probe = None
+    quiet = False
+    idle_signature = None
+    probe_runs = None
+    if pr_number is None and idle_previous is not None:
+        # REST discovery is ETag-gated by Session. Include recent terminal PRs:
+        # open+queue alone would miss a PR opened and closed between observations.
+        probe = _repository_queue(c, unavailable)
+        metadata, entries, queue_unknown = probe
+        quiet = (not any(p['state'] == 'open' for p in by_number.values())
+                 and not entries and not queue_unknown and not repo_move_error(c, metadata))
+        if quiet:
+            branch = metadata['default_branch']
+            tip = gh(c, 'api', f'repos/{repo}/git/ref/heads/{quote(branch, safe="")}')['object']['sha']
+            try:
+                probe_runs = gh(c, 'api', '--paginate', '--slurp',
+                                f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100')
+            except CommandError as error:
+                if not _permission_unknown(error, unavailable):
+                    raise
+            idle_signature = {
+                'branch': branch, 'tip': tip,
+                'prs': sorted((p['number'], p['state'], p['updated_at'], p['head']['sha'])
+                              for p in by_number.values()),
+                'runs': [[(r['id'], r['status'], r['conclusion'], r.get('run_attempt'),
+                           r.get('updated_at'), r['head_sha'])
+                          for r in page['workflow_runs']] for page in probe_runs or []]}
+            if (idle_signature == idle_previous.get('_idle_signature')
+                    and not unavailable and not idle_previous.get('unavailable')
+                    and not idle_previous.get('merge_group_unknown')
+                    and all(r.get('status') == 'completed'
+                            for r in idle_previous.get('merge_group_runs', []))):
+                return _idle_history(idle_previous, cutoff, since)
     result = []
     check_signatures = {}
     for p in by_number.values():
@@ -374,7 +439,8 @@ def collect(c, pr_number=None):
                    for p in result))
     if refresh:
         try:
-            run_pages = gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100')
+            run_pages = (probe_runs if probe_runs is not None else
+                         gh(c, 'api', '--paginate', '--slurp', f'repos/{repo}/actions/runs?event=merge_group&created=%3E{query_since}&per_page=100'))
             runs = groups.resolve(c, [{'id': r['id'], 'branch': r['head_branch'], 'head_sha': r['head_sha'],
                                      'associated_prs': [p['number'] for p in r.get('pull_requests', [])],
                                      'created_at': r.get('created_at'),
@@ -397,24 +463,8 @@ def collect(c, pr_number=None):
     if pr_number is not None:
         return {'prs': result, 'merge_group_runs': runs, 'unavailable': unavailable,
                 'merge_group_unknown': merge_group_unknown}
-    owner, name = repo.split('/')
-    repo_metadata = gh(c, 'api', f'repos/{repo}')
+    repo_metadata, entries, queue_unknown = probe or _repository_queue(c, unavailable)
     default_branch = repo_metadata['default_branch']
-    query = 'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{position state headCommit{oid} pullRequest{number}} pageInfo{hasNextPage}}}}}'
-    queue_unknown = False
-    try:
-        queue = gh(c, 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner, '-f', 'name=' + name, '-f', 'branch=' + default_branch)
-        if queue.get('errors'):
-            raise ValueError('GitHub queue query failed')
-        repository = queue['data']['repository']
-        mq = repository.get('mergeQueue')
-        if mq and mq['entries']['pageInfo']['hasNextPage']:
-            raise ValueError('merge queue exceeds 100 entries')
-        entries = sorted(mq['entries']['nodes'], key=lambda entry: entry['position']) if mq else []
-    except (CommandError, ValueError, KeyError) as error:
-        unavailable.append(f'Merge queue unavailable: {error}')
-        entries = []
-        queue_unknown = True
     _queue_progress(c, entries, unavailable)
     commits = pages(c, f'repos/{repo}/commits?sha={default_branch}&since={query_since}&per_page=100')
     commits = [x for x in commits if _recent(x['commit']['committer']['date'], cutoff)]
@@ -423,7 +473,10 @@ def collect(c, pr_number=None):
             'merge_group_runs': runs, 'merge_group_unknown': merge_group_unknown,
             'default_branch': default_branch, 'unavailable': unavailable,
             'repo_move_error': repo_move_error(c, repo_metadata),
-            'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since}
+            'commits': [{'sha': x['sha'], 'url': x['html_url'], 'date': x['commit']['committer']['date']} for x in commits], 'since': since,
+            **({'idle': quiet and not unavailable and not idle_previous
+                       and all(r.get('status') == 'completed' for r in runs),
+                '_idle_signature': idle_signature} if idle_previous is not None else {})}
 
 
 _FAILED_CONCLUSIONS = frozenset((

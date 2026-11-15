@@ -113,6 +113,40 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-146 — Cheap idle GitHub collection
+
+Long-running supervisors retain normal local health/Orca/quota cadence while
+doubling positively idle GitHub collection spacing to 600 seconds. ETag-backed
+open/recent PR discovery, repository metadata, default-tip and merge-group-run
+probes plus the queue query detect changes before reusing history. Unchanged
+empty PR/queue observations skip commit scans and group enrichment. Recent
+terminal PR discovery preserves PRs opened and closed between observations;
+group discovery also detects reruns without a PR/tip change. Unknown evidence,
+observed changes and errors restore normal spacing. Detection during idle is
+bounded by the current spacing plus collection duration, not instantaneous.
+
+Independent `github_collection` start/finish/period metadata survives local-only
+republication, preserving TASK-145 freshness without laundering old evidence.
+Restart begins cold; one-shot collection and launch admission stay independent.
+Attribution now separates confirmed REST 304s (`not_modified`) from conservative
+REST charges; GraphQL remains attempt counts, not measured rate-limit points.
+
+Before-change read-only Fleet measurement: no open PRs/queue; cold cycle had
+five REST 200s plus one GraphQL 200. Warm cycles had five REST 304s plus one
+GraphQL 200, not six charged requests. Candidate live probes reached
+120/240/480/600/600-second spacing with five REST 304s plus one GraphQL 200 per
+warm observation. This implies roughly 60 to 6 charged requests/hour at a
+60-second base (excluding cold reads/hourly query rollover), not a full-hour
+observation. A separate timed quiet-repository measurement and publication
+receipts are retained on TASK-146.
+
+Isolated actual candidate `serve --no-deliver --debug` with a one-second base
+observed 2/4/8-second spacing, an intervening zero-GitHub-request local cycle,
+unchanged GitHub timestamps on that cycle, errors empty and graceful exit 0.
+Focused collector, cadence, attribution, watcher-snapshot, supervisor and App
+regressions passed. No shared installation/runtime changed; publication and
+deployment remain exact-head Main-GO gated, rollout only with Email's queue empty.
+
 ### TASK-145 — Cadence-aware shared snapshots and stock-budget protection
 
 Supervisors record collection start/finish, observed cycle period and expected

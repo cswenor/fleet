@@ -1,4 +1,4 @@
-"""Bounded request metadata only; never persist URLs, tokens or response bodies."""
+"""Bounded request counts only; REST charges exclude confirmed 304 responses."""
 from contextvars import ContextVar
 import os
 import re
@@ -25,7 +25,8 @@ def enabled():
     return _ACTIVE.get() is not None
 
 
-def record(rest=0, graphql=0, *, identity='stock'):
+def record(rest=0, graphql=0, *, not_modified=0, identity='stock'):
+    """Record conservative REST charges, GraphQL attempts and REST 304 counts."""
     active = _ACTIVE.get()
     if active is None:
         return
@@ -33,14 +34,14 @@ def record(rest=0, graphql=0, *, identity='stock'):
     now = time.time()
     minute = int(now // 60) * 60
     try:
-        _record(c, kind, pr, ref, now, minute, rest, graphql, identity)
+        _record(c, kind, pr, ref, now, minute, rest, graphql, not_modified, identity)
     except (OSError, ValueError, KeyError, TypeError):
         # A completed GitHub mutation must never look failed because accounting
         # is unavailable. Report the gap without exposing stored data.
         print('fleet: GitHub request attribution unavailable', file=sys.stderr)
 
 
-def _record(c, kind, pr, ref, now, minute, rest, graphql, identity):
+def _record(c, kind, pr, ref, now, minute, rest, graphql, not_modified, identity):
     with state.lock(c, 'github-usage', wait_seconds=5):
         saved = state.read(c, 'github-usage', {})
         rows = [r for r in saved.get('rows', []) if r['at'] >= now - 3600]
@@ -49,10 +50,11 @@ def _record(c, kind, pr, ref, now, minute, rest, graphql, identity):
                     (kind, pr, ref, identity)), None)
         if row is None:
             row = dict(at=minute, process=_PROCESS, pid=os.getpid(), kind=kind, identity=identity,
-                       project=c['repo'], pr=pr, ref=ref, rest=0, graphql=0)
+                       project=c['repo'], pr=pr, ref=ref, rest=0, graphql=0, not_modified=0)
             rows.append(row)
         row['rest'] += rest
         row['graphql'] += graphql
+        row['not_modified'] = row.get('not_modified', 0) + not_modified
         truncated_until = saved.get('truncated_until', 0)
         if len(rows) > MAX_ROWS:
             rows.sort(key=lambda r: r['at'])
@@ -62,16 +64,38 @@ def _record(c, kind, pr, ref, now, minute, rest, graphql, identity):
 
 
 def trace(stderr, *, identity='stock'):
-    """Count gh's actual HTTP attempts, including pagination and native commands.
+    """Count gh attempts, excluding confirmed REST 304s from charged requests.
 
     GH_DEBUG=api is captured in memory, never printed or persisted. Discard the
     complete trace before existing bounded error diagnostics can see it.
     """
     if isinstance(stderr, bytes):
         stderr = stderr.decode(errors='replace')
-    paths = re.findall(r'^> [A-Z]+ (\S+) HTTP/\S+', stderr or '', re.M)
-    graphql = sum(path.split('?', 1)[0].rstrip('/').endswith('/graphql') for path in paths)
-    record(len(paths) - graphql, graphql, identity=identity)
+    rest = graphql = not_modified = outstanding = 0
+    pending = None
+    for line in (stderr or '').splitlines():
+        request = re.match(r'^> [A-Z]+ (\S+) HTTP/\S+', line)
+        if request:
+            path = request[1].split('?', 1)[0].rstrip('/')
+            is_graphql = path.endswith('/graphql')
+            graphql += is_graphql
+            rest += not is_graphql
+            # gh can interleave concurrent traces without response IDs. Only
+            # discount a 304 when exactly one unambiguous request is pending.
+            pending = is_graphql if outstanding == 0 else None
+            outstanding += 1
+            continue
+        response = re.match(r'^< HTTP/\S+ (\d{3})(?:\s|$)', line)
+        if response and int(response[1]) < 200:
+            continue
+        if response or line.startswith('< error:'):
+            if outstanding == 1 and pending is False and response and response[1] == '304':
+                rest -= 1
+                not_modified += 1
+            outstanding = max(0, outstanding - 1)
+            if not outstanding:
+                pending = None
+    record(rest, graphql, not_modified=not_modified, identity=identity)
 
 
 def consumers(c):
@@ -85,9 +109,10 @@ def consumers(c):
         if key not in totals:
             totals[key] = {k: row[k] for k in ('pid', 'kind', 'project', 'pr', 'ref')}
             totals[key]['identity'] = row.get('identity', 'unknown')
-            totals[key].update(rest=0, graphql=0)
+            totals[key].update(rest=0, graphql=0, not_modified=0)
         totals[key]['rest'] += row['rest']
         totals[key]['graphql'] += row['graphql']
+        totals[key]['not_modified'] += row.get('not_modified', 0)
     return dict(consumers=sorted(totals.values(), key=lambda r: r['rest'] + r['graphql'],
                                 reverse=True)[:10],
                 truncated=saved.get('truncated_until', 0) > now)

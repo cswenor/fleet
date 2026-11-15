@@ -11,10 +11,10 @@ from .commands import CommandError
 from .display import duration
 
 
-def _github(c, result):
+def _github(c, result, **kwargs):
     with github_api.Session(c, persistent=True) as session:
         try:
-            return github.collect(c)
+            return github.collect(c, **kwargs)
         finally:
             result['github_requests'] = dict(session.stats)
             result['github_auth'] = dict(session.auth)
@@ -49,13 +49,15 @@ def _collection_reason(error):
 
 
 def shared(c):
-    """Read supervisor evidence; legacy timestamps use measured file publication."""
+    """Read GitHub evidence age independently of local republication timing."""
     try:
         saved = state.read(c, 'snapshot')
         if not isinstance(saved, dict) or saved.get('repo') != c['repo']:
             return None, {'source': 'missing' if saved is None else 'repo_mismatch'}
-        timing = saved.get('collection', {})
-        started = saved['generated_at']
+        timing = saved.get('github_collection', saved.get('collection', {}))
+        if timing.get('successful') is False:
+            return None, {'source': 'unavailable'}
+        started = timing.get('started_at', saved['generated_at'])
         finished = timing.get('finished_at')
         if finished is None:
             finished = (state.directory(c) / 'snapshot.json').stat().st_mtime
@@ -74,7 +76,8 @@ def shared(c):
         return None, {'source': 'unavailable'}
 
 
-def collect(c, *, shared_github=False):
+def collect(c, *, shared_github=False, github_scheduler=None):
+    """Collect local health; only serve-owned schedulers may defer GitHub reads."""
     now = time.time()
     result = {'version': 1, 'repo': c['repo'], 'generated_at': now, 'errors': []}
     saved, shared_info = shared(c) if shared_github else (None, {})
@@ -87,10 +90,18 @@ def collect(c, *, shared_github=False):
             if key in saved:
                 result[key] = saved[key]
         result['github_requests'] = {'requests': 0, 'not_modified': 0}
+        if 'github_collection' in saved:
+            result['github_collection'] = dict(saved['github_collection'])
     if c.get('publication', {}).get('mode') == 'auto_merge':
         result['publication'] = publication.guard(c)
+    def collect_github():
+        if reuse:
+            return saved['github']
+        if github_scheduler is not None:
+            return github_scheduler.collect(c, result, _github)
+        return _github(c, result)
     for key, fn in (('inventory', lambda: health.collect(c, now)),
-                    ('github', lambda: saved['github'] if reuse else _github(c, result)),
+                    ('github', collect_github),
                     ('quota', lambda: quota.collect(c)), ('coordinator', lambda: health.coordinator(c))):
         try:
             result[key] = fn()
@@ -208,6 +219,6 @@ def render(s):
         for row in usage['consumers']:
             target = f" PR #{row['pr']}" if row.get('pr') else ''
             target += f" {row['ref']}" if row.get('ref') else ''
-            lines.append(f"  {row['kind']} pid={row['pid']}{target} identity={row.get('identity', 'unknown')}: REST={row['rest']} GraphQL={row['graphql']}")
+            lines.append(f"  {row['kind']} pid={row['pid']}{target} identity={row.get('identity', 'unknown')}: REST charged={row['rest']} 304={row.get('not_modified', 0)} GraphQL={row['graphql']}")
     lines.extend('ERROR: ' + x for x in s['errors'])
     return '\n'.join(lines)

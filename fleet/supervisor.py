@@ -10,7 +10,7 @@ import shlex
 import signal
 import time
 import urllib.request
-from . import github, health, snapshot, state, governor
+from . import github, github_idle, health, snapshot, state, governor
 from .commands import orca, run, json_run, CommandError
 from .config import URGENT_EVENTS
 
@@ -812,10 +812,11 @@ def wake_builders(c, ledger, now, deliver):
     return events
 
 
-def cycle(c, deliver=True):
+def cycle(c, deliver=True, *, github_scheduler=None):
     previous_snapshot = state.read(c, 'snapshot', {})
     collection_started = time.time()
-    s = snapshot.collect(c)
+    s = (snapshot.collect(c, github_scheduler=github_scheduler)
+         if github_scheduler is not None else snapshot.collect(c))
     ledger = state.read(c, 'supervisor', {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': []})
     from .threads import _record_next_report
     for launch_id, notice in list(ledger.get('pending_receipts', {}).items()):
@@ -1064,8 +1065,9 @@ def serve(c, deliver=True, once=False):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     with state.lock(c, 'supervisor'):
+        github_scheduler = None if once else github_idle.Scheduler(c['interval_seconds'])
         while not stopping:
-            _, report = cycle(c, deliver)
+            _, report = cycle(c, deliver, github_scheduler=github_scheduler)
             print(json.dumps(report), flush=True)
             if once:
                 break
