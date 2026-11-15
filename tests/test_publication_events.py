@@ -188,6 +188,11 @@ class PublicationSnapshotTests(unittest.TestCase):
 
 
 class PublicationEventTests(unittest.TestCase):
+    def setUp(self):
+        auth = patch('fleet.github_auth.resolve', return_value=(None, {'kind': 'app_installation'}))
+        auth.start()
+        self.addCleanup(auth.stop)
+
     def pr(self, **changes):
         return pull(labels=[], draft=False, auto_merge=None, auto_merge_unknown=False,
                     merge_queue_entry=None, merge_queue_unknown=False, hold_label='release-hold') | changes
