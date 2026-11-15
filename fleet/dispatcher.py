@@ -177,7 +177,9 @@ def carry(c, slot, launch_id, ref, evidence):
         inventory = health.collect(c)
         if (primary.get('attempts', {}).get(launch_id, {}).get('settled') is not False or
                 launch not in unresolved(c, inventory)):
-            raise ValueError('cannot carry on an unknown or settled launch primary thread')
+            raise ValueError('cannot carry on an unknown or settled launch primary thread; '
+                             'for a completed investigation use fleet restart NEXT --slot SLOT '
+                             '--finished-ref PRIMARY --no-pr-evidence TEXT')
         if inventory.get('errors') or not any(
                 b['path'] == slot and b.get('terminal') == launch.get('terminal')
                 and b.get('incarnation_id') == launch.get('terminal_incarnation_id')
@@ -243,7 +245,7 @@ def assignments(c, inventory, *, retiring=None):
     for receipt in unresolved(c, inventory):
         if receipt != retiring:
             claims.append((receipt['ref'], receipt['worktree']['path'], 'unresolved launch receipt'))
-        for ref, approval in carries.get(receipt.get('id'), {}).items():
+        for ref, approval in ({} if receipt == retiring else carries.get(receipt.get('id'), {})).items():
             if (approval.get('launch_id') == receipt.get('id') and
                     approval.get('slot') == receipt['worktree']['path'] and
                     approval.get('ref') == ref):

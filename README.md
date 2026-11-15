@@ -1224,7 +1224,13 @@ Pick the next piece by plan priority, usually the same feature; the same ref is
 allowed. Never switch to an unrelated task just to get a different ref.
 `FRESH-READY` requires publishing this session's NEXT piece of work (merged after
 its launch), then writing a concrete next-piece handoff after that merge; never
-signal it for an inherited handoff. After `thread result` settlement, use
+signal it for an inherited handoff.
+Investigation-only exception: Pad done plus an exact-launch canonical result
+with a standalone `No-PR: reason` line settled after launch; the concrete
+next-piece handoff must follow settlement instead of merge. `thread needs-next`
+accepts this completion without a handoff. Matching Main no-PR retirement
+evidence also qualifies; no PR is invented.
+After `thread result` settlement, use
 `fleet --config CONFIG thread ready NEXT [--body TEXT]` as the last lane action,
 never raw-send readiness. Keep project-local footer overrides consistent.
 
@@ -1255,6 +1261,11 @@ after the retiring launch receipt's timestamp, and a handoff comment on that
 same ref strictly after the merge, with a non-empty next-piece description after
 the ref (not just a bare handoff marker). Publication/handoff ordering uses
 timezone-aware timestamps; missing, malformed or timezone-less evidence refuses.
+For investigation-only completion, Run-bound Main may instead supply
+`--no-pr-evidence TEXT` with Pad OLD done and its exact-launch canonical settled
+result. The evidence is recorded on Pad before input and in the ordinary retirement
+receipt. A recognized no-PR result also requires Main authority for restart.
+All idle/session/process, preflight and verified-shell guards remain unchanged.
 
 Retirement requires one connected writable non-shell OMP terminal, bound to OLD
 by `launches.json`'s exact slot/handle/incarnation record. Extra terminals block

@@ -207,6 +207,62 @@ class RetirementTests(unittest.TestCase):
     def run_restart(self):
         return restart.restart(self.c, 'TASK-2', self.slot, 'TASK-1')
 
+    def investigation(self):
+        self.prs = []
+        state.write(self.c, 'threads-TASK-1', {'TASK-1': {
+            'id': 'canonical', 'attempts': {'old': {
+                'settled': True, 'result': 'Investigation below threshold; no PR',
+                'terminal': 'target', 'slot': self.slot}}}})
+
+    def no_pr_restart(self):
+        with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'), \
+                patch.object(restart.steering, 'request', return_value={
+                    'run': {'id': 'run', 'coordinator_handle': 'main'}}), \
+                patch.object(restart.threads, 'pad'):
+            return restart.restart(self.c, 'TASK-2', self.slot, 'TASK-1',
+                                   no_pr_evidence='Closed below threshold; no code change')
+
+    def test_investigation_restart_retires_carried_next_and_records_evidence(self):
+        self.investigation()
+        state.write(self.c, 'carries', {'old': {'TASK-2': {
+            'launch_id': 'old', 'slot': self.slot, 'ref': 'TASK-2'}}})
+        result = self.no_pr_restart()
+        self.assertEqual(result['retirement']['stage'], 'launched')
+        completion = result['retirement']['completion']
+        self.assertEqual(completion['kind'], 'investigation')
+        self.assertEqual(completion['result'], 'Investigation below threshold; no PR')
+        self.assertEqual(completion['actor'], 'main')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_investigation_restart_requires_done_and_exact_settled_result(self):
+        self.investigation()
+        self.item = {'fields': {'status': 'in-progress'}}
+        with self.assertRaisesRegex(ValueError, 'Pad done'):
+            self.no_pr_restart()
+        self.item = {'fields': {'status': 'done'}}
+        ledger = state.read(self.c, 'threads-TASK-1')
+        for change in ({'settled': False}, {'terminal': 'other'}, {'slot': '/other'},
+                       {'result': ''}):
+            with self.subTest(change=change):
+                modified = copy.deepcopy(ledger)
+                modified['TASK-1']['attempts']['old'].update(change)
+                state.write(self.c, 'threads-TASK-1', modified)
+                with self.assertRaisesRegex(ValueError, 'exact launch settled'):
+                    self.no_pr_restart()
+        self.assertEqual(self.sent, [])
+        self.launch.assert_not_called()
+
+    def test_investigation_restart_keeps_idle_and_main_guards(self):
+        self.investigation()
+        with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='builder'):
+            with self.assertRaisesRegex(ValueError, 'Main terminal identity'):
+                restart.restart(self.c, 'TASK-2', self.slot, 'TASK-1', no_pr_evidence='done')
+        self.events.append({'type': 'message', 'message': {'role': 'user'}})
+        self.write_log()
+        with self.assertRaisesRegex(ValueError, 'final assistant stop'):
+            self.no_pr_restart()
+        self.assertEqual(self.sent, [])
+
     def refused(self, reason):
         with self.assertRaisesRegex(ValueError, reason):
             self.run_restart()

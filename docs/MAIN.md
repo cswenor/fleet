@@ -190,6 +190,8 @@ input acceptance. Pick the next piece by plan priority, usually the same feature
 the same ref is allowed. Never switch to an unrelated task just to get a different
 ref. FRESH-READY requires this session's NEXT piece merged after its launch and a
 concrete next-piece handoff written after that merge; never an inherited boundary.
+Investigation-only completion may instead use Pad done plus an exact-launch
+settled result with a standalone `No-PR: reason` line (details below).
 After the primary `thread result` settles, the builder's last lane action is
 `fleet --config CONFIG thread ready NEXT [--body TEXT]`, then end its turn with a
 final message: no further tool calls or background jobs, never wait on its own
@@ -205,8 +207,8 @@ launch ruling; the builder stops after sending and does not wait for the reply.
 
 TASK-83 completion without a next ref uses `fleet --config CONFIG thread
 needs-next REF` after primary settlement, then ends the turn. It sends one
-`NEEDS-NEXT-REF` decision request per launch after proving a newer merged PR or
-explicit pushed-WIP park completion. Do not substitute a status report.
+`NEEDS-NEXT-REF` decision request per launch after proving a newer merged PR,
+explicit pushed-WIP park completion, or the no-PR completion below.
 The supervisor's once-per-launch `Lane free: … needs next task` question covers
 settled, positively idle OMP/shell lanes with verified completion and no report;
 it replaces generic idle/missing-ready relays only for those proven lanes.
@@ -435,9 +437,12 @@ The exact current launch must be live with matching terminal/incarnation and an
 unsettled primary thread. Unknown/settled launch, primary ref, competing ownership,
 non-Main caller or empty evidence refuse. The builder opens the carried ref as a
 separate thread on the same attempt; questions and result are ref-local.
-Carried claims block next/launch/restart until the launch is resolved; settling
-the carried thread alone does not free it. Restart still retires the primary
-ref. Replacement sessions require new approval; no fake Dispatch or Run binding.
+Previously approved carried threads remain independent after primary settlement:
+the builder may still open, ask on and settle them on that same launch. New carry
+approvals still require an unsettled primary. Claims block ordinary next/launch
+until resolution; restart exempts only the exact launch being retired, including
+its carried NEXT claim. Competing launches still block. Restart retires the primary
+ref, never the carried ref. Replacement sessions require new approval.
 
 
 ### Repo moved or renamed
@@ -922,6 +927,27 @@ For OLD == NEXT, a fully recorded valid park for the current launch also qualifi
 Otherwise require a PR carrying that ref merged strictly after the retiring
 launch timestamp, then a handoff on the same ref strictly after the merge with a
 non-empty next-piece description after the ref; Pad done alone never suffices.
+
+For an investigation finished without a PR, Main may instead run:
+
+```sh
+fleet --config CONFIG restart NEXT --slot SLOT --finished-ref OLD --no-pr-evidence 'Investigation closed below threshold; no code change'
+```
+
+This explicit exception requires the configured Run-bound Main terminal, Pad OLD
+`done`, and OLD's exact launch/slot/terminal canonical settled thread result.
+Evidence must be a nonempty printable single line (at most 2000 characters).
+It records Main's evidence and result on Pad before input and in the ordinary
+retirement receipt. Idle/session/foreground, preflight and verified-shell proofs
+below are unchanged. Use the primary launch ref as OLD, even when NEXT was carried.
+Builder-side handoff also supports no-PR completion: put a standalone
+`No-PR: reason` line in the canonical `thread result` and set Pad OLD done.
+The exact launch/slot/terminal result must settle after launch. `thread needs-next`
+then accepts it without a handoff; `thread ready NEXT` still requires a concrete
+handoff on NEXT strictly after that settlement, including same-ref readiness.
+An exact-launch Main no-PR retirement completion receipt matching the result
+also qualifies. No fake PR URL is stored or reported. Publication gates remain.
+
 Its launch must have a canonical `launches.json` binding, dedicated session log
 and live lease. Local Linux `/proc` must bind
 the OLD receipt argv/session directory to the terminal's live foreground OMP process.

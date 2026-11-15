@@ -405,11 +405,13 @@ The exact current launch must have matching live terminal/incarnation and an
 unsettled primary thread; primary ref, competing claim, unknown/settled launch,
 empty evidence and non-Main callers refuse. The builder then opens TASK-N as a
 separate canonical thread on that same attempt. Its questions/results remain
-ref-local; result settles only TASK-N. Carried ownership remains claimed through
-unresolved launch health, blocking next/launch/restart until verified exit,
-retirement or reconciliation. Replacement launches never inherit approval;
-restart OLD/NEXT still uses the primary ref. This is not native Dispatch or
-arbitrary task switching. Keep builder terminals unbound.
+ref-local; primary settlement does not revoke a previously approved carry:
+the builder may open and finish it on that same launch. New carry approval still
+requires an unsettled primary. Carried ownership blocks ordinary next/launch
+until exit, retirement or reconciliation. Restart exempts only the exact retiring
+launch's claims, including carried NEXT; competing launches still block.
+Replacement launches never inherit approval; restart OLD/NEXT uses the primary ref.
+This is not native Dispatch or arbitrary task switching. Keep builder terminals unbound.
 
 
 ## Publication: two independent gates
@@ -540,8 +542,11 @@ Unresolved decisions prevent settlement. Keep reusable slots. Pick the next piec
 by plan priority, usually the same feature; the same ref is allowed. Never switch
 to an unrelated task just to get a different ref. FRESH-READY requires this
 session's NEXT piece merged after its launch and a concrete next-piece handoff
-written after that merge, never an inherited boundary. After the primary thread
-result settles, make this the last lane action, then stop:
+written after that merge, never an inherited boundary.
+Investigation-only exception: Pad done plus an exact-launch settled result with
+a standalone `No-PR: reason` line qualifies without a PR, with the concrete
+handoff strictly after settlement instead of merge (including same-ref).
+After the primary thread result settles, make this the last lane action, then stop:
 
 ```sh
 fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece handoff'
@@ -549,7 +554,8 @@ fleet --config /private/project/fleet.yml thread ready NEXT --body 'Next-piece h
 
 When complete but no concrete next ref exists, settle `thread result`, then make
 `fleet --config CONFIG thread needs-next REF` the last lane action and end the
-turn. It proves a newer merged PR or explicit park completion and sends one
+turn. It proves a newer merged PR, explicit park completion or validated no-PR
+completion and sends one
 `NEEDS-NEXT-REF` native question per launch. Never substitute a status report.
 The supervisor also requests the next task once per launch for a canonically
 settled, positively idle OMP/shell with verified merge/park completion and no
@@ -588,6 +594,19 @@ Main announces exact change/head/risk to **every affected project's Main**, offe
 per-project pinning, and coordinates rollout/rollback and owner-only approvals.
 Do not change other projects, restart shared services or imply installation from
 merge alone. Verify actual deployed CLI/service/browser and report receipts.
+
+For a completed investigation with no PR, the configured Run-bound Main may use
+`fleet --config CONFIG restart NEXT --slot SLOT --finished-ref OLD --no-pr-evidence TEXT`.
+Require Pad OLD done and OLD's exact launch/slot/terminal settled canonical result.
+Record printable nonempty evidence (at most 2000 characters) on Pad before input
+and in the ordinary retirement receipt. All idle/session/foreground, preflight
+and verified-shell guards remain. OLD is the primary ref, even for carried NEXT.
+Builder ready/needs-next also accept Pad done plus a canonical exact-launch
+settled result marked by a standalone `No-PR: reason` line. Settlement must
+follow launch; ready still requires a concrete handoff on NEXT strictly after
+settlement, including same-ref. An exact-launch Main no-PR retirement receipt
+matching the result also qualifies. Publication gates are unchanged.
+
 
 For finished work, Main can use
 `fleet ... restart NEXT --slot /path/to/lane --finished-ref OLD`.

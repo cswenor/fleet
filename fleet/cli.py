@@ -37,6 +37,7 @@ def main():
     p.add_argument('ref')
     p.add_argument('--slot', required=True)
     p.add_argument('--finished-ref', required=True)
+    p.add_argument('--no-pr-evidence', help='Main authorizes completed investigation without a PR; requires Pad done and settled result')
     p.add_argument('--model', help='one-shot next builder model; requires --thinking and an allowed pair')
     p.add_argument('--thinking', help='one-shot next builder thinking level; requires --model')
     p = sub.add_parser('relaunch', help='Main replaces an idle unfinished session of the same task')
@@ -285,7 +286,8 @@ def main():
         if args.command == 'restart':
             from .restart import restart
             print(json.dumps(restart(c, args.ref, args.slot, args.finished_ref,
-                                     model=args.model, thinking=args.thinking), indent=2))
+                                     model=args.model, thinking=args.thinking,
+                                     no_pr_evidence=args.no_pr_evidence), indent=2))
             return 0
         if args.command == 'relaunch':
             from .restart import relaunch

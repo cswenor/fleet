@@ -146,6 +146,12 @@ merge. An inherited publication/handoff is not readiness. Except for a fully
 recorded valid park on the current launch, same-ref `restart` requires that new
 merge and later handoff on the same ref, with a non-empty next-piece description
 after the ref; Pad done alone does not satisfy this guard.
+Investigation-only exception: Pad done plus an exact-launch canonical settled
+result with a standalone `No-PR: reason` line, or matching Main-recorded no-PR
+retirement evidence. Settlement must follow launch; ready still needs the
+concrete handoff on NEXT strictly after settlement (including same-ref).
+Main may use `restart --no-pr-evidence TEXT` with Pad done and a settled exact-launch
+result; idle/session/process and preflight guards remain unchanged.
 After primary `thread result` settlement, make
 `fleet --config CONFIG thread ready NEXT [--body TEXT]` the last lane action and
 stop, using the same config as `thread open`. Never raw `orca send` for
@@ -165,7 +171,7 @@ Existing sent `status` receipts remain valid and must never be resent on upgrade
 If complete but no concrete next ref exists, settle with `thread result`, then
 make `fleet --config CONFIG thread needs-next REF` the last lane action and end
 the turn. It sends one decision request per launch after verifying a new merge
-or explicit park completion; never replace this with a status report.
+or explicit park/no-PR completion; never replace this with a status report.
 If Main authorizes continuing after `thread result`, record that ruling and run
 `fleet --config CONFIG thread reopen REF --authorized-by MSG_ID [--reason TEXT]`
 before any new question; never fall back to direct Run questions. This continues

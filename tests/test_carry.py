@@ -90,7 +90,8 @@ class CarryTests(unittest.TestCase):
         self.assertEqual(self.carry(), approval)
         for retiring in (None, self.launch):
             claims = dispatcher.assignments(self.c, self.inventory, retiring=retiring)
-            self.assertTrue(dispatcher.duplicate_reasons('TASK-2', claims, self.slot))
+            self.assertEqual(bool(dispatcher.duplicate_reasons('TASK-2', claims, self.slot)),
+                             retiring is None)
         self.inventory['builders'].clear()  # Missing health retains unresolved carried ownership.
         self.assertIn(('TASK-2', self.slot, 'carried launch receipt'),
                       dispatcher.assignments(self.c, self.inventory))
@@ -113,10 +114,22 @@ class CarryTests(unittest.TestCase):
                 threads.open_thread(self.c, 'TASK-2', self.slot)
         self.carry('TASK-3')
         with patch.dict(os.environ, ORCA_TERMINAL_HANDLE='builder'):
+            threads.result(self.c, 'TASK-1', 'investigation closed without PR')
             threads.open_thread(self.c, 'TASK-3', self.slot)
-            threads.result(self.c, 'TASK-1', 'primary published')
-            with self.assertRaisesRegex(ValueError, 'no unique current'):
-                threads.question(self.c, 'TASK-3', 'stale?')
+            threads.question(self.c, 'TASK-3', 'independent carried decision')
             state.write(self.c, 'launches', {self.slot: dict(self.launch, id='two')})
             with self.assertRaisesRegex(ValueError, 'authoritative launch'):
                 threads.open_thread(self.c, 'TASK-3', self.slot)
+
+    def test_retired_or_reconciled_launch_revokes_carry_after_primary_settlement(self):
+        self.carry()
+        with patch.dict(os.environ, ORCA_TERMINAL_HANDLE='builder'):
+            threads.result(self.c, 'TASK-1', 'investigation complete')
+            for name, receipt in (
+                    ('retirements', {self.slot: {'launch_id': 'one'}}),
+                    ('reconciliations', {'one': {'launch_id': 'one'}})):
+                with self.subTest(name=name):
+                    state.write(self.c, name, receipt)
+                    with self.assertRaisesRegex(ValueError, 'authoritative launch'):
+                        threads.open_thread(self.c, 'TASK-2', self.slot)
+                    state.write(self.c, name, {})
