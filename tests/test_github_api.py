@@ -101,6 +101,42 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(commands.gh(self.c, 'api', '--paginate', '--slurp', 'checks'),
                              [{'check_runs': [1]}, {'check_runs': [2]}])
 
+    def test_first_page_304_still_fetches_changed_second_check_page(self):
+        endpoint = 'repos/owner/repo/commits/sha/check-runs?per_page=100'
+        next_url = f'https://api.github.com/{endpoint}&page=2'
+        first_page = {'total_count': 101, 'check_runs': [
+            {'id': n, 'name': f'job-{n}', 'status': 'completed', 'conclusion': 'success'}
+            for n in range(1, 101)]}
+        pending_page = {'total_count': 101, 'check_runs': [
+            {'id': 101, 'name': 'last-job', 'status': 'in_progress', 'conclusion': None}]}
+        completed_page = {'total_count': 101, 'check_runs': [
+            {'id': 101, 'name': 'last-job', 'status': 'completed', 'conclusion': 'success'}]}
+        replies = [
+            response(first_page, headers={'ETag': '"first"', 'Link': f'<{next_url}>; rel="next"'}),
+            response(pending_page, headers={'ETag': '"pending"'}),
+            response(status=304, code=1),
+            response(completed_page, headers={'ETag': '"completed"'}),
+            response(status=304),
+            response(status=304)]
+        session = github_api.Session(self.c)
+        with patch.object(commands, '_execute', side_effect=replies) as execute:
+            with session:
+                self.assertEqual(commands.gh(self.c, 'api', '--paginate', '--slurp', endpoint),
+                                 [first_page, pending_page])
+            with session:
+                actual = commands.gh(self.c, 'api', '--paginate', '--slurp', endpoint)
+                self.assertEqual(actual, [first_page, completed_page])
+                self.assertEqual(sum(len(page['check_runs']) for page in actual), 101)
+            with session:
+                self.assertEqual(commands.gh(self.c, 'api', '--paginate', '--slurp', endpoint),
+                                 [first_page, completed_page])
+        self.assertEqual(execute.call_count, 6)
+        self.assertIn('If-None-Match: "first"', execute.call_args_list[2].args[0])
+        self.assertIn(next_url, execute.call_args_list[3].args[0])
+        self.assertIn('If-None-Match: "pending"', execute.call_args_list[3].args[0])
+        self.assertIn('If-None-Match: "completed"', execute.call_args_list[5].args[0])
+        self.assertEqual(session.stats, {'requests': 6, 'not_modified': 3})
+
     def test_plain_paginate_retains_invalid_json_contract(self):
         replies = [response([1], headers={
             'Link': '<https://api.github.com/checks?page=2>; rel="next"'}), response([2])]

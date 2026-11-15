@@ -513,8 +513,13 @@ A replacement registers a new generation; the older process returns
 signals or kills. Do not re-arm that superseded process.
 PR/check/comment/review/merge-group supervisor relays target Main's Run only;
 only the supervisor-specific `pr_stuck` inactivity timer retains a builder copy.
-Supervisor check relays compare head and overall pending/success/failure, while
-`watch-pr` retains fine-grained changes. Check-run failure summaries ignore older
+Supervisor and `watch-pr` check events compare head and overall
+pending/success/failure, not individual job progress. Named callers retain their
+last observed checks across watch invocations, so completion between timeout and
+re-arm emits once. Baselines reset on a new head or merged/closed observation,
+expire after 24 hours, and retain at most 128 caller/repo/PR entries per project.
+Cold-start green remains quiet; anonymous watches have no cross-invocation baseline.
+Check-run failure summaries ignore older
 same-name/head attempts only with matching App/check-suite identity; independent
 or unknown producers retain failures. Existing workflow-history proof is unchanged.
 Initial merge-group failures are omitted only when a newer, completely resolved

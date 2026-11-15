@@ -44,6 +44,27 @@ def _receipt(c, caller, number, initial, include_seen=False, record_only=False):
     return unseen
 
 
+def _check_baseline(c, caller, number, pr):
+    """Retain check observations across bounded watch invocations, not cold starts."""
+    if not caller:
+        return None
+    key = json.dumps([caller, c['repo'], number])
+    now = time.time()
+    with state.lock(c, 'watch-pr-checks'):
+        saved = state.read(c, 'watch-pr-checks', {})
+        saved = {k: v for k, v in saved.items()
+                 if 0 <= now - v['observed_at'] < 86400}
+        previous = saved.pop(key, None)
+        if pr.get('state') == 'open':
+            saved[key] = {'observed_at': now, 'head': pr['head'],
+                          'checks': pr.get('checks', [])}
+        saved = dict(sorted(saved.items(), key=lambda item: item[1]['observed_at'])[-128:])
+        state.write(c, 'watch-pr-checks', saved)
+    if previous is None or previous['head'] != pr.get('head'):
+        return None
+    return {**pr, 'checks': previous['checks']}
+
+
 @contextmanager
 def _ownership(c, caller, number):
     key = json.dumps([c['repo'], number, caller])
@@ -186,6 +207,7 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                             print(json.dumps({'pr': number, 'github_unknown': unknown}),
                                   file=sys.stderr, flush=True)
                     pr = next((p for p in after['prs'] if p['number'] == number), {})
+                    baseline = _check_baseline(c, caller, number, pr)
                     if pr.get('state') in ('merged', 'closed'):
                         events = (_initial_events(after, number) if before is None else
                                   [e for e in github.events(before, after) if e.get('pr') == number])
@@ -193,10 +215,15 @@ def _watch(c, number, timeout, interval, caller, include_seen, key, generation):
                         return {'pr': number, 'event': pr['state'], 'events': events}
                     if before is None:
                         initial = _receipt(c, caller, number, _initial_events(after, number), include_seen)
-                        if initial:
-                            return {'pr': number, 'events': initial}
+                        checks = ([e for e in github.events(
+                            {'prs': [baseline]}, after, aggregate_checks=True)
+                            if e.get('pr') == number and ':checks:' in e['key']]
+                            if baseline is not None else [])
+                        if initial or checks:
+                            return {'pr': number, 'events': initial + checks}
                     else:
-                        changes = [e for e in github.events(before, after) if e.get('pr') == number]
+                        changes = [e for e in github.events(before, after, aggregate_checks=True)
+                                   if e.get('pr') == number]
                         changes += _queue_events(before, after, number)
                         if changes:
                             _receipt(c, caller, number, _initial_events(after, number), record_only=True)
