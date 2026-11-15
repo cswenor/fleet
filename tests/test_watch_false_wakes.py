@@ -66,14 +66,87 @@ class WatchFalseWakeTests(unittest.TestCase):
                 self.assertIn('events', self.watch(history(changed)))
                 self.assertEqual(self.watch(history(changed))['event'], 'timeout')
 
-    def test_seen_failure_still_wakes_for_live_changes_and_records_diagnosis(self):
-        before = history(pull(checks=[{'id': 1, 'name': 'CI', 'conclusion': 'failure'}]))
-        after = history(pull(checks=[{'id': 2, 'name': 'CI', 'conclusion': 'failure'}]))
-        self.watch(before)
-        with patch.object(github, 'collect', side_effect=[before, after]), patch.object(watcher.time, 'sleep'):
+
+    def test_last_long_check_completion_survives_rearm_once(self):
+        done = {'id': 1, 'name': 'short', 'status': 'completed', 'conclusion': 'success'}
+        long = {'id': 2, 'name': 'full-native/proof', 'status': 'in_progress', 'conclusion': None}
+        pending = history(pull(checks=[done, long]))
+        finished = history(pull(checks=[done, {**long, 'status': 'completed', 'conclusion': 'success'}]))
+        self.assertEqual(self.watch(pending)['event'], 'timeout')
+        result = self.watch(finished)
+        self.assertEqual([e['subject'] for e in result['events']],
+                         ['PR #7 checks changed: success'])
+        self.assertEqual(self.watch(finished)['event'], 'timeout')
+        self.assertEqual(self.watch(finished, include_seen=True)['event'], 'timeout')
+
+    def test_live_last_check_completion_emits_one_success(self):
+        pending = history(pull(checks=[{'name': 'proof', 'status': 'in_progress', 'conclusion': None}]))
+        finished = history(pull(checks=[{'name': 'proof', 'status': 'completed', 'conclusion': 'success'}]))
+        with patch.object(github, 'collect', side_effect=[pending, finished]), patch.object(watcher.time, 'sleep'):
             result = watcher.watch(self.c, 7, timeout=30)
-        self.assertIn('failing checks: CI', result['events'][0]['subject'])
-        self.assertEqual(self.watch(after)['event'], 'timeout')
+        self.assertEqual([e['subject'] for e in result['events']], ['PR #7 checks changed: success'])
+        self.assertEqual(self.watch(finished)['event'], 'timeout')
+
+    def test_cold_green_and_new_head_do_not_invent_check_completion(self):
+        pending = history(pull(checks=[{'name': 'proof', 'status': 'in_progress', 'conclusion': None}]))
+        finished = history(pull(checks=[{'name': 'proof', 'status': 'completed', 'conclusion': 'success'}]))
+        self.assertEqual(self.watch(finished)['event'], 'timeout')
+        self.watch(pending)
+        changed_head = history(pull(**(finished['prs'][0] | {'head': 'new'})))
+        self.assertEqual(self.watch(changed_head)['event'], 'timeout')
+
+    def test_check_baseline_is_caller_repo_scoped_and_expires(self):
+        pending = history(pull(checks=[{'name': 'proof', 'status': 'in_progress', 'conclusion': None}]))
+        finished = history(pull(checks=[{'name': 'proof', 'status': 'completed', 'conclusion': 'success'}]))
+        with patch.object(watcher.time, 'time', return_value=1000):
+            self.watch(pending)
+            with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': 'lane-b'}):
+                self.assertEqual(self.watch(finished)['event'], 'timeout')
+            other = {**self.c, 'repo': 'other/repo'}
+            with patch.object(github, 'collect', return_value=finished):
+                self.assertEqual(watcher.watch(other, 7, timeout=0)['event'], 'timeout')
+        with patch.object(watcher.time, 'time', return_value=87400):
+            self.assertEqual(self.watch(finished)['event'], 'timeout')
+
+    def test_terminal_pr_clears_check_baseline(self):
+        from fleet import state
+        for terminal in ('merged', 'closed'):
+            with self.subTest(terminal=terminal):
+                self.watch(history(pull()))
+                self.assertTrue(state.read(self.c, 'watch-pr-checks'))
+                self.assertEqual(self.watch(history(pull(state=terminal)))['event'], terminal)
+                self.assertEqual(state.read(self.c, 'watch-pr-checks'), {})
+
+    def test_rearmed_failure_reports_one_check_transition(self):
+        pending = history(pull(checks=[{'name': 'proof', 'status': 'in_progress', 'conclusion': None}]))
+        failed = history(pull(checks=[{'name': 'proof', 'status': 'completed', 'conclusion': 'failure'}]))
+        self.watch(pending)
+        result = self.watch(failed)
+        checks = [e for e in result['events'] if ':checks:' in e['key']]
+        self.assertEqual([e['subject'] for e in checks],
+                         ['PR #7 checks changed: failure; failing checks: proof'])
+        self.assertEqual(self.watch(failed)['event'], 'timeout')
+
+    def test_intermediate_job_completion_stays_quiet(self):
+        long = {'name': 'proof', 'status': 'in_progress', 'conclusion': None}
+        short = {'name': 'short', 'status': 'queued', 'conclusion': None}
+        self.watch(history(pull(checks=[long, short])))
+        self.assertEqual(self.watch(history(pull(checks=[
+            long, {**short, 'status': 'completed', 'conclusion': 'success'}])))['event'], 'timeout')
+
+    def test_baseline_capacity_evicts_oldest_observation(self):
+        pending = history(pull(checks=[{'name': 'proof', 'status': 'in_progress', 'conclusion': None}]))
+        finished = history(pull(checks=[{'name': 'proof', 'status': 'completed', 'conclusion': 'success'}]))
+        for i in range(129):
+            with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': f'lane-{i}'}), \
+                    patch.object(watcher.time, 'time', return_value=1000 + i):
+                self.watch(pending)
+        with patch.object(watcher.time, 'time', return_value=1200):
+            with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': 'lane-0'}):
+                self.assertEqual(self.watch(finished)['event'], 'timeout')
+            with patch.dict(os.environ, {'ORCA_TERMINAL_HANDLE': 'lane-128'}):
+                self.assertEqual(self.watch(finished)['events'][0]['subject'],
+                                 'PR #7 checks changed: success')
 
     def test_other_pr_and_superseded_same_pr_groups_do_not_wake(self):
         old = {'id': 5, 'head_sha': 'old', 'conclusion': 'failure', 'url': 'old',

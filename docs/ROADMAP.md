@@ -113,6 +113,27 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-148 — Check completion survives watch re-arm
+
+The watcher previously reset its comparison baseline on every invocation and
+stored only initial-attention receipts. A completion between timeout and re-arm
+was adopted as the initial state; success intentionally has no cold-start event.
+The reported Project Alpha head's completed proof is present in both its
+supervisor snapshot and conditional cache; a direct GitHub history read confirms
+35 checks, one page, and the proof's successful completion. No original pending
+snapshot was retained, so the exact historical watch gap remains inferred.
+
+Main approved named-caller/repo/PR check continuity, head-specific and bounded:
+24-hour expiry, 128 entries per project, merge/closure cleanup. Watch check events
+now use the same overall pending/success/failure rollup as supervisor relays;
+intermediate job progress is silent and cold-start green remains quiet.
+Captured-head CLI replay with an explicitly reconstructed pending state emits
+timeout, one checks-success event, then timeout, all with zero GitHub requests.
+Pagination, cross-page rerun supersession and mixed 304/changed-page regressions
+cover collection boundaries; no collector fix was needed.
+Publication receipts live on TASK-148. Shared installation remains Main-owned,
+exact-head GO gated and held for Email Sherpa's empty queue.
+
 ### TASK-146 — Cheap idle GitHub collection
 
 Main rulings `msg_7340271c1dc5` / `msg_438fbdb52f1b`: normal-cadence cheap REST

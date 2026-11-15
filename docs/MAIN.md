@@ -237,6 +237,13 @@ replacement changes a private generation receipt; older watches return
 collection. No process is signalled or killed. Do not re-arm a superseded job:
 its newer watch owns the wait.
 
+TASK-148 retains head-specific check baselines across watch invocations for named
+callers. Completion between timeout and re-arm emits one aggregate checks event;
+first-ever green stays quiet. Individual job progress is silent while the overall
+rollup is unchanged. Private baselines expire after 24 hours, cap at 128 entries
+per project, and are cleared on observed merge/closure or replaced on head change.
+`--include-seen` remains an initial-attention override, not a success replay flag.
+
 TASK-133 limits initial-state attention to merged/closed, DIRTY, failing checks,
 hold active and draft. An already armed or queued PR keeps waiting, including
 when only its update timestamp changes. Actual armed/disarmed and queue

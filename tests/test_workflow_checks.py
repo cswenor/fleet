@@ -23,11 +23,14 @@ class WorkflowChecksTests(unittest.TestCase):
     def setUp(self):
         github._workflow_check_cache.clear()
         self.addCleanup(github._workflow_check_cache.clear)
-
-    def collect(self, checks, runs, statuses=()):
-        # Each fixture represents independent remote history, not a cached cycle.
-        github._workflow_check_cache.clear()
         github._pr_group_cache.clear()
+        self.addCleanup(github._pr_group_cache.clear)
+
+    def collect(self, checks, runs, statuses=(), *, check_pages=None, clear_cache=True):
+        # Each fixture represents independent remote history unless polling again.
+        if clear_cache:
+            github._workflow_check_cache.clear()
+            github._pr_group_cache.clear()
         pr = {'number': 7, 'title': 'Feature', 'html_url': 'https://example/pr/7',
               'head': {'sha': 'sha', 'ref': 'feature'}, 'state': 'open',
               'mergeable_state': 'clean', 'created_at': '2026-11-06T00:00:00Z',
@@ -40,7 +43,7 @@ class WorkflowChecksTests(unittest.TestCase):
             if endpoint == 'repos/owner/repo/pulls/7':
                 return pr
             if '/check-runs?' in endpoint:
-                return [{'check_runs': checks}]
+                return check_pages if check_pages is not None else [{'check_runs': checks}]
             if '/actions/runs?head_sha=' in endpoint:
                 self.assertIn('head_sha=sha&per_page=100&page=1', endpoint)
                 return {'workflow_runs': runs}
@@ -153,6 +156,61 @@ class WorkflowChecksTests(unittest.TestCase):
         self.assertEqual([c['id'] for c in current['checks']], [31, 100])
         self.assertEqual(github.checks_conclusion(current), 'failure')
         self.assertIn('failing checks: CI', github.initial_event(current)['subject'])
+
+    def test_more_than_one_page_preserves_last_pending_check_and_completion(self):
+        first_page = [check(n, name=f'job-{n}', conclusion='success',
+                            app={'id': 1}, check_suite={'id': 101})
+                      for n in range(1, 101)]
+        pending = check(101, name='last-job', status='in_progress', conclusion=None,
+                        completed_at=None, app={'id': 1}, check_suite={'id': 101})
+        current = self.collect([], [], check_pages=[
+            {'total_count': 101, 'check_runs': first_page},
+            {'total_count': 101, 'check_runs': [pending]}])
+        self.assertEqual({row['id'] for row in current['checks']}, set(range(1, 102)))
+        self.assertEqual(github.checks_conclusion(current), 'pending')
+
+        completed = {**pending, 'status': 'completed', 'conclusion': 'success',
+                     'completed_at': '2026-11-06T02:00:00Z'}
+        refreshed = self.collect([], [], clear_cache=False, check_pages=[
+            {'total_count': 101, 'check_runs': first_page},
+            {'total_count': 101, 'check_runs': [completed]}])
+        self.assertEqual({row['id'] for row in refreshed['checks']}, set(range(1, 102)))
+        last = next(row for row in refreshed['checks'] if row['id'] == 101)
+        self.assertEqual(last['status'], 'completed')
+        self.assertEqual(last['conclusion'], 'success')
+        self.assertEqual(last['completed_at'], completed['completed_at'])
+        self.assertEqual(github.checks_conclusion(refreshed), 'success')
+
+    def test_second_page_rerun_supersedes_first_page_failure(self):
+        failed = check(1, conclusion='failure', app={'id': 1}, check_suite={'id': 101})
+        first_page = [failed] + [
+            check(n, name=f'job-{n}', conclusion='success',
+                  app={'id': 1}, check_suite={'id': 101})
+            for n in range(2, 101)]
+        rerun = check(101, conclusion='success', app={'id': 1}, check_suite={'id': 101})
+        current = self.collect([], [], check_pages=[
+            {'total_count': 101, 'check_runs': first_page},
+            {'total_count': 101, 'check_runs': [rerun]}])
+        self.assertEqual({row['id'] for row in current['checks']}, set(range(2, 102)))
+        self.assertEqual(github.checks_conclusion(current), 'success')
+        self.assertIsNone(github.initial_event(current))
+
+    def test_second_workflow_page_supersedes_failed_run(self):
+        unrelated = [workflow(n, workflow_id=n, conclusion='success')
+                     for n in range(1000, 1100)]
+        failed = check(11, 1, conclusion='failure')
+        replacement = check(12, 2, conclusion='success')
+        with patch.object(github, 'gh', side_effect=[
+                {'workflow_runs': unrelated},
+                {'workflow_runs': [workflow(1, conclusion='failure'),
+                                   workflow(2, conclusion='success')]}]) as gh:
+            actual = github._workflow_checks(
+                {'repo': 'owner/repo'}, 'sha', [failed, replacement])
+        self.assertEqual(actual, [replacement])
+        self.assertEqual([call.args[-1] for call in gh.call_args_list], [
+            'repos/owner/repo/actions/runs?head_sha=sha&per_page=100&page=1',
+            'repos/owner/repo/actions/runs?head_sha=sha&per_page=100&page=2'])
+
 
     def test_workflow_history_is_bounded_and_keeps_unlinked_checks(self):
         rows = [workflow(n, workflow_id=n) for n in range(1000, 1100)]
