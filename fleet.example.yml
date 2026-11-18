@@ -11,8 +11,8 @@ pad_workspace: project
 #     terminal: [done, cancelled]
 orca: /absolute/path/to/orca-ide
 builder:
-  model: openai-codex/gpt-6.1-sol
-  resolved_model: openai-codex/gpt-6.1-sol
+  model: openai-codex/gpt-6.2-sol
+  resolved_model: openai-codex/gpt-6.2-sol
   thinking: medium
   # Optional resolved model -> allowed thinking levels. Default pair is implicit.
   allowed_models: {}

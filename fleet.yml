@@ -6,8 +6,8 @@ orca_repo_id: 2d192998-c4ff-4ae1-92fe-8cd901e27f86
 pad_workspace: fleet
 orca: /home/dev/.config/orca/cli/bin/orca
 builder:
-  model: openai-codex/gpt-6.1-sol
-  resolved_model: openai-codex/gpt-6.1-sol
+  model: openai-codex/gpt-6.2-sol
+  resolved_model: openai-codex/gpt-6.2-sol
   thinking: medium
   max: 2
   slots:

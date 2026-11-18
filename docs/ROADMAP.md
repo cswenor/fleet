@@ -41,7 +41,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | d: restart | UNVERIFIED | No safe independent runtime/profile recipe established; do not kill shared Orca or infer restart behavior from fresh launches. |
 
 - **Launch (Main decision):** terminal launcher, now `fleet launch`, pins
-  `omp --model openai-codex/gpt-6.1-sol --thinking medium`; fresh session/task.
+  `omp --model openai-codex/gpt-6.2-sol --thinking medium`; fresh session/task.
   Do not switch builders to worker-start until its publication/thinking contracts
   are demonstrably compatible. Native lifecycle docs are not permission to undo
   this owner/Main decision.

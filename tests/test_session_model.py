@@ -41,7 +41,7 @@ class SessionModelTests(unittest.TestCase):
 
     def test_real_anthropic_events_and_sol_use_exact_ids(self):
         for model, thinking in [('anthropic/claude-fable-5-2', 'xhigh'),
-                                ('openai-codex/gpt-6.1-sol', 'medium')]:
+                                ('openai-codex/gpt-6.2-sol', 'medium')]:
             with self.subTest(model=model):
                 self.record.update(resolved_model=model, thinking=thinking)
                 events = [dict(FABLE[0], model=model), dict(FABLE[1], thinkingLevel=thinking)]
@@ -71,7 +71,7 @@ class SessionModelTests(unittest.TestCase):
         self.record.pop('thinking')
         overlay = Path(self.slot) / 'overlay.yml'
         self.record['overlay'] = str(overlay)
-        self.c['builder'] = {'resolved_model': 'openai-codex/gpt-6.1-sol', 'thinking': 'low'}
+        self.c['builder'] = {'resolved_model': 'openai-codex/gpt-6.2-sol', 'thinking': 'low'}
         for models, flags in [({'anthropic/claude-fable-5-2': 'f200000'}, []),
                               ({}, ['wrong_model']),
                               ({'one/model': '', 'two/model': ''}, ['wrong_model'])]:

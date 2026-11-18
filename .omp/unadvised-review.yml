@@ -1,14 +1,14 @@
 # Stock omp overlay; use the fresh read-only invocation in docs/MAIN.md.
 # No host paths: copy unchanged with the project workflow skill.
 modelRoles:
-  review: openai-codex/gpt-6.1-sol:medium
+  review: openai-codex/gpt-6.2-sol:medium
 advisor:
   enabled: false
 retry:
   modelFallback: false
   usageAwareFallback: false
   fallbackChains:
-    openai-codex/gpt-6.1-sol: []
+    openai-codex/gpt-6.2-sol: []
 autoResume: false
 extendedContext: false
 prewalk:

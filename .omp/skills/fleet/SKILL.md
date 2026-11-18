@@ -430,7 +430,7 @@ omp --config .omp/unadvised-review.yml --model @review --thinking medium \
 
 1. Independent fresh read-only **unadvised Sol medium** review. Do not substitute
    self-review, a custom runner/bot or requested argv for evidence. Inspect the
-   new session JSONL locally: actual `model_change=openai-codex/gpt-6.1-sol`,
+   new session JSONL locally: actual `model_change=openai-codex/gpt-6.2-sol`,
    `thinking_level_change=medium`, no later model/effort change, fallback,
    advisor or delegation. Restricted tools are a policy boundary, not OS sandbox.
    If evidence is unreachable, escalate; never widen reviewer tools casually.

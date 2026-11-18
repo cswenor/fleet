@@ -6,7 +6,7 @@ from fleet import config, dispatcher, launcher, quota
 from fleet.commands import CommandError
 
 
-DEFAULT_MODEL = 'openai-codex/gpt-6.1-sol'
+DEFAULT_MODEL = 'openai-codex/gpt-6.2-sol'
 PLAN_MODEL = 'anthropic/claude-fable-5-2'
 OVERRIDE_MODEL = 'other/model'
 

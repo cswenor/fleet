@@ -508,7 +508,7 @@ the [Fleet workflow skill](../.omp/skills/fleet/SKILL.md); use the README onboar
 checklist and retain fresh project-local discovery evidence.
 
 Before accepting the verdict, inspect that new directory's session JSONL locally:
-`model_change` must name `openai-codex/gpt-6.1-sol` with no fallback, and
+`model_change` must name `openai-codex/gpt-6.2-sol` with no fallback, and
 `thinking_level_change` must be `medium`. Verify no subsequent model/effort
 change or advisor/delegation occurred. Record session ID, exact reviewed SHA,
 findings/resolutions and final-head CI run URL on Pad/PR; never upload raw logs

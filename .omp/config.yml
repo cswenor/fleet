@@ -1,13 +1,13 @@
 modelRoleStorage: project
 modelRoles:
   smol: anthropic/claude-sonnet-5-5:medium
-  task: openai-codex/gpt-6.1-sol:medium
-  review: openai-codex/gpt-6.1-sol:medium
-  designer: openai-codex/gpt-6.1-sol:medium
+  task: openai-codex/gpt-6.2-sol:medium
+  review: openai-codex/gpt-6.2-sol:medium
+  designer: openai-codex/gpt-6.2-sol:medium
   fast_worker: anthropic/claude-sonnet-5-5:medium
-  good_worker: openai-codex/gpt-6.1-sol:medium
+  good_worker: openai-codex/gpt-6.2-sol:medium
   default: anthropic/claude-opus-5-5:high
-  plan: openai-codex/gpt-6.1-sol:medium
+  plan: openai-codex/gpt-6.2-sol:medium
   advisor: anthropic/claude-opus-5-5:high
 advisor:
   enabled: false
@@ -20,8 +20,8 @@ retry:
   fallbackRevertPolicy: cooldown-expiry
   fallbackChains:
     anthropic/claude-opus-5-5:
-    - openai-codex/gpt-6.1-sol:medium
-    openai-codex/gpt-6.1-sol:
+    - openai-codex/gpt-6.2-sol:medium
+    openai-codex/gpt-6.2-sol:
     - anthropic/claude-opus-5-5:medium
     anthropic/claude-sonnet-5-5:
     - openai-codex/gpt-6-luna:medium
@@ -63,4 +63,4 @@ isolation:
 extendedContext: false
 compaction:
   modelThresholds:
-    openai-codex/gpt-6.1-sol: f200000
+    openai-codex/gpt-6.2-sol: f200000
