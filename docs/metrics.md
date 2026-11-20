@@ -306,8 +306,9 @@ cutover. Beta's query uses its current repository after the transfer.
 Collected at `2026-11-20T00:08:26.948225Z` using published source `11e720a`.
 The tally read 13,861 files covering 13,804 distinct session IDs, deduplicated
 21 events, and left 41 calls unattributed. It skipped 55 non-session files
-(tool-change journals and inventory notes). There were 831 recorded error calls
-in attributed rows, zero missing-usage events and zero unpriced attributed calls.
+(tool-change journals and inventory notes). Attributed rows had 831 recorded
+error calls, zero missing-usage events and zero unpriced calls; the tally
+does not assess usage completeness or pricing for unattributed calls.
 The collector reported no source conflict. Observed runtime versions: 18.13.1,
 18.17.0, 18.18.1, 18.18.6 and 18.22.2.
 
