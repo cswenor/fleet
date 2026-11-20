@@ -110,11 +110,16 @@ repository bindings stay in the manifest/Pad, not public documentation.
 ## Reproduce
 
 Python >=3.11; read-only authenticated `gh` access for PR counts. No provider
-requests, reset spending, uploads, service changes or other-project writes.
-Run from the source checkout (no shared installation required):
+requests, reset spending, uploads or service changes. The published collector
+writes per-repository GitHub request-attribution telemetry and locks under
+`${XDG_STATE_HOME:-$HOME/.local/state}/fleet/`. Set `XDG_STATE_HOME` to a fresh
+private directory for this invocation, as the after collection did, to avoid
+writing live project state. Run from the source checkout (no shared installation
+required):
 
 ```sh
-python3 -m fleet.metrics \
+metrics_state=$(mktemp -d) && \
+XDG_STATE_HOME="$metrics_state" python3 -m fleet.metrics \
   --root "$DEFAULT_SESSION_ROOT" \
   --root "$FLEET_STATE_ROOT" \
   --root "$CUSTOM_REVIEW_SESSION_ROOT" \
@@ -160,8 +165,15 @@ replaces the repeated bindings. Its JSON shape is:
 }
 ```
 
-Then run `python3 -m fleet.metrics --manifest /private/task18-sources.json
---start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z`.
+Run with the same state isolation:
+
+```sh
+metrics_state=$(mktemp -d) && \
+XDG_STATE_HOME="$metrics_state" python3 -m fleet.metrics \
+  --manifest /private/task18-sources.json \
+  --start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z
+```
+
 Inventory actual custom session directories, not arbitrary scratch trees
 containing deliberately invalid test fixtures. Standard runtime filenames have
 a timestamp and UUID; include their sibling nested-subagent directory as well.
@@ -344,9 +356,10 @@ made. Other projects recorded both versions.
 Rates divide the retained local Sol numerator by **all** in-window GitHub
 merges. Alpha and Fleet are partial local-host observations, excluding remote
 review-bot/off-host usage and any missing or unattributed calls. Replaying
-Alpha's before interval with the refreshed inventory reproduced all six
-published Alpha usage rows exactly. The Alpha comparison is for the same
-declared retained local scope and the Sol family, not a fixed model or workload.
+Alpha's before interval with the refreshed inventory reproduced exactly the six
+Alpha event-type rows in the private receipt (three model totals are shown
+above). The comparison uses the same declared retained local scope and the Sol
+family, not a fixed model or workload.
 
 | Project / window | Merged PRs | Sol calls | Cache-read tokens | Recorded list USD | Calls/PR | Cache-read/PR | List USD/PR |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -362,10 +375,22 @@ proportionately more. Beta/Gamma after rates are N/A because coverage of their
 client and reviewer sources is unproven. Before-to-after change is N/A for
 Beta/Gamma (no comparable before source) and Fleet (no pre-Fleet baseline).
 
-This comparison does not hold PR size, work type, idle time or the share of
-docs and reverts constant. Partly remote review-bot usage is not covered.
-Evermore changed build admission during the period (two build slots, eight
-jobs each) and Fleet changed GitHub read budgeting and snapshot reuse. Both can
-affect delivery throughput independently of model usage. Changes in model mix
-and runtime/catalog pricing also make list-USD ratios unsuitable as savings
-estimates.
+Project Mains reported workload shifts that make these windows hard to compare:
+
+- **Alpha (336 → 107 merges):** On Nov 10, the owner paused new content, which
+  had produced many small PRs, and shifted lanes to large, stacked engine
+  changes (split ceiling approximately 15,000 lines or 100 files). PRs also
+  received an independent pre-publication review and multi-round bot review.
+  Larger PRs and more review can raise calls/PR without indicating lower
+  efficiency. Alpha also changed build admission to two slots of eight jobs.
+- **Beta:** The Sol pin switched from 6.1 to 6.2 on Nov 18. Several infrastructure
+  PRs, including gateway moves, took multiple iterations.
+- **Gamma:** Main ran four to six local review rounds on several high-risk PRs.
+  Builder lanes parked late in the window to preserve Codex review quota,
+  limiting merge throughput.
+
+Fleet changed GitHub read budgeting and snapshot reuse, another potential
+throughput confounder. These ratios do not control for PR size, idle time, or
+the mix of work, and they exclude partly remote review-bot usage. Model mix
+and runtime/catalog pricing also make recorded list USD unsuitable as a
+savings estimate.
