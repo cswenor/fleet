@@ -108,7 +108,7 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 | Self-host/handover | Delivered and installed 2026-11-06 | [#12](https://github.com/cswenor/fleet/pull/12) setup + fail-closed unknown/disconnected occupancy; [#13](https://github.com/cswenor/fleet/pull/13) complete knowledge. Fresh independent unadvised read-only Sol review PASS, CI [42240339663](https://github.com/cswenor/fleet/actions/runs/42240339663) / [42240526182](https://github.com/cswenor/fleet/actions/runs/42240526182) green. Fleet PLAN-9/DOC-19, two reusable slots and own active supervisor; real CLI status/live-slot refusal and the central host **both projects LIVE** verified. Run run_ca3dd4d80c5a reserved; **Main not started by builder**. Installation receipt in docs/MAIN.md. |
 | 3 generic process + Project Alpha process | Partial | TASK-14 generic policy and TASK-15 threads implemented; publication receipts on assigned Pad tasks. TASK-16 Project Alpha coordination remains. |
 | 4 additional projects | Project Beta accepted; further rollout owner-gated | TASK-17 receipts below: merged project policy, real launch/thread/event/retirement and three-project the central host proof. Other candidates remain unapproved. |
-| Usage outcome | Legacy baseline rejected; same-procedure before/checkpoint collection, after window Nov 13–20 | Fleet TASK-18. Do not label the workflow a measured saving. |
+| Usage outcome | Before and after collected; retained local scope only | Fleet TASK-18; [results and coverage limits](metrics.md#after-result--nov-1320-utc). No measured savings. |
 | Guarded builder retirement | Implemented TASK-20; publication receipts retained on Pad/PR | One exit only after publication + exact idle/session proof; shell verified before normal fresh launch. Real scratch retirement/fresh Sol medium and refusal evidence below. |
 
 ## Remaining work and concrete acceptance
@@ -3214,8 +3214,12 @@ inventories and omission diagnosis are retained. Results use explicitly labelled
 remaining-source scope, never silently claim full original replay or bot coverage.
 
 [Procedure, source inventory, field contract and results](metrics.md).
-TASK-18 remains **open**, waiting for the after window; no causal claim or
-measured reduction is valid without matching source coverage. Custom temporary
-reviewer/bot logs, other hosts/clients, workload, model mix, PR size and idle
-days remain explicit confounders. The same exact rerun procedure and private
-source bindings must be retained on Pad before retiring this builder.
+The Nov 13–20 after collection uses the published CLI and refreshed local
+inventory. Exact merge denominators: Alpha 107, Beta 61, Gamma 196, Fleet 9.
+Alpha's observed local Sol calls/PR rose from 429.44 to 1,053.12 (+145.2%),
+cache-read/PR by 53.1% and recorded list USD/PR by 80.4%; the refreshed
+inventory reproduced the published Alpha before rows. These are partial
+retained-source ratios, not account-wide rates or savings.
+Beta and Gamma have no comparable before source; Fleet has no pre-Fleet baseline.
+Retained observations exclude off-host usage and do not establish a workflow
+effect. The bound manifest, omissions and numeric receipts are retained on Pad.

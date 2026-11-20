@@ -20,9 +20,8 @@ adoption dates, not proof that every delivery used Fleet.
 
 For **all four projects**, AFTER is exactly
 `[2026-11-13T00:00:00Z, 2026-11-20T00:00:00Z)`.
-Collect only on/after Nov 20 00:00Z. A day-zero checkpoint is not this after
-measurement. TASK-18 stays open until the after window closes and comparable
-coverage is established, or limitations are explicitly reported.
+The after collection ran on Nov 20 after the window closed. The six-day day-zero
+checkpoint is not an after measurement.
 
 ## Stock capability and source inventory
 
@@ -103,19 +102,24 @@ repository bindings stay in the manifest/Pad, not public documentation.
   suppresses rates; unpriced calls suppress cost/PR. Missing/zero PR denominator
   gives N/A. The partial rates below divide the displayed observed totals by
   GitHub merges; they are not account-wide rates.
-- Once BOTH windows have matching complete scope, calculate
-  `100 * (after_per_pr / before_per_pr - 1)`; unknown/zero before rate gives N/A.
-  Recorded totals from an incomplete source remain useful lower bounds, not a
-  comparable baseline or proof of savings.
+- Calculate `100 * (after_per_pr / before_per_pr - 1)` only for like declared
+  scopes and with a nonzero, known before rate. Observed local rates can describe
+  the retained evidence; they do not establish a change in account-wide usage
+  or savings. Leave change N/A when the source scopes do not match.
 
 ## Reproduce
 
 Python >=3.11; read-only authenticated `gh` access for PR counts. No provider
-requests, reset spending, uploads, service changes or other-project writes.
-Run from the source checkout (no shared installation required):
+requests, reset spending, uploads or service changes. The published collector
+writes per-repository GitHub request-attribution telemetry and locks under
+`${XDG_STATE_HOME:-$HOME/.local/state}/fleet/`. Set `XDG_STATE_HOME` to a fresh
+private directory for this invocation, as the after collection did, to avoid
+writing live project state. Run from the source checkout (no shared installation
+required):
 
 ```sh
-python3 -m fleet.metrics \
+metrics_state=$(mktemp -d) && \
+XDG_STATE_HOME="$metrics_state" python3 -m fleet.metrics \
   --root "$DEFAULT_SESSION_ROOT" \
   --root "$FLEET_STATE_ROOT" \
   --root "$CUSTOM_REVIEW_SESSION_ROOT" \
@@ -161,8 +165,15 @@ replaces the repeated bindings. Its JSON shape is:
 }
 ```
 
-Then run `python3 -m fleet.metrics --manifest /private/task18-sources.json
---start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z`.
+Run with the same state isolation:
+
+```sh
+metrics_state=$(mktemp -d) && \
+XDG_STATE_HOME="$metrics_state" python3 -m fleet.metrics \
+  --manifest /private/task18-sources.json \
+  --start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z
+```
+
 Inventory actual custom session directories, not arbitrary scratch trees
 containing deliberately invalid test fixtures. Standard runtime filenames have
 a timestamp and UUID; include their sibling nested-subagent directory as well.
@@ -209,8 +220,8 @@ shrunk replay of the original inventory. No raw logs were moved or copied.
 | Gamma / Nov 3–10 | 0 | No local events; per-PR N/A: no pre-adoption source |
 | Fleet / Oct 30–Nov 6 | 0 | No local events; per-PR N/A: project began Nov 6; archive queried |
 
-**No local events never means zero actual usage.** No percentage change is
-accepted before the after window closes and scopes match.
+**No local events never means zero actual usage.** A before rate is unavailable
+for Beta, Gamma and Fleet.
 The Oct 30–Nov 6 run observed one still-unattributed call; it is excluded,
 not guessed into Alpha. This is observed partial usage, not full-scope coverage.
 
@@ -274,23 +285,112 @@ to six decimals for display; the numeric JSON retains recorded precision:
 | Gamma / anthropic / claude-opus-5-5 | 2,185 | 291,603 | 1,114,460 | 688,741,961 | 3,426,472 | 188.615780 |
 | Gamma / openai-codex / gpt-6.1-sol | 7,526 | 19,080,882 | 2,035,129 | 589,882,112 | 0 | 117.501265 |
 
-This six-day checkpoint is deliberately not compared to a seven-day before
-window. **After totals, after per-PR rates and measured change are not available
-until the Nov 13–20 interval has completed; no savings claim.**
+This six-day checkpoint is deliberately not compared to a seven-day window.
 
-## Nov 20 handoff
+## After result — Nov 13–20 UTC
 
-Run on/after **2026-11-20T00:00:00Z**, from the published source checkout:
+The private TASK-18 receipt binds the refreshed manifest and numeric output to
+the published collector. Use the same command in [Reproduce](#reproduce) with
+that manifest and the fixed half-open interval. Do not pass `--complete-project`:
+these are retained local observations, not complete project usage.
 
-```sh
-python3 -m fleet.metrics --manifest /private/task18-sources.json \
-  --start 2026-11-13T00:00:00Z --end 2026-11-20T00:00:00Z
-```
+The refresh kept the default session tree (including nested helpers), Fleet
+state sessions, and indexed session files. It verified live custom roots and
+added 426 actual runtime session directories found under `/tmp` and `/var/tmp`
+by matching session headers to runtime filenames. Neither broad temporary tree
+was a collector input. A Gamma scratch checkout was bound by its runtime header
+and repository content; sessions in the separate review-bot repository were not
+assigned to Fleet. Parentless sessions with only a generic temporary cwd were
+left unattributed.
 
-TASK-18's private Pad handoff binds the actual mode-0600 manifest path. Refresh
-custom session roots and cwd aliases first; retain old roots and investigate any
-that disappeared rather than dropping them silently. Include bot-container and
-other-host sources only through an approved read-only inventory. Missing
-historical usage cannot be repaired by inventing totals; use the retained
-predecessor's GitHub merge timestamps, never Git commit times. Keep full-scope
-rates/change N/A until coverage is proven; distinguish labelled partial rates.
+146 previously inventoried temporary roots were gone (in addition to the three
+Beta reviewer roots already known missing before AFTER). They were each recorded
+privately. The roots were known before the window; whether any continued to
+record in-window is unknown. The refresh could not inspect 30 temporary
+directories, including isolated service/CI paths and one Beta scratch path.
+All indexed files were present. No claim is made about deleted new roots,
+unreachable clients, or local/remote review-bot coverage.
+
+The merge denominators are from `mergedAt` in each project's repository. Fleet
+uses only the current repository: this window is entirely after the Nov 12
+cutover. Beta's query uses its current repository after the transfer.
+
+Collected at `2026-11-20T00:08:26.948225Z` using published source `11e720a`.
+The tally read 13,861 files covering 13,804 distinct session IDs, deduplicated
+21 events, and left 41 calls unattributed. It skipped 55 non-session files
+(tool-change journals and inventory notes). Attributed rows had 831 recorded
+error calls, zero missing-usage events and zero unpriced calls; the tally
+does not assess usage completeness or pricing for unattributed calls.
+The collector reported no source conflict. Observed runtime versions: 18.13.1,
+18.17.0, 18.18.1, 18.18.6 and 18.22.2.
+
+Observed model totals sum assistant and internal usage events. List-equivalent
+USD is recorded by the runtime, not billed spend.
+
+| Project / provider / model | Calls | Input | Output | Cache-read | Cache-write | Recorded list USD |
+|---|---:|---:|---:|---:|---:|---:|
+| Fleet / anthropic / claude-opus-5-5 | 795 | 2,248 | 212,289 | 523,262,909 | 1,144,041 | 118.059682 |
+| Fleet / anthropic / claude-sonnet-5-5 | 461 | 289,163 | 27,102 | 143,346 | 3,243 | 0.876653 |
+| Fleet / openai-codex / gpt-6.1-sol | 1,024 | 2,714,049 | 311,698 | 108,763,264 | 0 | 19.421404 |
+| Alpha / anthropic / claude-fable-5-2 | 794 | 1,618 | 633,378 | 371,071,017 | 4,031,770 | 164.070587 |
+| Alpha / anthropic / claude-opus-5-5 | 7,917 | 22,502 | 2,742,364 | 3,864,041,731 | 8,075,439 | 892.349146 |
+| Alpha / anthropic / claude-sonnet-5-5 | 27,837 | 11,437,117 | 11,787,985 | 1,432,307,800 | 60,509,773 | 524.902629 |
+| Alpha / openai-codex / gpt-6.1-sol | 109,637 | 254,795,666 | 58,508,327 | 11,244,316,544 | 0 | 2,158.073384 |
+| Alpha / openai-codex / gpt-6.2-sol | 3,047 | 8,116,745 | 715,359 | 344,738,560 | 0 | 57.860936 |
+| Beta / anthropic / claude-opus-5-5 | 3,233 | 8,616 | 1,563,703 | 1,512,639,970 | 5,784,691 | 380.114046 |
+| Beta / anthropic / claude-sonnet-5-5 | 3,402 | 2,742,170 | 476,139 | 3,732,664 | 33,125 | 10.751496 |
+| Beta / openai-codex / gpt-6.1-sol | 10,776 | 19,277,405 | 3,512,715 | 1,134,119,296 | 0 | 187.093890 |
+| Beta / openai-codex / gpt-6.2-sol | 1,501 | 4,217,101 | 354,128 | 152,991,488 | 0 | 27.274631 |
+| Gamma / anthropic / claude-fable-5-2 | 15,896 | 952,077 | 12,204,923 | 1,946,141,190 | 48,315,942 | 1,658.096846 |
+| Gamma / anthropic / claude-opus-5-5 | 23,481 | 2,790,656 | 13,955,195 | 5,832,932,672 | 60,037,273 | 1,937.151242 |
+| Gamma / openai-codex / gpt-6.1-sol | 28,596 | 65,551,807 | 10,114,592 | 2,838,385,536 | 0 | 516.088088 |
+| Gamma / openai-codex / gpt-6.2-sol | 9,006 | 29,164,764 | 2,030,071 | 738,214,016 | 0 | 152.451640 |
+
+Fleet switched its Sol pin from `gpt-6.1-sol` to `gpt-6.2-sol` on Nov 18
+(`11e720a`). Model rows reflect recorded calls, not configuration. The retained
+Fleet rows contain no 6.2 calls in this interval; that does not prove none were
+made. Other projects recorded both versions.
+
+### Observed local Sol usage per merged PR
+
+Rates divide the retained local Sol numerator by **all** in-window GitHub
+merges. Alpha and Fleet are partial local-host observations, excluding remote
+review-bot/off-host usage and any missing or unattributed calls. Replaying
+Alpha's before interval with the refreshed inventory reproduced exactly the six
+Alpha event-type rows in the private receipt (three model totals are shown
+above). The comparison uses the same declared retained local scope and the Sol
+family, not a fixed model or workload.
+
+| Project / window | Merged PRs | Sol calls | Cache-read tokens | Recorded list USD | Calls/PR | Cache-read/PR | List USD/PR |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Alpha before (partial) | 336 | 144,291 | 23,773,405,568 | 3,857.139499 | 429.44 | 70,754,183 | 11.479582 |
+| Alpha after (partial) | 107 | 112,684 | 11,589,055,104 | 2,215.934320 | 1,053.12 | 108,308,926 | 20.709667 |
+| Beta after (local totals only) | 61 | 12,277 | 1,287,110,784 | 214.368520 | N/A | N/A | N/A |
+| Gamma after (local totals only) | 196 | 37,602 | 3,576,599,552 | 668.539727 | N/A | N/A | N/A |
+| Fleet after (partial) | 9 | 1,024 | 108,763,264 | 19.421404 | 113.78 | 12,084,807 | 2.157934 |
+
+Alpha's observed local changes: calls/PR **+145.2%**, cache-read/PR **+53.1%**,
+recorded list USD/PR **+80.4%**. Absolute Sol usage fell, but merges fell
+proportionately more. Beta/Gamma after rates are N/A because coverage of their
+client and reviewer sources is unproven. Before-to-after change is N/A for
+Beta/Gamma (no comparable before source) and Fleet (no pre-Fleet baseline).
+
+Project Mains reported workload shifts that make these windows hard to compare:
+
+- **Alpha (336 → 107 merges):** On Nov 10, the owner paused new content, which
+  had produced many small PRs, and shifted lanes to large, stacked engine
+  changes (split ceiling approximately 15,000 lines or 100 files). PRs also
+  received an independent pre-publication review and multi-round bot review.
+  Larger PRs and more review can raise calls/PR without indicating lower
+  efficiency. Alpha also changed build admission to two slots of eight jobs.
+- **Beta:** The Sol pin switched from 6.1 to 6.2 on Nov 18. Several infrastructure
+  PRs, including gateway moves, took multiple iterations.
+- **Gamma:** Main ran four to six local review rounds on several high-risk PRs.
+  Builder lanes parked late in the window to preserve Codex review quota,
+  limiting merge throughput.
+
+Fleet changed GitHub read budgeting and snapshot reuse, another potential
+throughput confounder. These ratios do not control for PR size, idle time, or
+the mix of work, and they exclude partly remote review-bot usage. Model mix
+and runtime/catalog pricing also make recorded list USD unsuitable as a
+savings estimate.
