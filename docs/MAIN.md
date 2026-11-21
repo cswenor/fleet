@@ -1026,12 +1026,14 @@ on a stale shell or to `relaunch` an unfinished builder.
    Leave the target pane untouched while recovery runs; the Fleet slot lock
    does not exclude Orca UI input.
    If close or launch is withheld or unconfirmed, inspect `retirements.json`
-   and the launch receipts. Never repeat the signal, close, or `restart`.
-   Before using `fleet launch NEXT --slot PATH`, verify no replacement started and the exact
-   old pane is gone. If it remains, manually close it only after proving it
-   idle; even a shell-shaped frame does not permit reuse. Without a confirmed
-   close receipt, record the independently verified absence with
-   `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT` before launch.
+   and the launch receipts. Never rerun `restart` or repeat an attempted signal.
+   If the old pane is still present, do not close it until you can positively
+   verify that the exact recorded OMP exited and that the same pane incarnation
+   is unbound and its recorded shell is foreground with no children. A shell
+   frame alone proves none of this. If any proof is missing, stop and escalate.
+   Before `fleet launch NEXT --slot PATH`, verify that the exact old pane is
+   absent and no replacement started. Without a confirmed close receipt, record
+   that proof with `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT`.
    The next launch still creates a fresh terminal in the original worktree.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
