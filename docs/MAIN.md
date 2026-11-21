@@ -995,7 +995,7 @@ the line, never retry Ctrl-U, `/exit` or restart. Normal launch remains prompt-o
 
 ### Post-restart clipped screen
 
-If guarded retirement reports `screen model may be stale after Orca restart`,
+If guarded retirement reports that a pane `may have a stale screen`,
 it has sent **no retirement input**. The diagnostic requires the exact foreground
 OMP's terminal session to predate the current Orca process, using same-host Linux
 process start ticks; unavailable chronology retains the ordinary refusal.
