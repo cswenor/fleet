@@ -894,6 +894,20 @@ class RetirementTests(unittest.TestCase):
         self.refused('other shell children')
         self.assertEqual((self.term_signals, self.closed), ([], []))
 
+    def test_stale_recovery_refuses_binding_observed_after_close_journal(self):
+        self.stale_recovery()
+        self.as_main()
+
+        def binding(c, handle):
+            receipt = state.read(c, 'retirements', {}).get(self.slot, {})
+            return {'state': 'bound' if receipt.get('stage') == 'pane-close-attempted' else 'none'}
+
+        with patch.object(restart.health, 'binding', side_effect=binding):
+            with self.assertRaisesRegex(ValueError, 'not positively unbound'):
+                self.run_restart()
+        self.assertEqual(self.closed, [])
+        self.launch.assert_not_called()
+
     def test_stale_recovery_withholds_launch_on_unconfirmed_close(self):
         self.stale_recovery()
         self.as_main()

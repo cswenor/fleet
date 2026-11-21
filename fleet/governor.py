@@ -4,7 +4,7 @@ import math
 import os
 import time
 import uuid
-from . import health, quota, state
+from . import dispatcher, health, quota, state
 from .commands import json_run, CommandError
 
 CONSENT = 'Saved resets require explicit owner approval recorded as a Pad DECISION comment BEFORE spend; Fleet never spends resets.'
@@ -132,9 +132,10 @@ def advance(c, s, ledger, now=None):
     active = g['active']
     if active:
         replacement = _superseding_launch(c, active)
-        # Absence/disconnection is never evidence of exit. Exact terminal + shell only.
+        # Absence/disconnection is never exit proof. A stale pane's frame isn't either.
         matched = same_attempt(c, active, builders)
-        exited = matched and any(b['terminal'] == active['terminal'] and not health.active(b) for b in builders)
+        exited = (matched and not dispatcher.stale_replacement(c, active['path'])
+                  and any(b['terminal'] == active['terminal'] and not health.active(b) for b in builders))
         if not replacement and not matched and not active.get('identity_alerted'):
             active['identity_alerted'] = True
             report(active['key'] + ':identity', 'Fleet park identity unresolved: Main reconciliation required',

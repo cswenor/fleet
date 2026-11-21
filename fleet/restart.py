@@ -588,16 +588,18 @@ def _close_stale_pane(c, tree, record, proof, journal, deadline):
         if time.monotonic() >= deadline:
             raise ValueError('same child-free foreground shell not proven; close withheld')
         time.sleep(0.25)
-    terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
-    if health.binding(c, handle)['state'] != 'none':
-        raise ValueError('retired pane is not positively unbound; close withheld')
-    if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
-            terminal.get('incarnationId') != record['terminal_incarnation_id'] or
-            terminal.get('worktreeId') != tree['id'] or not ready()):
-        raise ValueError('exact unbound shell or pane identity changed; close withheld')
+    def verify_close_target():
+        terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
+        if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
+                terminal.get('incarnationId') != record['terminal_incarnation_id'] or
+                terminal.get('worktreeId') != tree['id'] or not ready()):
+            raise ValueError('exact shell or pane identity changed; close withheld')
+        if health.binding(c, handle)['state'] != 'none':
+            raise ValueError('retired pane is not positively unbound; close withheld')
+
+    verify_close_target()
     journal('pane-close-attempted')
-    if not ready():
-        raise ValueError('child-free foreground shell changed before close; close withheld')
+    verify_close_target()
     result = orca(c, 'terminal', 'close', '--terminal', handle)
     closed = result.get('close', {})
     if closed.get('handle') != handle or closed.get('ptyKilled') is not True:

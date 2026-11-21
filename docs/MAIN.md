@@ -1024,8 +1024,9 @@ on a stale shell or to `relaunch` an unfinished builder.
    same unbound foreground shell with no children. This discards its scrollback
    and changes the lane's terminal handle, not its worktree. Ordinary launch
    admission then gates creation of a fresh terminal in that same worktree.
-   Leave the target pane untouched while recovery runs; the Fleet slot lock
-   does not exclude Orca UI input.
+   While recovery runs, do not use, close, or bind the target pane. Orca has
+   no conditional close: Fleet's final checks and native close are separate
+   operations, and the Fleet slot lock cannot exclude concurrent Orca actions.
    If close or launch is withheld or unconfirmed, inspect `retirements.json`
    and the launch receipts. Never rerun `restart` or repeat an attempted signal.
    If the old pane is still present, do not close it until you can positively

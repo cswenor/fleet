@@ -152,6 +152,16 @@ class GovernorTests(unittest.TestCase):
         self.builders[1]['incarnation_id'] = 'replacement'
         self.assertFalse(governor.deliverable(self.c, event, self.s, self.ledger))
 
+    def test_stale_shell_frame_cannot_clear_active_park_during_retirement(self):
+        self.history()
+        self.advance()
+        state.write(self.c, 'retirements', {'/b': {
+            'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
+            'at': 4, 'stage': 'sigterm-attempted'}})
+        self.builders[1]['shell_ready'] = True
+        self.assertFalse(any(event.get('park') for event in self.advance(6)))
+        self.assertEqual(self.ledger['governor']['active']['launch_id'], 'b')
+
     def test_guarded_replacement_supersedes_park_and_allows_another_lane(self):
         self.history()
         self.advance()
