@@ -147,6 +147,14 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[2:]],
                          ['[urgent] Critical path stalled: PR #1, 61m since last activity'] * 2)
 
+    def test_invalid_critical_path_state_does_not_stop_supervision(self):
+        state.write(self.c, 'critical-path', None)
+        self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
+        observed, _ = self.cycle(0)
+        self.assertIn('critical-path state unavailable', observed['errors'])
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder wrong_model: TASK-37'])
+
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},
                       {'draft': True, 'labels': ['parked']}):
@@ -984,7 +992,7 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
             for urgent in [None, [], {'events': 'all'}, {'events': ['unknown']},
                            {'events': ['idle', 'idle']}, {'events': [None]},
                            *({key: x} for key in ('pr_stuck_minutes', 'critical_path_stall_minutes')
-                             for x in [0, -1, True, '45', None, float('inf'), float('nan')])]:
+                             for x in [0, -1, True, '45', None, float('inf'), float('nan'), 10**309])]:
                 with self.subTest(urgent=urgent):
                     c['urgent'] = urgent
                     path.write_text(yaml.safe_dump(c))

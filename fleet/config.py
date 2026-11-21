@@ -186,7 +186,7 @@ def load(path):
         raise ValueError('urgent.events must be a list of distinct supported event names')
     for key in ('pr_stuck_minutes', 'critical_path_stall_minutes'):
         minutes = urgent[key]
-        if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
+        if type(minutes) not in (int, float) or not 0 < minutes <= sys.float_info.max:
             raise ValueError(f'urgent.{key} must be a positive finite number')
     for key in ('terminal', 'run'):
         if not c['coordinator'].get(key):

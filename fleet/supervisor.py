@@ -842,7 +842,6 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         ledger['github_budget_window'] = reset
     pr_alerts = []
     previous_progress = ledger.get('pr_progress', {})
-    critical_prs = critical_path.listed_prs(c)
     if current_g is not None:
         if current_g.get('merge_group_unknown'):
             # Missing permission is not supersession or recovery evidence.
@@ -856,6 +855,11 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
         changes = _group_alerts(changes + initial, current_g)
         pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes], current_g))
+        try:
+            critical_prs = critical_path.listed_prs(c)
+        except (ValueError, OSError):
+            s['errors'].append('critical-path state unavailable')
+            critical_prs = ()
         pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time(), critical_prs=critical_prs)
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
