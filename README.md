@@ -397,6 +397,7 @@ pause rules. Changing designation does not repeat an alert for the same stall.
 Queued relays retain the message they were created with and follow ordinary
 stall retry rules. Unknown, closed, and merged numbers stay listed but do not
 generate new alerts.
+If `critical-path.json` cannot be read, ordinary stall alerts continue; run `critical-path list` to inspect the error, then use `add`/`remove` to rebuild malformed state or delete the file.
 The Main-terminal check follows Fleet's local caller convention; it is not a
 security boundary between processes running under the same Unix account.
 

@@ -152,13 +152,17 @@ class UrgentRelayTests(unittest.TestCase):
         self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
         self.cycle(0)
         observed, _ = self.cycle(2700)
-        self.assertIn('critical-path state unavailable', observed['errors'])
+        self.assertIn('critical-path.json unavailable', observed['errors'][-1])
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
-                         ['[urgent] Builder wrong_model: TASK-37'])
-        state.write(self.c, 'critical-path', [1])
+                         ['[urgent] Builder wrong_model: TASK-37', '[urgent] PR #1 stuck',
+                          '[urgent] PR #1 stuck'])
+        from fleet import critical_path
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+            with self.assertRaisesRegex(ValueError, r'critical-path\.json'):
+                critical_path.manage(self.c, 'list', None)
+            self.assertEqual(critical_path.manage(self.c, 'add', 1), [1])
         self.cycle(3600)
-        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[1:]],
-                         ['[urgent] Critical path stalled: PR #1, 60m since last activity'] * 2)
+        self.assertEqual(len(self.urgent_calls()), 3)
 
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},

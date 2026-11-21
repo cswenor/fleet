@@ -7,9 +7,12 @@ _STATE = 'critical-path'
 
 
 def listed_prs(c):
-    prs = state.read(c, _STATE, [])
+    try:
+        prs = state.read(c, _STATE, [])
+    except ValueError as error:
+        raise ValueError('critical-path.json must be a JSON list of positive PR numbers') from error
     if not isinstance(prs, list) or any(type(pr) is not int or pr < 1 for pr in prs):
-        raise ValueError('critical-path state must be a JSON list of positive PR numbers')
+        raise ValueError('critical-path.json must be a JSON list of positive PR numbers')
     return set(prs)
 
 
@@ -21,7 +24,10 @@ def manage(c, action, pr):
     if pr < 1:
         raise ValueError('critical-path PR number must be positive')
     with state.lock(c, _STATE):
-        prs = listed_prs(c)
+        try:
+            prs = listed_prs(c)
+        except (ValueError, OSError):
+            prs = set()
         if action == 'add':
             prs.add(pr)
         else:
