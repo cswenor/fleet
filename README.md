@@ -905,9 +905,10 @@ After sending results, read-only polling confirms complete zero-pending Run
 inventories, or names undrained/unknown Mains in `attention_required` after
 `consumption_timeout_seconds` (default 120, range 1..600). Empty pending is not
 human approval. Main must nudge flagged recipients through an attended channel.
-An empty post-restart screen needs safe operator redraw, never automatic builder
-input. Manually exited lanes still require Main's positive-exit `fleet reconcile`
-receipt before reuse; restart does not clear unresolved launches.
+The shared restart conductor sends no builder input. For explicit Main-driven
+retirement of settled builders, see [guarded stale-screen recovery](docs/MAIN.md#post-restart-clipped-screen).
+Manually exited lanes still require Main's positive-exit `fleet reconcile`
+receipt before reuse; the shared restart does not clear unresolved launches.
 
 Every result includes unfiltered, **read-only** terminal history diagnostics
 (requested limit 1000, subject to Orca's history cap), or an explicit diagnostic

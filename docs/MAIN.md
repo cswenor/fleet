@@ -113,9 +113,10 @@ suffixes for new pieces. No stash/reset/clean. Branch, prompt and launch receipt
 agree before builder input. Keep OLD's branch intact until restart verifies exit.
 For a finished idle builder, prefer guarded `fleet restart` below over manual
 `/exit`: it verifies publication, exact session binding and idle evidence before
-one exit, then verifies the shell before fresh launch. Unknown/working/dialog
-states refuse, including stale working screens; never inject Esc or /exit into
-a live builder. No third lane or stash. At most two active builders.
+one exit, then verifies the shell before fresh launch. Working, dialog and
+unproven states refuse. The [post-restart exception](#post-restart-clipped-screen)
+is only for a positively proven, settled builder. No third lane or stash.
+At most two active builders.
 
 ```sh
 fleet --config ~/.config/fleet/fleet.yml launch TASK-N --slot /home/dev/orca/workspaces/fleet/fleet-lane2
@@ -963,9 +964,9 @@ nonce-scoped `--session-dir` and `--config` artifacts, not current model/thinkin
 One optional leading `--extension PATH` must match the recorded extension (legacy:
 configured `builder.orca_status_extension`, default Fleet's own
 `ORCA_OMP_STATUS_EXTENSION`); target environment cannot authorize a path.
-Unsupported/unreadable evidence refuses. Exact-pane idle/done and a current empty
-idle composer are required; only top-level credential/title metadata and exact
-`custom/todo_hud_state` UI snapshots may follow the final assistant stop. It checks
+Unsupported/unreadable evidence refuses. Exact-pane idle/done and normally a
+current empty idle composer are required; see the [post-restart exception](#post-restart-clipped-screen).
+Only recognized non-work metadata may follow the final assistant stop. It checks
 next-task eligibility, quota/reserve, disk/capacity, coordinator visibility, tracked
 cleanliness, rules availability and branch checkout feasibility before journaling
 `/exit`; preflight never switches the old session's branch. A refusal leaves the
@@ -995,13 +996,12 @@ the line, never retry Ctrl-U, `/exit` or restart. Normal launch remains prompt-o
 
 ### Post-restart clipped screen
 
-If guarded retirement reports `screen model may be stale after Orca restart`,
-it has sent **no retirement input**. The diagnostic requires the exact foreground
-OMP's terminal session to predate the current Orca process, using same-host Linux
-process start ticks; unavailable chronology retains the ordinary refusal.
-This proves chronology, not frame geometry. TASK-88 observed clipped 80-column
-output while the exact OMP process's PTY was 280×83. Agent `done`/`idle`, a final
-assistant message or a thread result does not prove an empty omitted composer.
+`fleet restart` from the configured Run-bound Main can recover a clipped or
+missing composer without resize. An unrecognized frame is eligible only if
+the exact terminal session predates the current local Orca runtime. TASK-88
+observed clipping at 80 columns despite a 280×83 PTY; chronology does not
+establish geometry. This is a retirement exception, not permission to launch
+on a stale shell or to `relaunch` an unfinished builder.
 
 1. Main retains the exact launch/terminal/incarnation and checks the exact pane
    with `orca terminal show --terminal HANDLE --json` and `orca worktree ps --json`.
@@ -1012,33 +1012,26 @@ assistant message or a thread result does not prove an empty omitted composer.
    Do not guess a pts, use sudo, or send a terminal query as input.
    Native `tail` length is not frame height; `tailRows.trailingSpaces` is not
    right-edge padding. The installed CLI exposes no authoritative frame geometry.
-3. **Recovery A — Main-only, owner-approved finished-builder exception.**
-   Main's TASK-88 ruling `msg_a0b4555866e0` records four manual recoveries and
-   permits this path only for finished builders. Verify the current launch's
-   settled completion receipt (or matching merged PR plus finished Pad task),
-   canonical final assistant stop, live session lease, exact foreground OMP
-   PID/starttime/pts and terminal incarnation. The exact pane must be done/idle,
-   not interrupted; any present program status must also be done/idle.
-   Main may then send fixed `/exit` plus Enter **once** despite the unproven
-   screen. This is an explicit manual exception, never normal empty-composer
-   proof or an automated Fleet fallback. Preserve any ambiguous send receipt;
-   never repeat it. Positively verify that exact OMP PID/starttime has exited
-   and the same-incarnation pts belongs solely to the foreground shell. Inspect
-   the shell input before redraw; do not submit unknown residue or a draft.
-   Record `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID
-   --evidence 'positive exit and shell proof'`, then use normal `fleet launch`
-   for the next Main-approved fresh task. Launch still requires its shell proof.
+3. **Recovery A — guarded `fleet restart` for settled builders.** Alongside the
+   normal completion and launch preflight, require the exact settled primary
+   attempt, final assistant stop with no later work, live session lease, exact
+   foreground OMP and no children on any of its threads. The exact pane must be
+   done/idle, not interrupted; any present program status must also be done/idle.
+   Recognized working, dialog, background and draft frames still refuse. With
+   all proof in place Fleet journals one raw Ctrl-C (no Enter), requires Orca to
+   confirm the one-byte write, then revalidates the proof before journaling one
+   `/exit`. A clean shell frame alone is not enough: Fleet verifies exact OMP
+   exit and same-incarnation foreground shell ownership before normal launch.
+   Any failed or ambiguous input stops the sequence; inspect `retirements.json`
+   and never repeat Ctrl-C, `/exit` or `restart` after a journaled attempt.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
    restart only with a full idle footer/empty composer and all existing gates.
-   Main approved this procedure; TASK-88 did not execute or verify it. Treat every
-   pre-existing builder pane as potentially needing recovery after another Orca
-   restart; a new builder session alone did not repair the affected pane.
-
-Neither recovery permits interrupting a working agent. If proof fails, stop and
-escalate to Main/owner. Never send Ctrl-L/Escape to an unproven composer.
-No stock CLI terminal resize/refresh command was found; no exit override was added.
-Upstream geometry/resize API changes require an owner decision. See
+   Use this when required proof is unavailable and no input was attempted.
+   If proof still fails, stop and escalate to Main/owner. Never send
+   Ctrl-L/Escape to an unproven composer. No stock CLI terminal resize/refresh
+   command was found. Upstream geometry/resize API changes require an owner
+   decision. See
 [the feature map](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10).
 
 ## Waiting and inboxes
@@ -1417,7 +1410,8 @@ zero-pending sets, and names each undrained/unknown project's Main terminal in
 `attention_required`. Nudge the named Main through an attended channel; do not
 assume native enqueue woke an idle pre-existing pane.
 
-An empty post-restart screen needs a redraw, not automatic terminal input.
+The shared restart conductor sends no builder input. See the explicit
+[guarded builder recovery](#post-restart-clipped-screen) for stale screens.
 TASK-81's Main health fallback does not establish shell readiness. Any manually
 exited/stopped lane keeps its launch receipt until Main records positive exit
 proof with `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT`.

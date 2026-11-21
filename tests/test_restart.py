@@ -67,6 +67,8 @@ class RetirementTests(unittest.TestCase):
         self.comments = []
         self.sent = []
         self.exited = False
+        self.runtime_pid = None
+        self.stale_clear = None
         self.residue = None
         self.cleanup_works = True
         self.keep_omp = False
@@ -169,6 +171,8 @@ class RetirementTests(unittest.TestCase):
         return self.comments if 'comments' in argv else self.item
 
     def orca(self, c, *args):
+        if args == ('status',):
+            return {'app': {'pid': self.runtime_pid}, 'runtime': {'reachable': True}}
         if args[:2] == ('orchestration', 'run-show'):
             return {}
         if args[:2] == ('terminal', 'show'):
@@ -180,6 +184,9 @@ class RetirementTests(unittest.TestCase):
             return {'worktrees': [{'worktreeId': 'tree', 'agents': [self.agent]}]}
         if args[:2] == ('terminal', 'send'):
             self.sent.append(args)
+            if args[-2:] == ('--text', '\x03'):
+                self.assertEqual(state.read(c, 'retirements')[self.slot]['stage'], 'stale-clear-attempted')
+                return self.stale_clear()
             if args[-2:] == ('--text', '\x15'):
                 receipt = state.read(c, 'retirements')[self.slot]
                 self.assertEqual(receipt['residue_cleanup']['stage'], 'input-attempted')
@@ -191,7 +198,13 @@ class RetirementTests(unittest.TestCase):
             if self.send_error:
                 raise RuntimeError('lost transport')
             self.exited = True
-            if self.residue:
+            if self.stale_clear:
+                if not self.keep_omp:
+                    (self.process / 'stat').unlink()
+                shell = self.proc / '321'
+                fields = ['S', '1', '321', '321', '456', '321'] + ['0'] * 13 + ['500']
+                (shell / 'stat').write_text('321 (bash) ' + ' '.join(fields))
+            elif self.residue:
                 if not self.keep_omp:
                     (self.process / 'stat').unlink()
                 shell = self.proc / '321'
@@ -728,6 +741,91 @@ class RetirementTests(unittest.TestCase):
             with self.subTest(agent_state=agent_state):
                 self.agent.update(state=agent_state, programStatus=None, interrupted=False)
                 self.refused('no positive idle OMP composer')
+
+    def stale_recovery(self):
+        self.screen = json.loads((Path(__file__).parent / 'fixtures' /
+                                  'orca-stale-screen.json').read_text())['terminal']['tail']
+        _, runtime = self.chronology_processes()
+        self.runtime_pid = 999
+        (runtime / 'stat').write_text('999 (node) ' + ' '.join(
+            ['S', '1', '999', '999', '0', '-1'] + ['0'] * 13 + ['750']))
+        for tid in ('123', '124'):
+            task = self.process / 'task' / tid
+            task.mkdir(parents=True)
+            (task / 'children').write_text('')
+        self.investigation()
+        self.prs = [{'number': 1, 'title': 'TASK-1 fix', 'body': '',
+                     'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
+        self.stale_clear = lambda: {'send': {'accepted': True, 'bytesWritten': 1}}
+
+    def as_main(self):
+        for context in (patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'),
+                        patch.object(restart.steering, 'request', return_value={
+                            'run': {'id': 'run', 'coordinator_handle': 'main'}})):
+            context.start()
+            self.addCleanup(context.stop)
+
+    def test_stale_recovery_cli_clears_once_then_retires_and_launches(self):
+        from fleet import cli
+        self.stale_recovery()
+        self.as_main()
+        stdout = io.StringIO()
+        with patch.object(cli, 'load', return_value=self.c), \
+                patch.object(cli.sys, 'argv', ['fleet', 'restart', 'TASK-2',
+                    '--slot', self.slot, '--finished-ref', 'TASK-1']), redirect_stdout(stdout):
+            self.assertEqual(cli.main(), 0)
+        receipt = json.loads(stdout.getvalue())['retirement']
+        self.assertEqual(receipt['stage'], 'launched')
+        self.assertEqual([args[4:] for args in self.sent],
+                         [('--text', '\x03'), ('--text', '/exit', '--enter')])
+
+    def test_stale_recovery_refuses_without_exact_idle_and_settlement_proofs(self):
+        self.stale_recovery()
+        with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='other'):
+            self.refused('Main terminal identity')
+        self.as_main()
+        ledger = state.read(self.c, 'threads-TASK-1')
+        state.write(self.c, 'threads-TASK-1', {})
+        self.refused('settled primary attempt')
+        state.write(self.c, 'threads-TASK-1', ledger)
+        self.agent['state'] = 'working'
+        self.refused('running')
+        self.agent['state'] = 'done'
+        child = self.process / 'task/124/children'
+        child.write_text('432\n')
+        self.refused('child-free foreground')
+        child.unlink()
+        self.refused('child-free foreground')
+        child.touch()
+        self.events.append({'type': 'message', 'message': {'role': 'user'}})
+        self.write_log()
+        self.refused('final assistant stop')
+
+    def test_stale_recovery_revalidates_after_clear_and_never_retries_it(self):
+        self.stale_recovery()
+        self.as_main()
+        for ambiguous in (True, False):
+            with self.subTest(ambiguous=ambiguous):
+                def clear():
+                    if ambiguous:
+                        return {'send': {'accepted': True}}
+                    self.agent['state'] = 'working'
+                    return {'send': {'accepted': True, 'bytesWritten': 1}}
+                self.stale_clear = clear
+                with self.assertRaisesRegex(ValueError, 'ambiguous|running'):
+                    self.run_restart()
+                self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
+                self.sent.clear()
+                self.refused('already attempted')
+                state.write(self.c, 'retirements', {})
+
+    def test_stale_recovery_does_not_launch_from_a_shell_frame_while_omp_lives(self):
+        self.stale_recovery()
+        self.as_main()
+        self.keep_omp = True
+        with self.assertRaisesRegex(ValueError, 'OMP process is still present'):
+            self.run_restart()
+        self.launch.assert_not_called()
 
     def chronology_processes(self):
         fields = (self.process / 'stat').read_text().rsplit(')', 1)[1].split()

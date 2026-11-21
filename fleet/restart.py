@@ -7,7 +7,7 @@ import re
 import shlex
 import sys
 import time
-from . import dispatcher, github, health, launcher, snapshot, state, steering, threads
+from . import dispatcher, github, governor, health, launcher, snapshot, state, steering, threads
 from .commands import CommandError, gh, json_run, orca
 from .process_identity import omp_executable
 
@@ -400,10 +400,11 @@ def _session(record, slot, previous=None, *, stopped=None):
     return proof
 
 
-def _terminal_predates_runtime(c, record, tree, handle):
-    """Best-effort local chronology for diagnostics only, never input authority."""
+def _terminal_predates_runtime(c, record, tree, handle, process=None):
+    """Check local chronology, never infer idle from it."""
     try:
-        process = _foreground(c, record, tree['path'], handle)
+        if process is None:
+            process = _foreground(c, record, tree['path'], handle)
         fields = (PROC / str(process['pid']) / 'stat').read_text().rsplit(')', 1)[1].split()
         shell = PROC / fields[3]  # The controlling terminal's session leader.
         before = (shell / 'stat').read_text()
@@ -431,7 +432,19 @@ def _terminal_predates_runtime(c, record, tree, handle):
         return False
 
 
-def _idle(c, record, tree, handle, previous=None, *, stopped=None):
+def _no_children(process):
+    """Check every Linux thread, not just the group leader's children."""
+    tasks = PROC / str(process['pid']) / 'task'
+    try:
+        before = set(tasks.iterdir())
+        return (tasks / str(process['pid']) in before
+                and all(not (task / 'children').read_text().strip() for task in before)
+                and set(tasks.iterdir()) == before)
+    except OSError:
+        return False
+
+
+def _idle(c, record, tree, handle, previous=None, *, stopped=None, recover_stale=False):
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
             terminal.get('worktreeId') != tree['id'] or terminal.get('agentIdentity') != 'omp' or
@@ -444,13 +457,15 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None):
         raise ValueError('background job status visible; retirement withheld')
     if ui == 'draft':
         raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
+    stale_recovery = ui != 'idle' or bool(previous and previous.get('stale_screen'))
     if ui != 'idle':
-        raise ValueError(
-            'no positive idle OMP composer; working, dialog, background job, or stale screen'
-            + ('; terminal session predates the current Orca runtime: screen model may be '
-               'stale after Orca restart; see docs/MAIN.md#post-restart-clipped-screen. '
-               'Agent done/idle alone is insufficient; no retirement input sent'
-               if _terminal_predates_runtime(c, record, tree, handle) else ''))
+        predates = _terminal_predates_runtime(c, record, tree, handle)
+        if not predates:
+            raise ValueError('no positive idle OMP composer; working, dialog, background job, or stale screen')
+        if not recover_stale or ui != 'unknown' or stopped is not None:
+            raise ValueError('no positive idle OMP composer; terminal session predates the current Orca runtime: '
+                             'screen model may be stale after Orca restart; '
+                             'see docs/MAIN.md#post-restart-clipped-screen; no retirement input sent')
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
         raise ValueError('agent status inventory incomplete')
@@ -470,6 +485,16 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None):
     proof['process'] = _foreground(c, record, tree['path'], handle)
     if stopped is not None and stopped.get('process') != proof['process']:
         raise ValueError('stop journal belongs to a different process')
+    if stale_recovery:
+        steering._main(c)
+        if not governor._settled(c, record, tree['path']):
+            raise ValueError('stale screen recovery requires the exact settled primary attempt; '
+                             'see docs/MAIN.md#post-restart-clipped-screen')
+        if (not _terminal_predates_runtime(c, record, tree, handle, proof['process'])
+                or not _no_children(proof['process'])):
+            raise ValueError('stale screen recovery requires a child-free foreground OMP and '
+                             'verified pre-restart chronology; see docs/MAIN.md#post-restart-clipped-screen')
+        proof['stale_screen'] = True
     return proof
 
 def _exited_shell(process, handle):
@@ -562,9 +587,10 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 if any(step.get('step') == 'submitted' for step in steps):
                     stopped = next((step.get('proof') for step in steps
                                     if step.get('step') == 'identity-proven'), None)
+        idle_options = ({'recover_stale': True} if reason is None else
+                        {'stopped': stopped} if stopped is not None else {})
         try:
-            proof = _idle(c, record, tree, target['terminal'], **(
-                {'stopped': stopped} if stopped is not None else {}))
+            proof = _idle(c, record, tree, target['terminal'], **idle_options)
         except ValueError as exc:
             if reason is not None:
                 raise ValueError(f"{exc}; run `fleet thread stop {ref}` first") from exc
@@ -596,8 +622,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         except (ValueError, CommandError) as exc:
             raise ValueError(f'{operation} preflight withheld: {exc}; old session untouched') from exc
         fresh_tree, fresh_target = _target(c, slot)
-        fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof, **(
-            {'stopped': stopped} if stopped is not None else {}))
+        fresh_proof = _idle(c, record, tree, target['terminal'], previous=proof, **idle_options)
         if (fresh_tree != tree or fresh_target['terminal'] != target['terminal'] or
                 fresh_proof['process'] != proof['process']):
             raise ValueError('retirement evidence changed; input withheld')
@@ -609,7 +634,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         if completion.get('kind') == 'investigation':
             threads.pad(c, finished_ref, 'Main authorized investigation-only restart:\n' +
                         json.dumps(completion, ensure_ascii=True, sort_keys=True))
-            latest = _idle(c, record, tree, target['terminal'], previous=proof)
+            latest = _idle(c, record, tree, target['terminal'], previous=proof, **idle_options)
             latest_tree, latest_target = _target(c, slot)
             if (latest_tree != tree or latest_target['terminal'] != target['terminal']
                     or latest['process'] != proof['process']):
@@ -630,17 +655,33 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             # Pad failure refuses before retirement; the user keeps their live session.
             threads.pad(c, ref, 'Pad-Ref: ' + ref + '\nMain authorized same-task relaunch:\n' +
                         json.dumps(receipt['relaunch'], ensure_ascii=True, sort_keys=True))
-            latest = _idle(c, record, tree, target['terminal'], previous=proof, **(
-                {'stopped': stopped} if stopped is not None else {}))
+            latest = _idle(c, record, tree, target['terminal'], previous=proof, **idle_options)
             latest_tree, latest_target = _target(c, slot)
             if (latest_tree != tree or latest_target['terminal'] != target['terminal'] or
                     latest['process'] != proof['process']):
                 raise ValueError('retirement evidence changed after Pad recording; input withheld')
             receipt['session'] = proof = latest
+        handle = target['terminal']
+        if proof.get('stale_screen'):
+            receipt['stage'] = 'stale-clear-attempted'
         retirements[slot] = receipt
+        # Journal before each write; an ambiguous clear must not submit /exit.
         state.write(c, 'retirements', retirements)
-        # Journal BEFORE input: transport failure or crash can never authorize a second /exit.
         try:
+            if proof.get('stale_screen'):
+                clear = orca(c, 'terminal', 'send', '--terminal', handle, '--text', '\x03')
+                receipt['stale_clear_receipt'] = clear
+                send = clear.get('send', {})
+                if send.get('accepted') is not True or send.get('bytesWritten') != 1:
+                    raise ValueError('stale composer clear outcome ambiguous; /exit withheld')
+                receipt['stage'] = 'stale-clear-accepted'
+                state.write(c, 'retirements', retirements)
+                latest = _idle(c, record, tree, handle, previous=proof, **idle_options)
+                if latest['process'] != proof['process']:
+                    raise ValueError('retirement evidence changed after composer clear; /exit withheld')
+                receipt['session'] = proof = latest
+                receipt['stage'] = 'exit-attempted'
+                state.write(c, 'retirements', retirements)
             receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '/exit', '--enter')
             receipt['stage'] = 'exit-sent'
             state.write(c, 'retirements', retirements)
@@ -653,6 +694,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 screen = orca(c, 'terminal', 'read', '--terminal', target['terminal'], '--screen')['terminal']
                 text = '\n'.join(screen.get('tail', []))
                 if health.shell_ready(screen):
+                    if proof.get('stale_screen'):
+                        _exited_shell(proof['process'], handle)
                     break
                 residue = health.shell_reply_residue(text)
                 if residue:
@@ -729,6 +772,9 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 'launch withheld; manually verify and clear the shell line before fleet launch; '
                 'never retry cleanup or restart'
                 if receipt['stage'] == 'shell-verified-with-residue' else
+                'stale composer clear happened or is unconfirmed; inspect terminal and retirement receipt; '
+                'never resend Ctrl-C or retry fleet restart'
+                if receipt['stage'] in ('stale-clear-attempted', 'stale-clear-accepted') else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
             if receipt.get('retired'):
                 recovery_argv = [

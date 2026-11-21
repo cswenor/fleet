@@ -113,6 +113,18 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-153 — Guarded retirement from a post-restart stale screen
+
+An explicit Main `fleet restart` may recover an unrecognized frame on a
+terminal that predates Orca, only after exact settled-primary, final-stop,
+lease, idle pane and child-free foreground OMP proof and ordinary preflight.
+It journals one Ctrl-C and revalidates before `/exit`; normal launch follows
+only with exact process exit and verified shell. Unfinished relaunch is
+unchanged. See the [recovery runbook](MAIN.md#post-restart-clipped-screen).
+The isolated CLI regression replays the recorded TASK-88 frame. A scratch
+OMP 19.0.1 PTY confirmed the draft clear and `/exit` sequence. Main owns live
+post-deploy verification with the affected project's consent.
+
 ### TASK-151 — Stock Orca consuming check is batch-exact
 
 [Orca Delivery/custody](https://github.com/stablyai/orca/pull/39256) removes

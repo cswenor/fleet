@@ -706,6 +706,8 @@ procedure; a different host/version still requires its own evidence.
    ambiguous consuming request it returns `rearm` (exit 4), never blind check/ack
    replay. Persistent outage returns `runtime_unavailable` (exit 2). Preserve
    returned batches/request IDs and re-arm explicitly.
-7. Empty post-restart screens need safe operator redraw, not automatic input.
+7. The shared restart conductor sends no builder input. For explicit Main-driven
+   retirement of settled builders, see the Fleet source runbook's
+   `docs/MAIN.md#post-restart-clipped-screen`; otherwise use safe operator redraw.
    Manually exited lanes retain launch claims until Main records positive exit
    with `fleet reconcile`; missing screen/process evidence is not exit proof.
