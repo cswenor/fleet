@@ -294,11 +294,14 @@ in the original thread.
 Run-bound Mains keep using `fleet wait`; its selection controls wake and
 presentation, not the contents acknowledged. On auto-handled runtimes, save
 the full batch and request ID privately; don't add `--ack` for an already
-handled Delivery. If a response is lost and the request ID is available, rerun
-the **original native check** with `--retry-request ID`, not a fresh consuming
-check. Older explicit-ack runtimes still require acknowledging the exact
-processed Delivery. See [ack and recovery](../README.md#inbox-wait) and the
-[version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
+handled Delivery. If a response is lost, look up the request with read-only
+`orca orchestration request-show --request ID --full --json` from the original
+caller and runtime. Replay the original native check with `--retry-request ID`
+only with a completed receipt. If the receipt is absent or the ID is lost,
+reconcile with read-only mailbox history; don't retry or start a fresh check to
+recover that batch. Older explicit-ack runtimes still require acknowledging
+the exact processed Delivery. See [ack and recovery](../README.md#inbox-wait)
+and the [version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
 TASK-65 adds conditional REST reads and private supervisor caches. Use
 `watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.

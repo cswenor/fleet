@@ -200,10 +200,13 @@ processing **all** rows, re-arm the recommended command unchanged.
 `--auto-ack` submits the previous printed delivery on explicit-ack runtimes.
 On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
 mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
-is a native echo only. Retain `nativeRequestId` privately; stock
-`orchestration request-show --request ID --full --json` and the original native
-check plus exact `--retry-request ID` recover its recorded outcome, not newer
-mail. A crash losing that ID after auto-ack can lose access to the batch.
+is a native echo only. Retain `nativeRequestId` privately. For a lost response,
+look up the receipt first with read-only
+`orchestration request-show --request ID --full --json` as the original caller
+against the original runtime. With a completed receipt, the original native
+check plus exact `--retry-request ID` recovers its recorded outcome. An absent
+receipt or lost ID requires read-only history reconciliation, not another
+consuming check or retry that may consume newer mail.
 Fleet has no local replay store; never fabricate terminal delivery IDs or consume
 legacy history to simulate reliable delivery. Full orchestration records are
 requested only when per-verb stock help advertises `--full` (in-memory cache);
