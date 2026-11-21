@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import shlex
 import subprocess
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from fleet import restart, state
@@ -68,7 +69,10 @@ class RetirementTests(unittest.TestCase):
         self.sent = []
         self.exited = False
         self.runtime_pid = None
-        self.stale_clear = None
+        self.stream_cursor = None
+        self.stream_prompt = False
+        self.shell_screen_stale = False
+        self.term_signals = []
         self.residue = None
         self.cleanup_works = True
         self.keep_omp = False
@@ -175,18 +179,30 @@ class RetirementTests(unittest.TestCase):
             return {'app': {'pid': self.runtime_pid}, 'runtime': {'reachable': True}}
         if args[:2] == ('orchestration', 'run-show'):
             return {}
+        if args[:2] == ('orchestration', 'run-current'):
+            return {'run': None}
         if args[:2] == ('terminal', 'show'):
             return {'terminal': self.terminal}
         if args[:2] == ('terminal', 'read'):
+            if '--screen' not in args:
+                return {'terminal': {'source': 'stream', 'latestCursor': self.stream_cursor,
+                                    'nextCursor': self.stream_cursor, 'truncated': False, 'limited': False,
+                                    'tail': ['dev@host:~/slot$'] if self.stream_prompt else []}}
             prompt = 'dev@host:~/slot$' + (' ' + self.residue if self.residue else '')
-            return {'terminal': {'tail': [prompt] if self.exited else self.screen}}
+            return {'terminal': {'tail': [prompt] if self.exited and not self.shell_screen_stale else self.screen}}
         if args[:2] == ('worktree', 'ps'):
             return {'worktrees': [{'worktreeId': 'tree', 'agents': [self.agent]}]}
         if args[:2] == ('terminal', 'send'):
             self.sent.append(args)
             if args[-2:] == ('--text', '\x03'):
-                self.assertEqual(state.read(c, 'retirements')[self.slot]['stage'], 'stale-clear-attempted')
-                return self.stale_clear()
+                receipt = state.read(c, 'retirements')[self.slot]
+                self.assertTrue(receipt['retired'])
+                self.assertEqual(receipt['shell_clear']['stage'], 'input-attempted')
+                self.assertTrue(self.exited)
+                if self.cleanup_works:
+                    self.stream_cursor = '15'
+                    self.stream_prompt = True
+                return {'send': {'accepted': True, 'bytesWritten': 1}}
             if args[-2:] == ('--text', '\x15'):
                 receipt = state.read(c, 'retirements')[self.slot]
                 self.assertEqual(receipt['residue_cleanup']['stage'], 'input-attempted')
@@ -198,13 +214,7 @@ class RetirementTests(unittest.TestCase):
             if self.send_error:
                 raise RuntimeError('lost transport')
             self.exited = True
-            if self.stale_clear:
-                if not self.keep_omp:
-                    (self.process / 'stat').unlink()
-                shell = self.proc / '321'
-                fields = ['S', '1', '321', '321', '456', '321'] + ['0'] * 13 + ['500']
-                (shell / 'stat').write_text('321 (bash) ' + ' '.join(fields))
-            elif self.residue:
+            if self.residue:
                 if not self.keep_omp:
                     (self.process / 'stat').unlink()
                 shell = self.proc / '321'
@@ -756,7 +766,29 @@ class RetirementTests(unittest.TestCase):
         self.investigation()
         self.prs = [{'number': 1, 'title': 'TASK-1 fix', 'body': '',
                      'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
-        self.stale_clear = lambda: {'send': {'accepted': True, 'bytesWritten': 1}}
+        self.stream_cursor = '10'
+        self.stale_patch(restart, 'os', new=SimpleNamespace(pidfd_open=unittest.mock.Mock(return_value=700),
+                                                           close=unittest.mock.Mock()))
+        self.pidfd_open = restart.os.pidfd_open
+        self.stale_patch(restart, 'signal', new=SimpleNamespace(
+            SIGTERM=15, pidfd_send_signal=self.term))
+        self.stale_patch(restart.health, 'binding', return_value={'state': 'none'})
+
+    def stale_patch(self, obj, attr, **kwargs):
+        context = patch.object(obj, attr, **kwargs)
+        mock = context.start()
+        self.addCleanup(context.stop)
+        return mock
+
+    def term(self, fd, signo):
+        self.assertEqual(state.read(self.c, 'retirements')[self.slot]['stage'], 'sigterm-attempted')
+        self.term_signals.append((fd, signo))
+        if not self.keep_omp:
+            self.exited = True
+            (self.process / 'stat').unlink()
+            shell = self.proc / '321'
+            fields = ['S', '1', '321', '321', '456', '321'] + ['0'] * 13 + ['500']
+            (shell / 'stat').write_text('321 (bash) ' + ' '.join(fields))
 
     def as_main(self):
         for context in (patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'),
@@ -765,7 +797,7 @@ class RetirementTests(unittest.TestCase):
             context.start()
             self.addCleanup(context.stop)
 
-    def test_stale_recovery_cli_clears_once_then_retires_and_launches(self):
+    def test_stale_recovery_cli_signals_exact_omp_then_launches_without_retirement_input(self):
         from fleet import cli
         self.stale_recovery()
         self.as_main()
@@ -776,8 +808,9 @@ class RetirementTests(unittest.TestCase):
             self.assertEqual(cli.main(), 0)
         receipt = json.loads(stdout.getvalue())['retirement']
         self.assertEqual(receipt['stage'], 'launched')
-        self.assertEqual([args[4:] for args in self.sent],
-                         [('--text', '\x03'), ('--text', '/exit', '--enter')])
+        self.pidfd_open.assert_called_once_with(123)
+        self.assertEqual(self.term_signals, [(700, restart.signal.SIGTERM)])
+        self.assertEqual(self.sent, [])
 
     def test_stale_recovery_refuses_without_exact_idle_and_settlement_proofs(self):
         self.stale_recovery()
@@ -801,30 +834,57 @@ class RetirementTests(unittest.TestCase):
         self.write_log()
         self.refused('final assistant stop')
 
-    def test_stale_recovery_revalidates_after_clear_and_never_retries_it(self):
+    def test_stale_recovery_revalidates_after_pidfd_open_and_never_retries(self):
         self.stale_recovery()
         self.as_main()
-        for ambiguous in (True, False):
-            with self.subTest(ambiguous=ambiguous):
-                def clear():
-                    if ambiguous:
-                        return {'send': {'accepted': True}}
-                    self.agent['state'] = 'working'
-                    return {'send': {'accepted': True, 'bytesWritten': 1}}
-                self.stale_clear = clear
-                with self.assertRaisesRegex(ValueError, 'ambiguous|running'):
-                    self.run_restart()
-                self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
-                self.sent.clear()
-                self.refused('already attempted')
-                state.write(self.c, 'retirements', {})
+        def changed(pid):
+            self.agent['state'] = 'working'
+            return 700
+        self.pidfd_open.side_effect = changed
+        self.refused('running')
+        self.assertEqual(self.term_signals, [])
+        self.refused('already attempted')
 
-    def test_stale_recovery_does_not_launch_from_a_shell_frame_while_omp_lives(self):
+    def test_stale_recovery_clears_only_the_verified_shell_and_requires_new_prompt(self):
+        self.stale_recovery()
+        self.as_main()
+        self.shell_screen_stale = True
+        result = self.run_restart()
+        receipt = result['retirement']
+        self.assertTrue(receipt['retired'])
+        self.assertEqual(receipt['shell_clear']['stage'], 'clean-prompt-verified')
+        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
+        _, _, verify = self.launch.call_args.kwargs['_restart_shell']
+        verify()
+        self.stream_cursor = '16'
+        with self.assertRaisesRegex(ValueError, 'clean shell prompt no longer proven'):
+            verify()
+
+    def test_stale_recovery_keeps_retirement_on_stale_prompt(self):
+        self.stale_recovery()
+        self.as_main()
+        self.shell_screen_stale = True
+        self.cleanup_works = False
+        self.stream_prompt = True
+        with patch.object(restart.time, 'monotonic', side_effect=range(100)), \
+                patch.object(restart.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'no fresh clean shell prompt'):
+                self.run_restart()
+        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
+        self.assertTrue(state.read(self.c, 'retirements')[self.slot]['retired'])
+        self.launch.assert_not_called()
+        self.sent.clear()
+        self.refused('already attempted')
+
+    def test_stale_recovery_does_not_touch_shell_while_omp_lives(self):
         self.stale_recovery()
         self.as_main()
         self.keep_omp = True
-        with self.assertRaisesRegex(ValueError, 'OMP process is still present'):
-            self.run_restart()
+        with patch.object(restart.time, 'monotonic', side_effect=range(100)), \
+                patch.object(restart.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'without verified shell'):
+                self.run_restart()
+        self.assertEqual(self.sent, [])
         self.launch.assert_not_called()
 
     def chronology_processes(self):
@@ -852,8 +912,8 @@ class RetirementTests(unittest.TestCase):
                 (runtime / 'stat').write_text('999 (node) ' + ' '.join(fields))
                 with patch.object(restart, 'orca', return_value={
                         'app': {'pid': 999}, 'runtime': {'reachable': True}}):
-                    self.assertEqual(restart._terminal_predates_runtime(
-                        self.c, self.record, self.tree, 'target'), expected)
+                    self.assertEqual(bool(restart._pre_runtime_shell(
+                        self.c, self.record, self.tree, 'target')), expected)
         self.assertEqual(self.sent, [])
 
     def test_unavailable_or_unbound_chronology_never_claims_restart(self):
@@ -864,13 +924,13 @@ class RetirementTests(unittest.TestCase):
                        {'app': {'pid': 999}, 'runtime': {'reachable': False}},
                        {'app': {'pid': 998}, 'runtime': {'reachable': True}}):
             with self.subTest(status=status), patch.object(restart, 'orca', return_value=status):
-                self.assertFalse(restart._terminal_predates_runtime(
+                self.assertIsNone(restart._pre_runtime_shell(
                     self.c, self.record, self.tree, 'target'))
         with patch.object(restart, 'orca', side_effect=CommandError('unavailable')):
-            self.assertFalse(restart._terminal_predates_runtime(
+            self.assertIsNone(restart._pre_runtime_shell(
                 self.c, self.record, self.tree, 'target'))
         (shell / 'environ').write_bytes(b'ORCA_TERMINAL_HANDLE=another\0')
-        self.assertFalse(restart._terminal_predates_runtime(
+        self.assertIsNone(restart._pre_runtime_shell(
             self.c, self.record, self.tree, 'target'))
         self.assertEqual(self.sent, [])
 

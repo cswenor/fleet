@@ -194,6 +194,21 @@ class RestartTests(unittest.TestCase):
         send_index = next(i for i, args in enumerate(self.calls) if args[:2] == ('terminal', 'send'))
         self.assertEqual(self.calls[send_index - 1], ('orchestration', 'run-current', '--from', 'old-shell'))
 
+    def test_recovered_shell_launch_revalidates_clean_prompt_before_input(self):
+        self.prompt = 'stale OMP frame'
+        self.s['inventory']['builders'][0]['shell_ready'] = False
+        before, after = deepcopy(self.s), deepcopy(self.s)
+        def changed():
+            if state.read(self.c, 'launch-preparations', {}).get(self.slot, {}).get('stage') == 'launch-attempted':
+                raise ValueError('recovered prompt changed')
+        with self.assertRaisesRegex(ValueError, 'recovered prompt changed'):
+            self.launch([before, after], _locked=True, _restart_shell=('old-shell', 'inc', changed))
+        self.assertEqual((self.sent, self.created), ([], 0))
+        receipt = self.launch([deepcopy(self.s), deepcopy(self.s)], _locked=True,
+                              _restart_shell=('old-shell', 'inc', lambda: None))
+        self.assertEqual(receipt['terminal'], 'old-shell')
+        self.assertEqual((self.sent, self.created), (['old-shell'], 0))
+
     def test_bound_ready_shell_creates_in_same_worktree_without_sending_or_binding(self):
         self.s['inventory']['builders'][0]['binding'] = {'state': 'bound', 'run_id': 'run_old'}
         receipt = self.launch()

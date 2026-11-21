@@ -1013,17 +1013,18 @@ on a stale shell or to `relaunch` an unfinished builder.
    Native `tail` length is not frame height; `tailRows.trailingSpaces` is not
    right-edge padding. The installed CLI exposes no authoritative frame geometry.
 3. **Recovery A — guarded `fleet restart` for settled builders.** Alongside the
-   normal completion and launch preflight, require the exact settled primary
-   attempt, final assistant stop with no later work, live session lease, exact
-   foreground OMP and no children on any of its threads. The exact pane must be
-   done/idle, not interrupted; any present program status must also be done/idle.
-   Recognized working, dialog, background and draft frames still refuse. With
-   all proof in place Fleet journals one raw Ctrl-C (no Enter), requires Orca to
-   confirm the one-byte write, then revalidates the proof before journaling one
-   `/exit`. A clean shell frame alone is not enough: Fleet verifies exact OMP
-   exit and same-incarnation foreground shell ownership before normal launch.
-   Any failed or ambiguous input stops the sequence; inspect `retirements.json`
-   and never repeat Ctrl-C, `/exit` or `restart` after a journaled attempt.
+   normal completion and preflight, require the exact settled primary attempt,
+   final assistant stop with no later work, live session lease, exact foreground
+   OMP and no children. The exact pane must be done/idle and not interrupted.
+   Recognized working, dialog, background and draft frames still refuse.
+   Fleet journals one Linux pidfd SIGTERM to that OMP only. It does not send
+   keystrokes to OMP; any hidden draft is discarded, never submitted. After
+   exact OMP exit and return of the same foreground shell, launch requires a
+   clean rendered prompt. If unavailable, Fleet may journal one Ctrl-C to
+   the verified unbound foreground shell and require a new clean prompt in
+   the bounded Orca stream. It rechecks shell and prompt immediately before launch.
+   If proof fails after retirement, inspect `retirements.json`, redraw/verify the
+   shell, and use `fleet launch`, not `restart`. Never repeat the signal or clear.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
    restart only with a full idle footer/empty composer and all existing gates.

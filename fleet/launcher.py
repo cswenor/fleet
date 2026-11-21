@@ -246,11 +246,26 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False
     return branch
 
 
-def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False):
+def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False,
+           _restart_shell=None):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     if _keep_uncommitted and not _locked:
         raise ValueError('keeping uncommitted work requires guarded same-task relaunch')
+    if _restart_shell is not None and (not _locked or not slot):
+        raise ValueError('recovered shell requires the guarded restart slot lease')
+
+    def recovered_inventory(inventory):
+        if _restart_shell is None or inventory.get('errors'):
+            return
+        handle, incarnation, verify = _restart_shell
+        matching = [b for b in inventory['builders'] if b['path'] == slot
+                    and b['terminal'] == handle and b.get('incarnation_id') == incarnation]
+        if (len(matching) != 1 or not matching[0]['connected'] or
+                matching[0].get('binding', {}).get('state') != 'none'):
+            raise ValueError('recovered shell identity changed; launch withheld')
+        verify()
+        matching[0]['shell_ready'] = True
     if c.get('publication', {}).get('mode') == 'auto_merge':
         protection = publication_guard.guard(c)
         if protection.get('verified') is not True:
@@ -266,6 +281,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         c = resolve_model(c, ref, model=model, thinking=thinking)
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
+        recovered_inventory(inventory)
         occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
         slots = c['builder']['slots']
         chosen = str(Path(slot).expanduser().resolve()) if slot else next(
@@ -337,6 +353,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         w = dict(w, branch=branch)
         preparation.update(worktree=w, branch=branch, stage='prepared')
         fresh = snapshot.collect(c)
+        recovered_inventory(fresh['inventory'])
         admission = snapshot.may_start(c, fresh)
         preparation['admission'] = admission
         if not admission['may_start']:
@@ -460,12 +477,16 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         if shells:
             candidate = shells[0]['terminal']
             terminal = orca(c, 'terminal', 'show', '--terminal', candidate)['terminal']
-            latest = orca(c, 'terminal', 'read', '--terminal', candidate, '--screen')['terminal']
             if (not terminal.get('connected') or terminal.get('orphaned') or
                     not terminal.get('writable') or terminal.get('worktreeId') != w['id'] or
-                    not shells[0].get('incarnation_id') or terminal.get('incarnationId') != shells[0]['incarnation_id'] or
-                    not health.shell_ready(latest)):
+                    not shells[0].get('incarnation_id') or terminal.get('incarnationId') != shells[0]['incarnation_id']):
                 raise ValueError('slot terminal is no longer a ready shell; launch withheld')
+            if _restart_shell is None:
+                latest = orca(c, 'terminal', 'read', '--terminal', candidate, '--screen')['terminal']
+                if not health.shell_ready(latest):
+                    raise ValueError('slot terminal is no longer a ready shell; launch withheld')
+            elif candidate != _restart_shell[0]:
+                raise ValueError('recovered shell changed; launch withheld')
             # Recheck immediately before sending: collection is not a reuse lease.
             binding = health.binding(c, candidate)
             if binding['state'] == 'none':
@@ -476,6 +497,10 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         preparations = state.read(c, 'launch-preparations', {})
         preparations[w['path']] = preparation
         state.write(c, 'launch-preparations', preparations)
+        if _restart_shell is not None:
+            if handle != _restart_shell[0]:
+                raise ValueError('recovered shell is no longer unbound; launch withheld')
+            _restart_shell[2]()
         if handle is not None:
             reason = 'ready_unbound_shell'
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')

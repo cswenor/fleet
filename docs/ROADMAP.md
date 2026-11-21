@@ -118,12 +118,13 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 An explicit Main `fleet restart` may recover an unrecognized frame on a
 terminal that predates Orca, only after exact settled-primary, final-stop,
 lease, idle pane and child-free foreground OMP proof and ordinary preflight.
-It journals one Ctrl-C and revalidates before `/exit`; normal launch follows
-only with exact process exit and verified shell. Unfinished relaunch is
-unchanged. See the [recovery runbook](MAIN.md#post-restart-clipped-screen).
-The isolated CLI regression replays the recorded TASK-88 frame. A scratch
-OMP 19.0.1 PTY confirmed the draft clear and `/exit` sequence. Main owns live
-post-deploy verification with the affected project's consent.
+It journals one pidfd SIGTERM, without submitting a hidden draft. Normal launch
+requires exact OMP exit, the same foreground shell and a fresh clean prompt.
+Unfinished relaunch is unchanged. See the [runbook](MAIN.md#post-restart-clipped-screen).
+The isolated CLI regression replays the TASK-88 frame. Scratch OMP 19.0.1
+handled SIGTERM with terminal teardown and a complete `session_exit` record;
+existing JSONL bytes were intact and the draft was never submitted. Main owns
+live post-deploy verification with the affected project's consent.
 
 ### TASK-151 — Stock Orca consuming check is batch-exact
 
