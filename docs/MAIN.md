@@ -296,10 +296,11 @@ presentation, not the contents acknowledged. On auto-handled runtimes, save
 the full batch and request ID privately; don't add `--ack` for an already
 handled Delivery. If a response is lost, look up the request with read-only
 `orca orchestration request-show --request ID --full --json` from the original
-caller and runtime. Replay the original native check with `--retry-request ID`
-only with a completed receipt. If the receipt is absent or the ID is lost,
-reconcile with read-only mailbox history; don't retry or start a fresh check to
-recover that batch. Older explicit-ack runtimes still require acknowledging
+caller and runtime. Process the complete batch from `result.receipt`; do not
+retry the check, since a pruned receipt can turn a retry into a new consuming
+check. If the original command is still running, wait for it. If the receipt
+is unavailable or incomplete, reconcile with read-only mailbox history.
+Older explicit-ack runtimes still require acknowledging
 the exact processed Delivery. See [ack and recovery](../README.md#inbox-wait)
 and the [version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
@@ -1375,8 +1376,8 @@ For manual recovery only, `--ack-run DELIVERY_ID` overrides that receipt.
 Newer native auto-handled checks (`nativeAutoAck: true`) need no second ack.
 Fleet preserves native `deliveryAcknowledged` and `nativeRequestId` when present;
 `acknowledged` is a native echo only, not proof Fleet performed an ack.
-Stock `request-show` / exact `--retry-request` recover recorded native outcomes;
-losing the request ID during a crash can lose access to the handled batch.
+Read the recorded batch with stock `request-show`; do not retry a lost
+consuming check. Losing the request ID can lose access to the handled batch.
 No local replay store or version sniffing. Fleet discovers `--full` per verb from
 stock help (cached in memory); Linux 1.4.242 lacks the flag and keeps its output.
 See [native acknowledgment and recovery](../README.md#inbox-wait) for details.

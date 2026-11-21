@@ -838,13 +838,13 @@ batches only. The local ack receipt is not a replay store.
 Auto-handled batches retain `nativeRequestId` when native mutation metadata is
 available. Retain that ID privately. If a response is lost, first run the
 read-only `orca orchestration request-show --request ID --full --json` as the
-original caller against the original runtime. With a completed receipt, replay
-the **original** native check with the same arguments plus `--retry-request ID`
-to recover the recorded Delivery, not newer mail. Real Mac replay preserved
-its delivery/message IDs. An absent receipt is ambiguous: the check may already
-have consumed mail. If the ID is lost or the receipt is absent, reconcile with
-read-only mailbox history; a retry or fresh check can consume newer mail, and
-Fleet cannot guarantee recovery of the handled batch.
+original caller against the original runtime. Recover the complete original
+batch directly from `result.receipt`. Do not use `--retry-request` to recover
+inbox mail: a missing receipt, including one pruned after lookup, can turn
+the retry into a fresh consuming check. If the original command is still
+running, wait for it. If the ID or complete receipt is unavailable, reconcile
+with read-only mailbox history; Fleet cannot guarantee recovery of the handled
+batch.
 Exit **0** / `event: "messages"` means delivery; exit **3** /
 `event: "timeout"` is an empty checkpoint, not failure or worker death.
 Exit **2** / `event: "error"` is a binding, runtime, transport or diagnostic

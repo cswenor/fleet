@@ -203,10 +203,10 @@ mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
 is a native echo only. Retain `nativeRequestId` privately. For a lost response,
 look up the receipt first with read-only
 `orchestration request-show --request ID --full --json` as the original caller
-against the original runtime. With a completed receipt, the original native
-check plus exact `--retry-request ID` recovers its recorded outcome. An absent
-receipt or lost ID requires read-only history reconciliation, not another
-consuming check or retry that may consume newer mail.
+against the original runtime. Process the complete batch from `result.receipt`.
+If the original command is still running, wait for it. If the ID or complete
+receipt is unavailable, reconcile with read-only history; do not retry a check
+that may consume newer mail if the receipt is gone.
 Fleet has no local replay store; never fabricate terminal delivery IDs or consume
 legacy history to simulate reliable delivery. Full orchestration records are
 requested only when per-verb stock help advertises `--full` (in-memory cache);
