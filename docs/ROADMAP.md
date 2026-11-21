@@ -113,6 +113,31 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-151 — Stock Orca consuming check is batch-exact
+
+[Orca's Delivery/custody change](https://github.com/stablyai/orca/pull/39256)
+supersedes the TASK-119 selective-ack gap. TASK-150 verified the official
+Orca 1.4.266 Linux AppImage in a private loopback runtime:
+
+- A terminal peek showed two messages. A later consuming check returned
+  exactly the three IDs it marked read, including a question sent between
+  peek and check. A fourth message sent after the response stayed unread.
+- The Run check returned and auto-acknowledged three IDs. Retrying the original
+  request ID replayed the same Delivery and IDs; explicit ack of that handled
+  Delivery changed no read states. A later message stayed unread.
+- A separate paired CLI invocation targeting a terminal backlog returned all
+  three rows it marked read, including a question mixed with status relays.
+  This does not establish distinct authenticated callers or authorize consuming
+  another agent's mail.
+
+The stock evidence is retained on TASK-150. These probes establish batch
+identity and after-response isolation, not a send timed inside the RPC.
+[Orca PR #41590](https://github.com/stablyai/orca/pull/41590) was closed unmerged;
+[issue #41545](https://github.com/stablyai/orca/issues/41545) was closed as
+completed. Fleet's stale-relay assessment stays read-only; see the
+[operator procedure](MAIN.md#brief-and-launch-builders). No Fleet code,
+installation or shared runtime changes.
+
 ### TASK-149 — Investigation-only completion and independent carries
 
 Previously approved carried threads remain usable on their exact authoritative
@@ -863,10 +888,9 @@ older generations return `superseded` without signals.
 
 Main revised pruning in decisions `msg_4c9da3acbd7d` / `msg_bc065d626aeb`:
 `relays clear-stale --terminal T --dry-run` is Main-only, counts-only and never
-mutates mail. Native selective mark-read or conditional consume is missing;
-peek/consume has a concurrent-question loss race. Automatic and manual mutation
-are out of scope until Orca provides that API. Duplicate text alone cannot prove
-relay occurrence identity.
+mutates mail. Duplicate text alone cannot prove relay occurrence identity.
+TASK-151 supersedes the original silent-loss rationale on verified stock Orca;
+the no-mutation policy is unchanged.
 
 Read-only real Project Alpha PR #2546 replay captured seven check snapshots on head
 `b109a9f625acb801f3a067dd5e6810994b80a878`, all overall failure. Six adjacent

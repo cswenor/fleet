@@ -267,11 +267,38 @@ It prints counts, blocker sender classes/types and `would_be_all_stale`, never
 bodies. Only unthreaded supervisor STATUS relays from this project that predate
 the lane launch count as proven stale. Matching text does not prove the same
 relay occurrence. Capped history cannot prove an all-stale inbox.
-There is no mutation mode and no automatic cleanup: stock Orca lacks selective
-mark-read by message ID or a consuming check conditional on expected IDs/max
-sequence. Peek then consume could silently consume a newly arrived question;
-the backlog remains until that native capability exists. Never edit Orca's DB
-or consume a mixed lane inbox to clear cosmetic duplicates.
+There is no mutation mode or automatic cleanup. A peek is not a reservation or
+a selective-ack list. On stock Orca 1.4.266, the consuming check returns every
+message it marks handled, including a question that arrived after the peek.
+This removes the silent-loss rationale for a selective-ack patch, not the need
+to process every returned message. Do not consume another agent's inbox or
+edit Orca's database to clear cosmetic duplicates.
+
+**Processing stock Orca inbox batches.**
+
+For a standalone builder, run these from the terminal that owns the mailbox
+(`TERMINAL` is its current runtime-issued handle):
+
+```sh
+orca orchestration check --terminal TERMINAL --peek --full --json
+orca orchestration check --terminal TERMINAL --full --json
+```
+
+The first command is read-only; scripts that only inspect mail stop there.
+Run the second only when ready to process **all** returned rows, not just the
+ones seen in the peek. Read and act on questions and other actionable mail
+before dismissing stale relays. If an authorized handoff requires forwarding
+an actionable message, retain its original ID and have the mailbox owner reply
+in the original thread.
+
+Run-bound Mains keep using `fleet wait`; its selection controls wake and
+presentation, not the contents acknowledged. On auto-handled runtimes, save
+the full batch and request ID privately; don't add `--ack` for an already
+handled Delivery. If a response is lost and the request ID is available, rerun
+the **original native check** with `--retry-request ID`, not a fresh consuming
+check. Older explicit-ack runtimes still require acknowledging the exact
+processed Delivery. See [ack and recovery](../README.md#inbox-wait) and the
+[version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
 TASK-65 adds conditional REST reads and private supervisor caches. Use
 `watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.

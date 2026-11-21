@@ -413,6 +413,15 @@ launch's claims, including carried NEXT; competing launches still block.
 Replacement launches never inherit approval; restart OLD/NEXT uses the primary ref.
 This is not native Dispatch or arbitrary task switching. Keep builder terminals unbound.
 
+For a standalone terminal on verified stock Orca 1.4.266, use
+`orca orchestration check --terminal TERMINAL --peek --full --json` for read-only
+inspection. The mailbox owner may omit `--peek` when ready to handle **every**
+returned row. A consuming check returns exactly the batch it marks read, which
+may include new questions absent from the peek. Do not consume mail from a
+watch script or on another agent's behalf. Run-bound Mains keep using `fleet wait`
+and the native replay/ack rules above. Fleet's stale-relay assessment remains
+read-only.
+
 
 ## Publication: two independent gates
 
