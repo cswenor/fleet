@@ -1028,12 +1028,9 @@ assistant message or a thread result does not prove an empty omitted composer.
    Record `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID
    --evidence 'positive exit and shell proof'`, then use normal `fleet launch`
    for the next Main-approved fresh task. Launch still requires its shell proof.
-4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
-   normal UI without touching the composer, then recapture and retry guarded
-   restart only with a full idle footer/empty composer and all existing gates.
-   Main approved this procedure; TASK-88 did not execute or verify it. Treat every
-   pre-existing builder pane as potentially needing recovery after another Orca
-   restart; a new builder session alone did not repair the affected pane.
+4. **Recovery B — operator display resize.** Open this terminal in Orca and
+   resize/refit it once (do not type), then rerun the same fleet command.
+   See [Orca #46409](https://github.com/stablyai/orca/issues/46409).
 
 Neither recovery permits interrupting a working agent. If proof fails, stop and
 escalate to Main/owner. Never send Ctrl-L/Escape to an unproven composer.

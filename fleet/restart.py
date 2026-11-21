@@ -447,9 +447,9 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None):
     if ui != 'idle':
         raise ValueError(
             'no positive idle OMP composer; working, dialog, background job, or stale screen'
-            + ('; terminal session predates the current Orca runtime: screen model may be '
-               'stale after Orca restart; see docs/MAIN.md#post-restart-clipped-screen. '
-               'Agent done/idle alone is insufficient; no retirement input sent'
+            + (f'; pane {handle} predates the current Orca runtime and may have a stale screen. '
+               'Open this terminal in Orca and resize/refit it once (do not type), '
+               'then rerun the same fleet command.'
                if _terminal_predates_runtime(c, record, tree, handle) else ''))
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
