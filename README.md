@@ -395,6 +395,8 @@ next supervisor cycle without a restart. Listed open PRs use
 with the PR URL. Both use the `pr_stuck` urgency setting, progress timer, and
 pause rules. Changing designation does not repeat an alert for the same stall.
 Unknown, closed, and merged numbers stay listed but do not alert.
+The Main-terminal check follows Fleet's local caller convention; it is not a
+security boundary between processes running under the same Unix account.
 
 Each cycle observes `coordinator.terminal` for Main liveness.
 `main_down` is immediate for a missing, disconnected or orphaned terminal.
