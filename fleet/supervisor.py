@@ -452,6 +452,8 @@ def stuck_pr_alerts(c, ledger, current, now, *, critical_prs=()):
                for entry in queue[:-1] for run in entry.get('runs', [])):
             timer = {'signature': signature, 'since': now}
         active[key] = timer
+        if critical_prs is None:
+            continue  # Unknown designations must not consume a stall episode.
         critical = p['number'] in critical_prs
         minutes = (urgent.get('critical_path_stall_minutes', 60) if critical
                    else urgent.get('pr_stuck_minutes', 45))
@@ -859,7 +861,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
             critical_prs = critical_path.listed_prs(c)
         except (ValueError, OSError):
             s['errors'].append('critical-path state unavailable')
-            critical_prs = ()
+            critical_prs = None
         pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time(), critical_prs=critical_prs)
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g

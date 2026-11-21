@@ -150,10 +150,15 @@ class UrgentRelayTests(unittest.TestCase):
     def test_invalid_critical_path_state_does_not_stop_supervision(self):
         state.write(self.c, 'critical-path', None)
         self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
-        observed, _ = self.cycle(0)
+        self.cycle(0)
+        observed, _ = self.cycle(2700)
         self.assertIn('critical-path state unavailable', observed['errors'])
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
                          ['[urgent] Builder wrong_model: TASK-37'])
+        state.write(self.c, 'critical-path', [1])
+        self.cycle(3600)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[1:]],
+                         ['[urgent] Critical path stalled: PR #1, 60m since last activity'] * 2)
 
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},
