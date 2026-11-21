@@ -161,6 +161,29 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual([e['subject'] for e, _ in self.calls],
                          ['PR #1 stuck'] * 2 + ['[urgent] PR #1 stuck'] * 2)
 
+    def test_legacy_ordinary_stall_preserves_urgency_across_upgrade(self):
+        from fleet import critical_path
+        for already_urgent in (False, True):
+            with self.subTest(already_urgent=already_urgent):
+                self.calls.clear()
+                self.c['urgent'] = {'events': []}
+                ledger = {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': {}}
+                current = self.s['github']
+                supervisor.stuck_pr_alerts(self.c, ledger, current, 0)
+                alert, = supervisor.stuck_pr_alerts(self.c, ledger, current, 2700)
+                if already_urgent:
+                    alert = supervisor.urgent_event({}, alert)
+                ledger['active_alerts'][alert['key']] = supervisor.event_signature(alert)
+                state.write(self.c, 'supervisor', ledger)
+                with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+                    critical_path.manage(self.c, 'add', 1)
+                self.cycle(3600)
+                self.c['urgent']['events'] = ['pr_stuck']
+                self.cycle(3601)
+                expected = [] if already_urgent else [
+                    '[urgent] Critical path stalled: PR #1, 60m since last activity'] * 2
+                self.assertEqual([e['subject'] for e, _ in self.urgent_calls()], expected)
+
     def test_invalid_critical_path_state_does_not_stop_supervision(self):
         state.write(self.c, 'critical-path', None)
         self.s['inventory']['builders'][0]['flags'] = ['wrong_model']

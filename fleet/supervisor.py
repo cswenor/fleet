@@ -921,13 +921,20 @@ def cycle(c, deliver=True, *, github_scheduler=None):
             # Elapsed text and designation can change within one stall; urgency can still upgrade.
             kind = a.get('type', 'status')
             previous = active_stuck.get(a['key'])
-            legacy_status = (kind == 'question' and a['subject'].startswith('[urgent] PR #')
-                             and previous == event_signature({**a, 'type': 'status',
-                                                              'subject': a['subject'].removeprefix('[urgent] ')}))
-            if previous is None or kind == 'question' and (previous == 'status' or legacy_status):
+            if previous not in (None, 'status', 'question'):
+                # Before critical-path support the persisted value hashed the ordinary message.
+                minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
+                ordinary = {**a, 'type': 'status', 'subject': f'PR #{a["pr"]} stuck',
+                            'body': a['body'].split('\n', 1)[0]
+                            + f'\nNo state/check/review progress for {minutes:g} minutes.'}
+                if previous == event_signature(ordinary):
+                    previous = 'status'
+                elif previous == event_signature({**ordinary, 'type': 'question',
+                                                  'subject': '[urgent] ' + ordinary['subject']}):
+                    previous = 'question'
+            if previous is None or (kind == 'question' and previous == 'status'):
                 pending.append({**a, 'key': a['key'] + ':' + str(time.time_ns())})
-            # Do not re-page the same episode after an urgency off/on toggle.
-            next_active[a['key']] = 'question' if previous == 'question' else kind
+            next_active[a['key']] = kind if previous in (None, 'status') else previous
             continue
         signature = event_signature(a)
         legacy_key = a.pop('legacy_key', None)
