@@ -196,17 +196,20 @@ class DispatcherTests(unittest.TestCase):
         self.builder['shell_ready'] = True
         self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
 
-    def test_retirement_must_match_launch_and_verified_shell_stage(self):
+    def test_retirement_must_match_launch_and_confirm_exit(self):
         receipt = {'id': 'launch', 'ref': 'TASK-2', 'worktree': {'path': self.path},
                    'terminal': 'old', 'terminal_incarnation_id': 'old-inc'}
         state.write(self.c, 'launches', {self.path: receipt})
         retirement = {'launch_id': 'launch', 'terminal': 'old',
                       'terminal_incarnation_id': 'old-inc', 'stage': 'exit-sent'}
-        state.write(self.c, 'retirements', {self.path: retirement})
-        self.assertIsNone(self.propose()['proposal'])
-        retirement['stage'] = 'shell-verified'
-        state.write(self.c, 'retirements', {self.path: retirement})
-        self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
+        for stage in ('exit-sent', 'omp-retired', 'pane-close-attempted'):
+            retirement['stage'] = stage
+            state.write(self.c, 'retirements', {self.path: retirement})
+            self.assertIsNone(self.propose()['proposal'])
+        for stage in ('shell-verified', 'pane-closed'):
+            retirement['stage'] = stage
+            state.write(self.c, 'retirements', {self.path: retirement})
+            self.assertEqual(self.propose()['proposal']['ref'], 'TASK-2')
         retirement['launch_id'] = 'other-launch'
         state.write(self.c, 'retirements', {self.path: retirement})
         self.assertIsNone(self.propose()['proposal'])

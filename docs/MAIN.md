@@ -1027,12 +1027,15 @@ on a stale shell or to `relaunch` an unfinished builder.
    does not exclude Orca UI input.
    If close or launch is withheld or unconfirmed, inspect `retirements.json`
    and the launch receipts. Never repeat the signal, close, or `restart`.
-   Before using `fleet launch`, verify no replacement started and, if the old
+   Before using `fleet launch`, verify no replacement started. If the old
    pane remains, manually recover or close it only after proving it idle.
+   Without a confirmed `pane-closed` receipt, independently verify the
+   exact old pane is gone and record the evidence with
+   `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT` before launch.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
    restart only with a full idle footer/empty composer and all existing gates.
-   Use this when required proof is unavailable and no input was attempted.
+   Retry `restart` only if neither retirement input nor SIGTERM was attempted.
    If proof still fails, stop and escalate to Main/owner. Never send
    Ctrl-L/Escape to an unproven composer. No stock CLI terminal resize/refresh
    command was found. Upstream geometry/resize API changes require an owner

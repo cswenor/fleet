@@ -121,7 +121,7 @@ def unresolved(c, inventory):
         retired = (bool(receipt.get('id')) and retirement.get('launch_id') == receipt['id']
                    and retirement.get('terminal') == receipt['terminal']
                    and bool(incarnation) and retirement.get('terminal_incarnation_id') == incarnation
-                   and retirement.get('stage') in ('shell-verified', 'launch-attempted', 'launched'))
+                   and retirement.get('stage') in ('pane-closed', 'shell-verified', 'launch-attempted', 'launched'))
         reconciliation = reconciled.get(receipt.get('id'), {})
         acknowledged = (bool(receipt.get('id')) and reconciliation.get('slot') == path
                         and reconciliation.get('launch_id') == receipt['id'])
