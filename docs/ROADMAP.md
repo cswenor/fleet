@@ -115,30 +115,15 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ### TASK-151 — Stock Orca consuming check is batch-exact
 
-[Orca's Delivery/custody change](https://github.com/stablyai/orca/pull/39256)
-supersedes the TASK-119 selective-ack gap. TASK-150 verified the official
-Orca 1.4.266 Linux AppImage in a private loopback runtime:
-
-- A terminal peek showed two messages. A later consuming check returned
-  exactly the three IDs it marked read, including a question sent between
-  peek and check. A fourth message sent after the response stayed unread.
-- The Run check returned and auto-acknowledged three IDs. Retrying the original
-  request ID replayed the same Delivery and IDs; explicit ack of that handled
-  Delivery changed no read states. A later message stayed unread.
-- A separate paired CLI invocation targeting a terminal backlog returned all
-  three rows it marked read, including a question mixed with status relays.
-  This does not establish distinct authenticated callers or authorize consuming
-  another agent's mail.
-
-The stock evidence is retained on TASK-150. These probes establish batch
-identity and after-response isolation for the tested mail, not a send timed
-inside the RPC or a guarantee about every read-state transition. Orca can also
-reconcile prior full structured-chat deliveries without returning them again.
-[Orca PR #41590](https://github.com/stablyai/orca/pull/41590) was closed unmerged;
-[issue #41545](https://github.com/stablyai/orca/issues/41545) was closed as
-completed. Fleet's stale-relay assessment stays read-only; see the
-[operator procedure](MAIN.md#brief-and-launch-builders). No Fleet code,
-installation or shared runtime changes.
+[Orca Delivery/custody](https://github.com/stablyai/orca/pull/39256) supersedes
+the TASK-119 selective-ack gap. In TASK-150's isolated stock 1.4.266 probes, the
+terminal check returned the question sent after the peek, Run replay returned
+the original Delivery, and mail sent after the consuming response stayed unread.
+Batch-exact describes the returned handover, not other read-state transitions
+for previously delivered structured chat. Evidence is on TASK-150.
+[PR #41590](https://github.com/stablyai/orca/pull/41590) closed unmerged;
+[issue #41545](https://github.com/stablyai/orca/issues/41545) closed as completed.
+Fleet's stale-relay assessment remains read-only.
 
 ### TASK-149 — Investigation-only completion and independent carries
 

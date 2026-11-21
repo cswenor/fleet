@@ -267,44 +267,18 @@ It prints counts, blocker sender classes/types and `would_be_all_stale`, never
 bodies. Only unthreaded supervisor STATUS relays from this project that predate
 the lane launch count as proven stale. Matching text does not prove the same
 relay occurrence. Capped history cannot prove an all-stale inbox.
-There is no mutation mode or automatic cleanup. A peek is not a reservation or
-a selective-ack list. On stock Orca 1.4.266, the consuming check returns the
-batch it hands over, which can include a question that arrived after the peek.
-Process the entire batch. A check can also reconcile messages already delivered
-in full through structured chat; those are not new batch rows. Do not consume
-another agent's inbox or edit Orca's database to clear cosmetic duplicates.
+Fleet has no mutation mode or automatic cleanup.
 
-**Processing stock Orca inbox batches.**
+On stock Orca 1.4.266, `orca orchestration check --terminal TERMINAL --peek
+--full --json` is read-only; a peek is not a reservation or an acknowledgment
+list. Omit `--peek` to consume the batch only when ready to process **every**
+returned message, including questions that arrived after the peek. If explicitly
+authorized to clear another terminal's backlog, forward actionable messages
+with their original IDs so the mailbox owner can reply in-thread. Inspect-only
+scripts must not consume. Run-bound Mains keep using `fleet wait`.
 
-For a standalone builder, run these from the terminal that owns the mailbox
-(`TERMINAL` is its current runtime-issued handle):
-
-```sh
-orca orchestration check --terminal TERMINAL --peek --full --json
-orca orchestration check --terminal TERMINAL --full --json
-```
-
-The first command is read-only; scripts that only inspect mail stop there.
-Run the second only when ready to process **all** returned rows, not just the
-ones seen in the peek. Read and act on questions and other actionable mail
-before dismissing stale relays. If an authorized handoff requires forwarding
-an actionable message, retain its original ID and have the mailbox owner reply
-in the original thread.
-
-**Lost response (standalone terminal or Run).** Save the full batch and request
-ID privately. If a consuming check's response is lost, look up its request
-with read-only `orca orchestration request-show --request ID --full --json`
-from the original caller and runtime. Process the complete batch from
-`result.receipt`; do not retry the check, since a pruned receipt can turn a
-retry into a new consuming check. If the original command is still running,
-wait for it. If the ID or complete receipt is unavailable, reconcile with
-read-only mailbox history.
-
-Run-bound Mains keep using `fleet wait`; its selection controls wake and
-presentation, not the contents acknowledged. Don't add `--ack` for an
-already handled Delivery. Older explicit-ack runtimes still require
-acknowledging the exact processed Delivery. See [ack and recovery](../README.md#inbox-wait)
-and the [version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
+For a lost terminal or Run response, use [read-only receipt recovery](../README.md#inbox-wait).
+See [TASK-151 evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
 TASK-65 adds conditional REST reads and private supervisor caches. Use
 `watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.

@@ -200,13 +200,11 @@ processing **all** rows, re-arm the recommended command unchanged.
 `--auto-ack` submits the previous printed delivery on explicit-ack runtimes.
 On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
 mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
-is a native echo only. Retain `nativeRequestId` privately. For a lost response,
-look up the receipt first with read-only
-`orchestration request-show --request ID --full --json` as the original caller
-against the original runtime. Process the complete batch from `result.receipt`.
-If the original command is still running, wait for it. If the ID or complete
-receipt is unavailable, reconcile with read-only history; do not retry a check
-that may consume newer mail if the receipt is gone.
+is a native echo only. Retain `nativeRequestId` privately. For a lost terminal
+or Run check response, use read-only `orca orchestration request-show --request
+ID --full --json` from the original caller/runtime and read `result.receipt`.
+If incomplete or unavailable, reconcile with read-only history, not a retry.
+If the original command is still running, wait for it.
 Fleet has no local replay store; never fabricate terminal delivery IDs or consume
 legacy history to simulate reliable delivery. Full orchestration records are
 requested only when per-verb stock help advertises `--full` (in-memory cache);
@@ -416,18 +414,10 @@ launch's claims, including carried NEXT; competing launches still block.
 Replacement launches never inherit approval; restart OLD/NEXT uses the primary ref.
 This is not native Dispatch or arbitrary task switching. Keep builder terminals unbound.
 
-For a standalone terminal on verified stock Orca 1.4.266, use
-`orca orchestration check --terminal TERMINAL --peek --full --json` for read-only
-inspection. The mailbox owner may omit `--peek` when ready to handle **every**
-returned row. A consuming check returns the batch it hands over, which may
-include new questions absent from the peek. Reconciliation can mark messages
-already delivered through structured chat read without returning them again.
-Do not consume mail from a watch script or on another agent's behalf. The
-read-only `request-show`
-recovery procedure above also applies to standalone consuming checks: read
-`result.receipt` or reconcile through read-only history, never retry the
-check to recover a lost response. Run-bound Mains keep using `fleet wait`.
-Fleet's stale-relay assessment remains read-only.
+On stock Orca 1.4.266 use `orca orchestration check --terminal TERMINAL --peek
+--full --json` for read-only inspection. A consuming check can return messages
+absent from the peek; process every returned row. Never consume from an
+inspect-only script. Fleet's stale-relay assessment remains read-only.
 
 
 ## Publication: two independent gates
