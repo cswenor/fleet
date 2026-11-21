@@ -451,7 +451,7 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None):
         raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
     if ui != 'idle':
         refusal = 'no positive idle OMP composer; working, dialog, background job, or stale screen'
-        if _terminal_predates_runtime(c, record, tree, handle):
+        if ui == 'unknown' and _terminal_predates_runtime(c, record, tree, handle):
             raise _StaleScreen(
                 f'{refusal}; pane {handle} predates the current Orca runtime and may have a stale screen. '
                 'Open this terminal in Orca and resize/refit it once (do not type), '
