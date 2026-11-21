@@ -2,6 +2,7 @@ import copy
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+from os import getpid
 from pathlib import Path
 import tempfile
 import shlex
@@ -63,6 +64,7 @@ class RetirementTests(unittest.TestCase):
         ns = self.proc / 'self/ns'
         ns.mkdir(parents=True)
         (ns / 'pid').symlink_to('pid:[1234]')
+        (self.proc / 'self/status').write_text(f'NSpid:\t{getpid()}\n')
         proc_patch = patch.object(restart, 'PROC', self.proc)
         proc_patch.start()
         self.addCleanup(proc_patch.stop)
@@ -837,6 +839,14 @@ class RetirementTests(unittest.TestCase):
         self.events.append({'type': 'message', 'message': {'role': 'user'}})
         self.write_log()
         self.refused('final assistant stop')
+
+    def test_stale_recovery_refuses_ancestor_procfs_view_even_when_pids_match(self):
+        self.stale_recovery()
+        self.as_main()
+        (self.proc / 'self/status').write_text(f'NSpid:\t{getpid()}\t{getpid()}\n')
+        self.refused('procfs PID view is not syscall-local')
+        self.pidfd_open.assert_not_called()
+        self.assertEqual(self.term_signals, [])
 
     def test_stale_recovery_revalidates_after_pidfd_open_and_allows_retry_before_signal(self):
         self.stale_recovery()

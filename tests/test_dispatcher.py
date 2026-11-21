@@ -1,4 +1,5 @@
 from pathlib import Path
+from os import getpid
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -249,6 +250,7 @@ class DispatcherTests(unittest.TestCase):
             ns = proc / 'self/ns'
             ns.mkdir(parents=True)
             (ns / 'pid').symlink_to('pid:[1234]')
+            (proc / 'self/status').write_text(f'NSpid:\t{getpid()}\n')
             stat = proc / '123/stat'
             stat.parent.mkdir()
             stat.write_text('123 (omp) S ' + '0 ' * 18 + '100\n')

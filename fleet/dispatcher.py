@@ -184,9 +184,10 @@ def reconcile(c, slot, launch_id, evidence):
         stale = _matching_retirement(launch, retirement) and _stale_retirement(retirement)
         if stale and not _pane_absent(launch, inventory):
             raise ValueError('reconcile withheld: absence of the exact stale pane is unconfirmed')
-        if (stale and retirement.get('retired') is not True
-                and not process_identity.exited(retirement.get('session', {}).get('process', {}))):
-            raise ValueError('reconcile withheld: exact retired OMP exit unconfirmed')
+        if stale and retirement.get('retired') is not True:
+            process = retirement.get('session', {}).get('process', {})
+            if not process.get('pid_namespace') or not process_identity.exited(process):
+                raise ValueError('reconcile withheld: exact retired OMP exit unconfirmed')
         receipt = {'slot': slot, 'launch_id': launch_id, 'at': time.time(),
                    'actor': actor, 'evidence': evidence.strip()}
         if stale:

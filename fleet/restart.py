@@ -11,7 +11,7 @@ import sys
 import time
 from . import dispatcher, github, governor, health, launcher, snapshot, state, steering, threads
 from .commands import CommandError, gh, json_run, orca
-from .process_identity import exited, omp_executable
+from .process_identity import exited, local_pid_namespace, omp_executable
 
 # Exact observed omp (type, customType) encodings; never allow arbitrary custom events.
 POST_TURN_METADATA = frozenset({
@@ -118,8 +118,7 @@ def _foreground(c, record, slot, handle):
             if after[0] not in ('R', 'S') or before[1:6] != after[1:6] or before[19] != after[19]:
                 continue
             owners.append({'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2],
-                           'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip(),
-                           'pid_namespace': str((PROC / 'self/ns/pid').readlink())})
+                           'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip()})
         except (OSError, ValueError, IndexError, UnicodeError):
             continue
     if len(owners) != 1:
@@ -510,6 +509,10 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None, recover_stale
         if (stale_shell is not None and shell != stale_shell or
                 previous and previous.get('stale_shell', shell) != shell):
             raise ValueError('controlling shell changed; retirement withheld')
+        namespace = local_pid_namespace(PROC)
+        if namespace is None:
+            raise ValueError('procfs PID view is not syscall-local; retirement withheld')
+        proof['process']['pid_namespace'] = namespace
         proof['stale_shell'] = shell
     return proof
 
@@ -546,6 +549,9 @@ def _terminate_omp(c, record, tree, handle, proof, journal):
     """Pin the PID before the last proof; no numeric-PID signal fallback."""
     if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
         raise ValueError('pidfd unavailable; see docs/MAIN.md#post-restart-clipped-screen')
+    namespace = proof['process']['pid_namespace']
+    if local_pid_namespace(PROC) != namespace:
+        raise ValueError('procfs PID view changed; retirement withheld')
     try:
         fd = os.pidfd_open(proof['process']['pid'])
         try:
@@ -553,8 +559,8 @@ def _terminate_omp(c, record, tree, handle, proof, journal):
             if latest['process'] != proof['process']:
                 raise ValueError('foreground changed before SIGTERM; retirement withheld')
             _session(record, tree['path'], latest)
-            if (_foreground(c, record, tree['path'], handle) != proof['process'] or
-                    not _children_are(proof['process'])):
+            if ({**_foreground(c, record, tree['path'], handle), 'pid_namespace': namespace} != proof['process']
+                    or local_pid_namespace(PROC) != namespace or not _children_are(proof['process'])):
                 raise ValueError('child-free foreground proof changed before SIGTERM; retirement withheld')
             shell, omp = proof['stale_shell'], proof['process']
             if ({proc.name for proc, _ in _tty_occupants(omp['tty'])} !=

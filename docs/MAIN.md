@@ -1017,6 +1017,7 @@ on a stale shell or to `relaunch` an unfinished builder.
    final assistant stop with no later work, live session lease, exact foreground
    OMP and no children. The exact pane must be done/idle and not interrupted.
    Recognized working, dialog, background and draft frames still refuse.
+   The mounted procfs must use the same PID numbering as Fleet's syscalls.
    Fleet journals one Linux pidfd SIGTERM to that OMP only. It does not send
    keystrokes to OMP; any hidden draft is discarded, never submitted. After
    exact OMP exit, Fleet closes only the exact stale pane after it proves the
