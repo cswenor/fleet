@@ -60,6 +60,9 @@ class RetirementTests(unittest.TestCase):
         boot = self.proc / 'sys/kernel/random/boot_id'
         boot.parent.mkdir(parents=True)
         boot.write_text('test-boot')
+        ns = self.proc / 'self/ns'
+        ns.mkdir(parents=True)
+        (ns / 'pid').symlink_to('pid:[1234]')
         proc_patch = patch.object(restart, 'PROC', self.proc)
         proc_patch.start()
         self.addCleanup(proc_patch.stop)

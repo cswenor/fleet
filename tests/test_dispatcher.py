@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 from fleet import dispatcher, state
 from fleet.commands import CommandError
+from fleet.process_identity import exited as check_exit
 
 
 class DispatcherTests(unittest.TestCase):
@@ -223,7 +224,9 @@ class DispatcherTests(unittest.TestCase):
                   'terminal': 'old', 'terminal_incarnation_id': 'old-inc'}
         state.write(self.c, 'launches', {self.path: launch})
         retirement = {'launch_id': 'launch', 'terminal': 'old',
-                      'terminal_incarnation_id': 'old-inc', 'stage': 'pane-close-attempted'}
+                      'terminal_incarnation_id': 'old-inc', 'stage': 'sigterm-attempted',
+                      'session': {'process': {'pid': 123, 'start': '100', 'boot_id': 'test',
+                                              'pid_namespace': 'pid:[1234]'}}}
         state.write(self.c, 'retirements', {self.path: retirement})
         with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'), \
                 patch.object(dispatcher.health, 'collect', return_value=self.inventory):
@@ -239,7 +242,22 @@ class DispatcherTests(unittest.TestCase):
                 dispatcher.reconcile(self.c, self.path, 'launch', 'inventory without old host')
             self.inventory['terminal_handles'] = []
             self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
-            dispatcher.reconcile(self.c, self.path, 'launch', 'exact old pane absent')
+            proc = Path(self.path) / 'proc'
+            boot = proc / 'sys/kernel/random/boot_id'
+            boot.parent.mkdir(parents=True)
+            boot.write_text('test')
+            ns = proc / 'self/ns'
+            ns.mkdir(parents=True)
+            (ns / 'pid').symlink_to('pid:[1234]')
+            stat = proc / '123/stat'
+            stat.parent.mkdir()
+            stat.write_text('123 (omp) S ' + '0 ' * 18 + '100\n')
+            with patch.object(dispatcher.process_identity, 'exited',
+                              side_effect=lambda process: check_exit(process, proc)):
+                with self.assertRaisesRegex(ValueError, 'exact retired OMP exit unconfirmed'):
+                    dispatcher.reconcile(self.c, self.path, 'launch', 'exact old pane absent')
+                stat.unlink()
+                dispatcher.reconcile(self.c, self.path, 'launch', 'exact OMP exited and old pane absent')
             self.assertEqual(dispatcher.receipt_reasons(self.c, self.inventory, self.path), [])
 
     def test_main_reconciliation_refuses_live_unknown_wrong_id_or_actor(self):

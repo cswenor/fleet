@@ -121,7 +121,9 @@ lease, idle pane and child-free foreground OMP proof and ordinary preflight.
 It journals one pidfd SIGTERM without submitting a hidden draft, then
 closes only the exact stale pane, after proving the same unbound foreground
 shell has no children. Ordinary admission gates a fresh terminal in the same
-worktree. Unfinished relaunch is unchanged. See the [runbook](MAIN.md#post-restart-clipped-screen).
+worktree. If retirement is interrupted before OMP exit is recorded,
+reconciliation requires proof of process exit independent of pane absence.
+Unfinished relaunch is unchanged. See the [runbook](MAIN.md#post-restart-clipped-screen).
 The isolated CLI regression replays the TASK-88 frame. Scratch OMP 19.0.1
 handled SIGTERM with terminal teardown and a complete `session_exit` record;
 existing JSONL bytes were intact and the draft was never submitted. Main owns

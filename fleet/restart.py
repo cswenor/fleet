@@ -11,7 +11,7 @@ import sys
 import time
 from . import dispatcher, github, governor, health, launcher, snapshot, state, steering, threads
 from .commands import CommandError, gh, json_run, orca
-from .process_identity import omp_executable
+from .process_identity import exited, omp_executable
 
 # Exact observed omp (type, customType) encodings; never allow arbitrary custom events.
 POST_TURN_METADATA = frozenset({
@@ -118,7 +118,8 @@ def _foreground(c, record, slot, handle):
             if after[0] not in ('R', 'S') or before[1:6] != after[1:6] or before[19] != after[19]:
                 continue
             owners.append({'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2],
-                           'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip()})
+                           'boot_id': (PROC / 'sys/kernel/random/boot_id').read_text().strip(),
+                           'pid_namespace': str((PROC / 'self/ns/pid').readlink())})
         except (OSError, ValueError, IndexError, UnicodeError):
             continue
     if len(owners) != 1:
@@ -512,18 +513,6 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None, recover_stale
         proof['stale_shell'] = shell
     return proof
 
-def _omp_exited(process):
-    if not process.get('boot_id') or (PROC / 'sys/kernel/random/boot_id').read_text().strip() != process['boot_id']:
-        raise ValueError('boot identity changed or unknown')
-    old = PROC / str(process['pid']) / 'stat'
-    try:
-        if old.read_text().rsplit(')', 1)[1].split()[19] == process['start']:
-            return False
-    except FileNotFoundError:
-        pass
-    return True
-
-
 def _tty_occupants(tty):
     for proc in PROC.glob('[0-9]*'):
         try:
@@ -536,8 +525,8 @@ def _tty_occupants(tty):
 
 def _exited_shell(process, handle):
     """Positive same-boot exit and sole foreground shell on the recorded pts."""
-    if not _omp_exited(process):
-        raise ValueError('bound OMP process is still present')
+    if not exited(process, PROC):
+        raise ValueError('bound OMP exit is unconfirmed')
     occupants = list(_tty_occupants(process['tty']))
     if len(occupants) != 1:
         raise ValueError('recorded pts has no unique shell occupant')
@@ -767,7 +756,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
                 if stale_shell:
-                    if _omp_exited(proof['process']):
+                    if exited(proof['process'], PROC):
                         break
                     time.sleep(0.25)
                     continue

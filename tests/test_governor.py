@@ -179,7 +179,7 @@ class GovernorTests(unittest.TestCase):
             'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
             'at': 4, 'stage': 'pane-close-attempted'}})
         state.write(self.c, 'reconciliations', {'b': {
-            'launch_id': 'b', 'slot': '/b', 'at': 4.5, 'stale_pane_absent': True}})
+            'launch_id': 'b', 'slot': '/b', 'at': 4.5, 'stale_pane_and_omp_absent': True}})
         self.advance(6)
         self.assertEqual(self.ledger['governor']['parked'][0]['status'], 'superseded')
 

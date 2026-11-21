@@ -1031,9 +1031,10 @@ on a stale shell or to `relaunch` an unfinished builder.
    verify that the exact recorded OMP exited and that the same pane incarnation
    is unbound and its recorded shell is foreground with no children. A shell
    frame alone proves none of this. If any proof is missing, stop and escalate.
-   Before `fleet launch NEXT --slot PATH`, verify that the exact old pane is
-   absent and no replacement started. Without a confirmed close receipt, record
-   that proof with `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT`.
+   Before `fleet launch NEXT --slot PATH`, verify that the exact recorded OMP
+   exited, the old pane is absent, and no replacement started. A missing pane
+   does not prove process exit. Without a confirmed close receipt, record the
+   proof with `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT`.
    The next launch still creates a fresh terminal in the original worktree.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded

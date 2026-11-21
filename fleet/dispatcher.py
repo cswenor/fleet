@@ -4,7 +4,7 @@ import os
 import time
 import re
 from pathlib import Path
-from . import config, health, snapshot, state
+from . import config, health, process_identity, snapshot, state
 from .commands import CommandError, json_run, run
 
 PRIORITY = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
@@ -151,6 +151,8 @@ def unresolved(c, inventory):
         reconciliation = reconciled.get(receipt.get('id'), {})
         acknowledged = (bool(receipt.get('id')) and reconciliation.get('slot') == path
                         and reconciliation.get('launch_id') == receipt['id'])
+        if stale and reconciliation.get('stale_pane_and_omp_absent') is not True:
+            acknowledged = False
         # A stale pane still in inventory cannot be reused, regardless of its frame or receipts.
         if (stale and not _pane_absent(receipt, inventory)) or not (exited or retired or acknowledged):
             pending[(path, receipt.get('id'))] = receipt
@@ -182,10 +184,13 @@ def reconcile(c, slot, launch_id, evidence):
         stale = _matching_retirement(launch, retirement) and _stale_retirement(retirement)
         if stale and not _pane_absent(launch, inventory):
             raise ValueError('reconcile withheld: absence of the exact stale pane is unconfirmed')
+        if (stale and retirement.get('retired') is not True
+                and not process_identity.exited(retirement.get('session', {}).get('process', {}))):
+            raise ValueError('reconcile withheld: exact retired OMP exit unconfirmed')
         receipt = {'slot': slot, 'launch_id': launch_id, 'at': time.time(),
                    'actor': actor, 'evidence': evidence.strip()}
         if stale:
-            receipt['stale_pane_absent'] = True
+            receipt['stale_pane_and_omp_absent'] = True
         reconciled = state.read(c, 'reconciliations', {})
         reconciled[launch_id] = receipt
         state.write(c, 'reconciliations', reconciled)

@@ -55,7 +55,7 @@ def _superseding_launch(c, active):
         reconciliation = state.read(c, 'reconciliations', {}).get(prior, {})
         at = reconciliation.get('at')
         if (reconciliation.get('launch_id') != prior or reconciliation.get('slot') != active['path']
-                or reconciliation.get('stale_pane_absent') is not True
+                or reconciliation.get('stale_pane_and_omp_absent') is not True
                 or launch.get('terminal_selection', {}).get('reason') != 'stale_pane_replacement'
                 or type(at) not in (int, float) or not times[1] <= at < times[2]):
             return None
