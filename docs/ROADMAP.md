@@ -131,7 +131,9 @@ Orca 1.4.266 Linux AppImage in a private loopback runtime:
   another agent's mail.
 
 The stock evidence is retained on TASK-150. These probes establish batch
-identity and after-response isolation, not a send timed inside the RPC.
+identity and after-response isolation for the tested mail, not a send timed
+inside the RPC or a guarantee about every read-state transition. Orca can also
+reconcile prior full structured-chat deliveries without returning them again.
 [Orca PR #41590](https://github.com/stablyai/orca/pull/41590) was closed unmerged;
 [issue #41545](https://github.com/stablyai/orca/issues/41545) was closed as
 completed. Fleet's stale-relay assessment stays read-only; see the

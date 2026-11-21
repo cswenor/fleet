@@ -268,11 +268,11 @@ bodies. Only unthreaded supervisor STATUS relays from this project that predate
 the lane launch count as proven stale. Matching text does not prove the same
 relay occurrence. Capped history cannot prove an all-stale inbox.
 There is no mutation mode or automatic cleanup. A peek is not a reservation or
-a selective-ack list. On stock Orca 1.4.266, the consuming check returns every
-message it marks handled, including a question that arrived after the peek.
-This removes the silent-loss rationale for a selective-ack patch, not the need
-to process every returned message. Do not consume another agent's inbox or
-edit Orca's database to clear cosmetic duplicates.
+a selective-ack list. On stock Orca 1.4.266, the consuming check returns the
+batch it hands over, which can include a question that arrived after the peek.
+Process the entire batch. A check can also reconcile messages already delivered
+in full through structured chat; those are not new batch rows. Do not consume
+another agent's inbox or edit Orca's database to clear cosmetic duplicates.
 
 **Processing stock Orca inbox batches.**
 

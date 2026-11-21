@@ -419,9 +419,11 @@ This is not native Dispatch or arbitrary task switching. Keep builder terminals 
 For a standalone terminal on verified stock Orca 1.4.266, use
 `orca orchestration check --terminal TERMINAL --peek --full --json` for read-only
 inspection. The mailbox owner may omit `--peek` when ready to handle **every**
-returned row. A consuming check returns exactly the batch it marks read, which
-may include new questions absent from the peek. Do not consume mail from a
-watch script or on another agent's behalf. The read-only `request-show`
+returned row. A consuming check returns the batch it hands over, which may
+include new questions absent from the peek. Reconciliation can mark messages
+already delivered through structured chat read without returning them again.
+Do not consume mail from a watch script or on another agent's behalf. The
+read-only `request-show`
 recovery procedure above also applies to standalone consuming checks: read
 `result.receipt` or reconcile through read-only history, never retry the
 check to recover a lost response. Run-bound Mains keep using `fleet wait`.
