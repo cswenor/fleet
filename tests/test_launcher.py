@@ -206,6 +206,7 @@ class RestartTests(unittest.TestCase):
         self.record_closed_pane()
         receipt = self.launch()
         self.assertEqual(receipt['terminal'], 'new-terminal')
+        self.assertEqual(receipt['terminal_selection']['reason'], 'stale_pane_replacement')
         create, = [args for args in self.calls if args[:2] == ('terminal', 'create')]
         self.assertEqual(create[2:4], ('--worktree', 'id:tree'))
         self.assertEqual(self.sent, [])
@@ -227,6 +228,23 @@ class RestartTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'builder cap reached'):
             self.launch([self.s, full])
         self.assertEqual((self.sent, self.created), ([], 0))
+
+    def test_stale_pane_replacement_never_creates_worktree_if_original_disappears(self):
+        self.record_closed_pane()
+        check = dispatcher.check_launch
+        original = Path(self.slot)
+        moved = original.with_name('moved-slot')
+
+        def remove_after_admission(*args, **kwargs):
+            item = check(*args, **kwargs)
+            original.rename(moved)
+            self.addCleanup(moved.rename, original)
+            return item
+
+        with patch.object(dispatcher, 'check_launch', side_effect=remove_after_admission):
+            with self.assertRaisesRegex(ValueError, 'original replacement worktree missing or changed'):
+                self.launch()
+        self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
 
     def test_bound_ready_shell_creates_in_same_worktree_without_sending_or_binding(self):
         self.s['inventory']['builders'][0]['binding'] = {'state': 'bound', 'run_id': 'run_old'}

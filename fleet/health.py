@@ -473,7 +473,9 @@ def collect(c, now=None):
     expected = [path for path in stray if any(
         fnmatchcase(path, pattern)
         for pattern in c['coordinator'].get('expected_worktree_globs', []))]
-    return {'builders': builders, 'terminal_handles': [t['handle'] for t in terminals['terminals']],
+    return {'builders': builders, 'terminal_handles': (
+                [t['handle'] for t in terminals['terminals']]
+                if (terminals.get('hostScope') or {}).get('omittedHostIds') == [] else None),
             'worktrees': [{'id': w['id'], 'path': w['path'], 'branch': branch(w.get('branch')), 'comment': w.get('comment')} for w in trees],
             'stray_worktrees': stray, 'expected_worktrees': expected, 'errors': errors}
 

@@ -436,13 +436,14 @@ def _pre_runtime_shell(c, record, tree, handle, process=None):
     return None
 
 
-def _no_children(process):
+def _children_are(process, expected=()):
     """Check every Linux thread, not just the group leader's children."""
     tasks = PROC / str(process['pid']) / 'task'
     try:
         before = set(tasks.iterdir())
         return (tasks / str(process['pid']) in before
-                and all(not (task / 'children').read_text().strip() for task in before)
+                and sorted(child for task in before for child in (task / 'children').read_text().split())
+                == list(expected)
                 and set(tasks.iterdir()) == before)
     except OSError:
         return False
@@ -502,7 +503,7 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None, recover_stale
                              'see docs/MAIN.md#post-restart-clipped-screen')
         if health.binding(c, handle)['state'] != 'none':
             raise ValueError('stale screen recovery requires the builder to be positively unbound')
-        if not _no_children(proof['process']):
+        if not _children_are(proof['process']):
             raise ValueError('stale screen recovery requires a child-free foreground OMP; '
                              'see docs/MAIN.md#post-restart-clipped-screen')
         if (stale_shell is not None and shell != stale_shell or
@@ -523,18 +524,21 @@ def _omp_exited(process):
     return True
 
 
-def _exited_shell(process, handle):
-    """Positive same-boot exit and sole foreground shell on the recorded pts."""
-    if not _omp_exited(process):
-        raise ValueError('bound OMP process is still present')
-    occupants = []
+def _tty_occupants(tty):
     for proc in PROC.glob('[0-9]*'):
         try:
             fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
         except FileNotFoundError:
             continue
-        if fields[4] == process['tty']:
-            occupants.append((proc, fields))
+        if fields[4] == tty:
+            yield proc, fields
+
+
+def _exited_shell(process, handle):
+    """Positive same-boot exit and sole foreground shell on the recorded pts."""
+    if not _omp_exited(process):
+        raise ValueError('bound OMP process is still present')
+    occupants = list(_tty_occupants(process['tty']))
     if len(occupants) != 1:
         raise ValueError('recorded pts has no unique shell occupant')
     proc, before = occupants[0]
@@ -561,8 +565,13 @@ def _terminate_omp(c, record, tree, handle, proof, journal):
                 raise ValueError('foreground changed before SIGTERM; retirement withheld')
             _session(record, tree['path'], latest)
             if (_foreground(c, record, tree['path'], handle) != proof['process'] or
-                    not _no_children(proof['process'])):
+                    not _children_are(proof['process'])):
                 raise ValueError('child-free foreground proof changed before SIGTERM; retirement withheld')
+            shell, omp = proof['stale_shell'], proof['process']
+            if ({proc.name for proc, _ in _tty_occupants(omp['tty'])} !=
+                    {str(shell['pid']), str(omp['pid'])} or
+                    not _children_are(shell, (str(omp['pid']),))):
+                raise ValueError('stale pane has other shell children or tty occupants; retirement withheld')
             journal()
             signal.pidfd_send_signal(fd, signal.SIGTERM)
         finally:
@@ -571,18 +580,29 @@ def _terminate_omp(c, record, tree, handle, proof, journal):
         raise ValueError('could not complete exact-process SIGTERM; see docs/MAIN.md#post-restart-clipped-screen') from exc
 
 
-def _close_stale_pane(c, tree, record, proof, journal):
+def _close_stale_pane(c, tree, record, proof, journal, deadline):
     handle = record['terminal']
+    def ready():
+        try:
+            return (_exited_shell(proof['process'], handle) == proof['stale_shell']
+                    and _children_are(proof['stale_shell']))
+        except (FileNotFoundError, ValueError):
+            return False
+
+    while not ready():
+        if time.monotonic() >= deadline:
+            raise ValueError('same child-free foreground shell not proven; close withheld')
+        time.sleep(0.25)
     terminal = orca(c, 'terminal', 'show', '--terminal', handle)['terminal']
     if health.binding(c, handle)['state'] != 'none':
         raise ValueError('retired pane is not positively unbound; close withheld')
     if (not terminal.get('connected') or terminal.get('orphaned') or not terminal.get('writable') or
             terminal.get('incarnationId') != record['terminal_incarnation_id'] or
-            terminal.get('worktreeId') != tree['id'] or
-            _exited_shell(proof['process'], handle) != proof['stale_shell'] or
-            not _no_children(proof['stale_shell'])):
-        raise ValueError('same child-free foreground shell not proven; close withheld')
+            terminal.get('worktreeId') != tree['id'] or not ready()):
+        raise ValueError('exact unbound shell or pane identity changed; close withheld')
     journal('pane-close-attempted')
+    if not ready():
+        raise ValueError('child-free foreground shell changed before close; close withheld')
     result = orca(c, 'terminal', 'close', '--terminal', handle)
     closed = result.get('close', {})
     if closed.get('handle') != handle or closed.get('ptyKilled') is not True:
@@ -793,7 +813,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             receipt['retired'] = True
             journal('omp-retired' if stale_shell else 'shell-verified')
             if stale_shell:
-                receipt['pane_close'] = _close_stale_pane(c, tree, record, proof, journal)
+                receipt['pane_close'] = _close_stale_pane(c, tree, record, proof, journal, deadline)
                 journal('pane-closed')
             if reason is not None:
                 name = threads._name(ref)
@@ -836,7 +856,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             if stale_shell and receipt.get('retired'):
                 receipt['retry_guidance'] = (
                     'Do not repeat restart or the close. Verify the old pane is absent and no replacement started '
-                    'before attempting a new launch; see docs/MAIN.md#post-restart-clipped-screen for Recovery B')
+                    'before attempting a new launch; see Recovery A in docs/MAIN.md#post-restart-clipped-screen')
                 if receipt['stage'] in ('omp-retired', 'pane-close-attempted'):
                     state.write(c, 'retirements', retirements)
                     raise ValueError(f"OMP retired; {receipt['failure_reason']}; {receipt['retry_guidance']}") from exc

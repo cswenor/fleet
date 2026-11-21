@@ -234,7 +234,10 @@ class DispatcherTests(unittest.TestCase):
             self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
             with self.assertRaisesRegex(ValueError, 'absence of the exact stale pane is unconfirmed'):
                 dispatcher.reconcile(self.c, self.path, 'launch', 'pane not in builder inventory')
-            self.inventory['terminal_handles'].clear()
+            self.inventory['terminal_handles'] = None  # An omitted host is not proof of absence.
+            with self.assertRaisesRegex(ValueError, 'absence of the exact stale pane is unconfirmed'):
+                dispatcher.reconcile(self.c, self.path, 'launch', 'inventory without old host')
+            self.inventory['terminal_handles'] = []
             self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
             dispatcher.reconcile(self.c, self.path, 'launch', 'exact old pane absent')
             self.assertEqual(dispatcher.receipt_reasons(self.c, self.inventory, self.path), [])

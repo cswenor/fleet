@@ -302,6 +302,8 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
+        if replacement is not None and not existing:
+            raise ValueError('original replacement worktree missing or changed; launch withheld')
         if not _locked and chosen and not slot:
             lease.enter_context(state.slot_lock(c, chosen, wait_seconds=15, operation='launch'))
         shells = []
@@ -471,7 +473,7 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(argv)
         handle = None
         terminal = None
-        reason = 'no_ready_shell'
+        reason = 'stale_pane_replacement' if replacement is not None else 'no_ready_shell'
         if shells:
             candidate = shells[0]['terminal']
             terminal = orca(c, 'terminal', 'show', '--terminal', candidate)['terminal']

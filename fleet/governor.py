@@ -44,7 +44,7 @@ def _superseding_launch(c, active):
             or retirement.get('terminal') != active['terminal']
             or not active.get('incarnation_id')
             or retirement.get('terminal_incarnation_id') != active['incarnation_id']
-            or retirement.get('stage') not in ('shell-verified', 'launch-attempted', 'launched')
+            or retirement.get('stage') not in ('pane-closed', 'shell-verified', 'launch-attempted', 'launched')
             or not all(isinstance(t, (int, float)) and not isinstance(t, bool)
                        and math.isfinite(t) for t in times)
             or not times[0] <= times[1] < times[2]

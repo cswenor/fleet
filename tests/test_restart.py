@@ -762,7 +762,8 @@ class RetirementTests(unittest.TestCase):
                      'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
         self.shell_task = self.proc / '321/task/321'
         self.shell_task.mkdir(parents=True)
-        (self.shell_task / 'children').touch()
+        (self.shell_task / 'children').write_text('123\n')
+        self.after_exit_children = ''
         self.stale_patch(restart, 'os', new=SimpleNamespace(pidfd_open=unittest.mock.Mock(return_value=700),
                                                            close=unittest.mock.Mock()))
         self.pidfd_open = restart.os.pidfd_open
@@ -785,6 +786,7 @@ class RetirementTests(unittest.TestCase):
             shell = self.proc / '321'
             fields = ['S', '1', '321', '321', '456', '321'] + ['0'] * 13 + ['500']
             (shell / 'stat').write_text('321 (bash) ' + ' '.join(fields))
+            (self.shell_task / 'children').write_text(self.after_exit_children)
 
     def as_main(self):
         for context in (patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'),
@@ -849,9 +851,11 @@ class RetirementTests(unittest.TestCase):
     def test_stale_recovery_keeps_retirement_if_foreground_shell_has_children(self):
         self.stale_recovery()
         self.as_main()
-        (self.shell_task / 'children').write_text('700\n')
-        with self.assertRaisesRegex(ValueError, 'child-free foreground shell'):
-            self.run_restart()
+        self.after_exit_children = '700\n'
+        with patch.object(restart.time, 'monotonic', side_effect=range(100)), \
+                patch.object(restart.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'child-free foreground shell'):
+                self.run_restart()
         receipt = state.read(self.c, 'retirements')[self.slot]
         self.assertTrue(receipt['retired'])
         self.assertEqual(receipt['stage'], 'omp-retired')
@@ -859,6 +863,22 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual((self.sent, self.closed), ([], []))
         self.launch.assert_not_called()
         self.refused('already attempted')
+
+    def test_stale_recovery_waits_for_shell_prompt_hook_without_retrying_close(self):
+        self.stale_recovery()
+        self.as_main()
+        self.after_exit_children = '700\n'
+        with patch.object(restart.time, 'sleep',
+                          side_effect=lambda _: (self.shell_task / 'children').write_text('')):
+            self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
+        self.assertEqual(self.closed, [('--terminal', 'target')])
+
+    def test_stale_recovery_never_signals_with_preexisting_shell_children(self):
+        self.stale_recovery()
+        self.as_main()
+        (self.shell_task / 'children').write_text('123 700\n')
+        self.refused('other shell children')
+        self.assertEqual((self.term_signals, self.closed), ([], []))
 
     def test_stale_recovery_withholds_launch_on_unconfirmed_close(self):
         self.stale_recovery()

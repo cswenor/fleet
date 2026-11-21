@@ -160,7 +160,7 @@ class GovernorTests(unittest.TestCase):
         state.write(self.c, 'launches', launches)
         state.write(self.c, 'retirements', {'/b': {
             'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
-            'at': 4, 'stage': 'launched', 'next_launch_id': 'new'}})
+            'at': 4, 'stage': 'pane-closed'}})
         self.builders[1]['shell_ready'] = True
         events = self.advance(6)
         parked = self.ledger['governor']['parked']
@@ -175,7 +175,7 @@ class GovernorTests(unittest.TestCase):
         launches = state.read(self.c, 'launches')
         launches['/b'].update(id='new', at=5)
         state.write(self.c, 'launches', launches)
-        for stage in ('exit-attempted', 'exit-sent', 'shell-verified-with-residue'):
+        for stage in ('exit-attempted', 'exit-sent', 'shell-verified-with-residue', 'pane-close-attempted'):
             state.write(self.c, 'retirements', {'/b': {
                 'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
                 'at': 4, 'stage': stage}})
