@@ -200,10 +200,11 @@ processing **all** rows, re-arm the recommended command unchanged.
 `--auto-ack` submits the previous printed delivery on explicit-ack runtimes.
 On native auto-handled checks, `nativeAutoAck: true` and `deliveryAcknowledged`
 mean already acknowledged natively: re-arm without `--ack-run`. `acknowledged`
-is a native echo only. Retain `nativeRequestId` privately; stock
-`orchestration request-show --request ID --full --json` and the original native
-check plus exact `--retry-request ID` recover its recorded outcome, not newer
-mail. A crash losing that ID after auto-ack can lose access to the batch.
+is a native echo only. Retain `nativeRequestId` privately. For a lost terminal
+or Run check response, use read-only `orca orchestration request-show --request
+ID --full --json` from the original caller/runtime and read `result.receipt`.
+If incomplete or unavailable, reconcile with read-only history, not a retry.
+If the original command is still running, wait for it.
 Fleet has no local replay store; never fabricate terminal delivery IDs or consume
 legacy history to simulate reliable delivery. Full orchestration records are
 requested only when per-verb stock help advertises `--full` (in-memory cache);
@@ -412,6 +413,12 @@ until exit, retirement or reconciliation. Restart exempts only the exact retirin
 launch's claims, including carried NEXT; competing launches still block.
 Replacement launches never inherit approval; restart OLD/NEXT uses the primary ref.
 This is not native Dispatch or arbitrary task switching. Keep builder terminals unbound.
+
+On stock Orca 1.4.266 a standalone terminal can use `orca orchestration check
+--terminal TERMINAL --peek --full --json` to inspect unread mail without
+consuming it. A consuming check can return messages absent from the peek;
+process every returned row. Inspect-only scripts use `orchestration inbox`.
+Fleet's stale-relay assessment remains read-only.
 
 
 ## Publication: two independent gates
