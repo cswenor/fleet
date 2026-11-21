@@ -291,17 +291,19 @@ before dismissing stale relays. If an authorized handoff requires forwarding
 an actionable message, retain its original ID and have the mailbox owner reply
 in the original thread.
 
+**Lost response (standalone terminal or Run).** Save the full batch and request
+ID privately. If a consuming check's response is lost, look up its request
+with read-only `orca orchestration request-show --request ID --full --json`
+from the original caller and runtime. Process the complete batch from
+`result.receipt`; do not retry the check, since a pruned receipt can turn a
+retry into a new consuming check. If the original command is still running,
+wait for it. If the ID or complete receipt is unavailable, reconcile with
+read-only mailbox history.
+
 Run-bound Mains keep using `fleet wait`; its selection controls wake and
-presentation, not the contents acknowledged. On auto-handled runtimes, save
-the full batch and request ID privately; don't add `--ack` for an already
-handled Delivery. If a response is lost, look up the request with read-only
-`orca orchestration request-show --request ID --full --json` from the original
-caller and runtime. Process the complete batch from `result.receipt`; do not
-retry the check, since a pruned receipt can turn a retry into a new consuming
-check. If the original command is still running, wait for it. If the receipt
-is unavailable or incomplete, reconcile with read-only mailbox history.
-Older explicit-ack runtimes still require acknowledging
-the exact processed Delivery. See [ack and recovery](../README.md#inbox-wait)
+presentation, not the contents acknowledged. Don't add `--ack` for an
+already handled Delivery. Older explicit-ack runtimes still require
+acknowledging the exact processed Delivery. See [ack and recovery](../README.md#inbox-wait)
 and the [version-scoped evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
 TASK-65 adds conditional REST reads and private supervisor caches. Use

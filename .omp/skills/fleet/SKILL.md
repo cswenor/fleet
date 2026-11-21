@@ -421,9 +421,11 @@ For a standalone terminal on verified stock Orca 1.4.266, use
 inspection. The mailbox owner may omit `--peek` when ready to handle **every**
 returned row. A consuming check returns exactly the batch it marks read, which
 may include new questions absent from the peek. Do not consume mail from a
-watch script or on another agent's behalf. Run-bound Mains keep using `fleet wait`
-and the native replay/ack rules above. Fleet's stale-relay assessment remains
-read-only.
+watch script or on another agent's behalf. The read-only `request-show`
+recovery procedure above also applies to standalone consuming checks: read
+`result.receipt` or reconcile through read-only history, never retry the
+check to recover a lost response. Run-bound Mains keep using `fleet wait`.
+Fleet's stale-relay assessment remains read-only.
 
 
 ## Publication: two independent gates
