@@ -747,6 +747,7 @@ class RetirementTests(unittest.TestCase):
                 self.refused('no positive idle OMP composer')
 
     def stale_recovery(self):
+        (Path(self.slot) / '.git').touch()
         self.screen = json.loads((Path(__file__).parent / 'fixtures' /
                                   'orca-stale-screen.json').read_text())['terminal']['tail']
         _, runtime = self.chronology_processes()

@@ -169,6 +169,20 @@ class GovernorTests(unittest.TestCase):
         self.assertEqual([e['recipients'][0] for e in events if e.get('park')], ['a'])
         self.assertEqual(self.ledger['governor']['active']['launch_id'], 'a')
 
+    def test_launch_after_exact_stale_pane_reconciliation_supersedes_active_park(self):
+        self.history()
+        self.advance()
+        launches = state.read(self.c, 'launches')
+        launches['/b'].update(id='new', at=5, terminal_selection={'reason': 'stale_pane_replacement'})
+        state.write(self.c, 'launches', launches)
+        state.write(self.c, 'retirements', {'/b': {
+            'launch_id': 'b', 'terminal': 'b', 'terminal_incarnation_id': 'inc-b',
+            'at': 4, 'stage': 'pane-close-attempted'}})
+        state.write(self.c, 'reconciliations', {'b': {
+            'launch_id': 'b', 'slot': '/b', 'at': 4.5, 'stale_pane_absent': True}})
+        self.advance(6)
+        self.assertEqual(self.ledger['governor']['parked'][0]['status'], 'superseded')
+
     def test_incomplete_retirement_never_supersedes_unknown_identity(self):
         self.history()
         self.advance()

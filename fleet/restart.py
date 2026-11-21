@@ -743,7 +743,15 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             receipt['session'] = proof = latest
         handle = target['terminal']
         stale_shell = proof.get('stale_shell')
+        if stale_shell:
+            receipt['worktree_instance'] = launcher._worktree_instance(slot)
+            if receipt['worktree_instance'] is None:
+                raise ValueError('original worktree instance unavailable; retirement withheld')
+
         def journal(stage):
+            if (stage == 'sigterm-attempted' and
+                    launcher._worktree_instance(slot) != receipt['worktree_instance']):
+                raise ValueError('original worktree instance changed; retirement withheld')
             receipt['stage'] = stage
             retirements[slot] = receipt
             state.write(c, 'retirements', retirements)

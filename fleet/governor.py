@@ -44,13 +44,21 @@ def _superseding_launch(c, active):
             or retirement.get('terminal') != active['terminal']
             or not active.get('incarnation_id')
             or retirement.get('terminal_incarnation_id') != active['incarnation_id']
-            or retirement.get('stage') not in ('pane-closed', 'shell-verified', 'launch-attempted', 'launched')
             or not all(isinstance(t, (int, float)) and not isinstance(t, bool)
                        and math.isfinite(t) for t in times)
             or not times[0] <= times[1] < times[2]
             or (retirement.get('next_launch_id') is not None
                 and retirement['next_launch_id'] != launch['id'])):
         return None
+    if retirement.get('stage') not in ('pane-closed', 'shell-verified', 'launch-attempted', 'launched'):
+        prior = active['launch_record_id']
+        reconciliation = state.read(c, 'reconciliations', {}).get(prior, {})
+        at = reconciliation.get('at')
+        if (reconciliation.get('launch_id') != prior or reconciliation.get('slot') != active['path']
+                or reconciliation.get('stale_pane_absent') is not True
+                or launch.get('terminal_selection', {}).get('reason') != 'stale_pane_replacement'
+                or type(at) not in (int, float) or not times[1] <= at < times[2]):
+            return None
     return {'next_launch_id': launch['id'], 'launch_at': launch['at'],
             'retirement': retirement}
 

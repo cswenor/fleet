@@ -199,7 +199,8 @@ class RestartTests(unittest.TestCase):
                   'terminal_incarnation_id': 'closed-inc', 'worktree': {'id': 'tree', 'path': self.slot}}
         state.write(self.c, 'launches', {self.slot: launch})
         state.write(self.c, 'retirements', {self.slot: {'launch_id': launch['id'],
-                    'terminal': launch['terminal'], 'terminal_incarnation_id': 'closed-inc', 'stage': 'pane-closed'}})
+                    'terminal': launch['terminal'], 'terminal_incarnation_id': 'closed-inc', 'stage': 'pane-closed',
+                    'worktree_instance': launcher._worktree_instance(self.slot)}})
         self.s['inventory']['terminal_handles'] = ['old-shell']
 
     def test_stale_pane_replacement_creates_in_same_worktree_without_reusing_another_shell(self):
@@ -211,6 +212,15 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(create[2:4], ('--worktree', 'id:tree'))
         self.assertEqual(self.sent, [])
         self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
+
+    def test_stale_pane_replacement_refuses_recreated_checkout_at_same_path(self):
+        self.record_closed_pane()
+        original = Path(self.slot)
+        original.rename(original.with_name('old-checkout'))
+        subprocess.run(['git', 'init', self.slot], check=True, capture_output=True)
+        with self.assertRaisesRegex(ValueError, 'original replacement worktree missing or changed'):
+            self.launch()
+        self.assertEqual((self.sent, self.created), ([], 0))
 
     def test_stale_pane_replacement_refuses_old_pane_and_new_capacity_failure(self):
         self.record_closed_pane()

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import time
 import yaml
 from . import dispatcher, health, publication as publication_guard, snapshot, state
@@ -246,6 +247,19 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False
     return branch
 
 
+def _worktree_instance(path):
+    """Pin the checkout and its Git entry, not a path-derived Orca ID."""
+    try:
+        root = Path(path).lstat()
+        git = (Path(path) / '.git').lstat()
+    except OSError:
+        return None
+    if not stat.S_ISDIR(root.st_mode) or not (stat.S_ISDIR(git.st_mode) or stat.S_ISREG(git.st_mode)):
+        return None
+    return [root.st_dev, root.st_ino, git.st_dev, git.st_ino,
+            git.st_mtime_ns if stat.S_ISREG(git.st_mode) else None]
+
+
 def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
@@ -278,7 +292,8 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
                 return
             tree = replacement['worktree'].get('id')
             ids = [w['id'] for w in observed.get('worktrees', []) if w['path'] == chosen]
-            if not tree or ids != [tree] or not Path(chosen).is_dir():
+            witness = replacement.get('worktree_instance')
+            if not tree or ids != [tree] or not witness or _worktree_instance(chosen) != witness:
                 raise ValueError('original replacement worktree missing or changed; launch withheld')
 
         check_replacement(inventory)
@@ -347,6 +362,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         preparation.update(slot=w['path'], worktree=w, stage='prepared')
         preparation.update(stage='preparation-attempted', action='task-branch')
         untracked_files, untracked_count = _untracked(w['path'])
+        check_replacement(inventory)
         branch = _prepare_branch(c, ref, item, w['path'], **(
             {'keep_uncommitted': True} if _keep_uncommitted else {}))
         tracked_files = _tracked(w['path']) if _keep_uncommitted else []
@@ -500,6 +516,7 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         else:
             if skipped:
                 reason = 'run_bound' if any(t['binding']['state'] == 'bound' for t in skipped) else 'binding_unknown'
+            check_replacement(fresh['inventory'])
             result = orca(c, 'terminal', 'create', '--worktree', 'id:' + w['id'], '--title', ref + ' builder', '--command', command)
         # Persist receipt before any subsequent operation: failure is never permission to relaunch.
         receipt = {'id': nonce, 'at': time.time(), 'ref': ref, 'branch': branch, 'worktree': w,

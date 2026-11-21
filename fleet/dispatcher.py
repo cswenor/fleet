@@ -124,7 +124,7 @@ def stale_replacement(c, slot):
     launch = state.read(c, 'launches', {}).get(slot, {})
     retirement = state.read(c, 'retirements', {}).get(slot, {})
     if _matching_retirement(launch, retirement) and _stale_retirement(retirement):
-        return launch
+        return dict(launch, worktree_instance=retirement.get('worktree_instance'))
     return None
 
 
@@ -179,11 +179,13 @@ def reconcile(c, slot, launch_id, evidence):
         if launch is None:
             raise ValueError('reconcile requires an exact recorded launch ID and slot')
         retirement = state.read(c, 'retirements', {}).get(slot, {})
-        if (_matching_retirement(launch, retirement) and _stale_retirement(retirement)
-                and not _pane_absent(launch, inventory)):
+        stale = _matching_retirement(launch, retirement) and _stale_retirement(retirement)
+        if stale and not _pane_absent(launch, inventory):
             raise ValueError('reconcile withheld: absence of the exact stale pane is unconfirmed')
         receipt = {'slot': slot, 'launch_id': launch_id, 'at': time.time(),
                    'actor': actor, 'evidence': evidence.strip()}
+        if stale:
+            receipt['stale_pane_absent'] = True
         reconciled = state.read(c, 'reconciliations', {})
         reconciled[launch_id] = receipt
         state.write(c, 'reconciliations', reconciled)
