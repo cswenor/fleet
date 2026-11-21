@@ -1027,10 +1027,10 @@ on a stale shell or to `relaunch` an unfinished builder.
    does not exclude Orca UI input.
    If close or launch is withheld or unconfirmed, inspect `retirements.json`
    and the launch receipts. Never repeat the signal, close, or `restart`.
-   Before using `fleet launch`, verify no replacement started. If the old
-   pane remains, manually recover or close it only after proving it idle.
-   Without a confirmed `pane-closed` receipt, independently verify the
-   exact old pane is gone and record the evidence with
+   Before using `fleet launch`, verify no replacement started and the exact
+   old pane is gone. If it remains, manually close it only after proving it
+   idle; even a shell-shaped frame does not permit reuse. Without a confirmed
+   close receipt, record the independently verified absence with
    `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT` before launch.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded

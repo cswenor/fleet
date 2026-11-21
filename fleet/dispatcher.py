@@ -102,6 +102,22 @@ def dependencies(c, ref, statuses=None):
     return reasons
 
 
+def _matching_retirement(launch, retirement):
+    incarnation = launch.get('terminal_incarnation_id')
+    return (bool(launch.get('id')) and retirement.get('launch_id') == launch['id']
+            and retirement.get('terminal') == launch['terminal'] and bool(incarnation)
+            and retirement.get('terminal_incarnation_id') == incarnation)
+
+
+def _stale_retirement(retirement):
+    return ('pane_close' in retirement or retirement.get('stage') in (
+        'sigterm-attempted', 'sigterm-sent', 'omp-retired', 'pane-close-attempted', 'pane-closed'))
+
+
+def _pane_present(launch, inventory):
+    return any(b['terminal'] == launch['terminal'] for b in inventory.get('builders', []))
+
+
 def unresolved(c, inventory):
     receipts = list(state.read(c, 'launches', {}).values())
     last = state.read(c, 'last-launch', {})
@@ -113,19 +129,20 @@ def unresolved(c, inventory):
     for receipt in receipts:
         path = receipt['worktree']['path']
         incarnation = receipt.get('terminal_incarnation_id')
-        exited = bool(incarnation) and any(
+        retirement = retirements.get(path, {})
+        matching = _matching_retirement(receipt, retirement)
+        stale = matching and _stale_retirement(retirement)
+        exited = not stale and bool(incarnation) and any(
             b['path'] == path and b['terminal'] == receipt['terminal']
             and b.get('incarnation_id') == incarnation and not health.active(b)
             for b in inventory.get('builders', []))
-        retirement = retirements.get(path, {})
-        retired = (bool(receipt.get('id')) and retirement.get('launch_id') == receipt['id']
-                   and retirement.get('terminal') == receipt['terminal']
-                   and bool(incarnation) and retirement.get('terminal_incarnation_id') == incarnation
-                   and retirement.get('stage') in ('pane-closed', 'shell-verified', 'launch-attempted', 'launched'))
+        retired = matching and retirement.get('stage') in (
+            'pane-closed', 'shell-verified', 'launch-attempted', 'launched')
         reconciliation = reconciled.get(receipt.get('id'), {})
         acknowledged = (bool(receipt.get('id')) and reconciliation.get('slot') == path
                         and reconciliation.get('launch_id') == receipt['id'])
-        if not (exited or retired or acknowledged):
+        # A stale pane still in inventory cannot be reused, regardless of its frame or receipts.
+        if (stale and _pane_present(receipt, inventory)) or not (exited or retired or acknowledged):
             pending[(path, receipt.get('id'))] = receipt
     return list(pending.values())
 
@@ -147,8 +164,14 @@ def reconcile(c, slot, launch_id, evidence):
         if inventory.get('errors') or any(b['path'] == slot and health.active(b) for b in inventory['builders']):
             raise ValueError('reconcile withheld: slot health is live, unknown or incomplete')
         receipts = list(state.read(c, 'launches', {}).values()) + [state.read(c, 'last-launch', {})]
-        if not any(r.get('id') == launch_id and r.get('worktree', {}).get('path') == slot for r in receipts):
+        launch = next((r for r in receipts if r.get('id') == launch_id
+                       and r.get('worktree', {}).get('path') == slot), None)
+        if launch is None:
             raise ValueError('reconcile requires an exact recorded launch ID and slot')
+        retirement = state.read(c, 'retirements', {}).get(slot, {})
+        if (_matching_retirement(launch, retirement) and _stale_retirement(retirement)
+                and _pane_present(launch, inventory)):
+            raise ValueError('reconcile withheld: the exact stale pane is still present')
         receipt = {'slot': slot, 'launch_id': launch_id, 'at': time.time(),
                    'actor': actor, 'evidence': evidence.strip()}
         reconciled = state.read(c, 'reconciliations', {})

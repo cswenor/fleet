@@ -214,6 +214,25 @@ class DispatcherTests(unittest.TestCase):
         state.write(self.c, 'retirements', {self.path: retirement})
         self.assertIsNone(self.propose()['proposal'])
 
+    def test_unconfirmed_stale_retirement_blocks_ready_screen_until_exact_reconcile(self):
+        self.c['coordinator'] = {'terminal': 'main'}
+        self.builder.update(terminal='old', incarnation_id='old-inc')
+        launch = {'id': 'launch', 'ref': 'TASK-2', 'worktree': {'path': self.path},
+                  'terminal': 'old', 'terminal_incarnation_id': 'old-inc'}
+        state.write(self.c, 'launches', {self.path: launch})
+        retirement = {'launch_id': 'launch', 'terminal': 'old',
+                      'terminal_incarnation_id': 'old-inc', 'stage': 'pane-close-attempted'}
+        state.write(self.c, 'retirements', {self.path: retirement})
+        with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'), \
+                patch.object(dispatcher.health, 'collect', return_value=self.inventory):
+            self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
+            with self.assertRaisesRegex(ValueError, 'stale pane is still present'):
+                dispatcher.reconcile(self.c, self.path, 'launch', 'shell prompt shows')
+            self.inventory['builders'].clear()
+            self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
+            dispatcher.reconcile(self.c, self.path, 'launch', 'exact old pane absent')
+            self.assertEqual(dispatcher.receipt_reasons(self.c, self.inventory, self.path), [])
+
     def test_main_reconciliation_refuses_live_unknown_wrong_id_or_actor(self):
         self.c['coordinator'] = {'terminal': 'main'}
         receipt = {'id': 'launch', 'ref': 'TASK-2', 'worktree': {'path': self.path},
