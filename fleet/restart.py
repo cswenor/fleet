@@ -682,6 +682,10 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         # Validate next task and gates before retiring, then again inside normal launch.
         try:
             s = snapshot.collect(c)
+            if proof.get('stale_shell'):
+                handles = s['inventory'].get('terminal_handles')
+                if not isinstance(handles, list) or target['terminal'] not in handles:
+                    raise ValueError('complete terminal inventory with the exact stale pane is required')
             # Only this exact proven old launch is exempt; competing receipts still block.
             item = dispatcher.check_launch(c, ref, s['inventory'], slot, retiring=record)
             s['inventory']['builders'] = [b for b in s['inventory']['builders'] if b['terminal'] != target['terminal']]

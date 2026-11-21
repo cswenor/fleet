@@ -752,6 +752,7 @@ class RetirementTests(unittest.TestCase):
                 self.refused('no positive idle OMP composer')
 
     def stale_recovery(self):
+        self.inventory['terminal_handles'] = ['target']
         (Path(self.slot) / '.git').touch()
         self.screen = json.loads((Path(__file__).parent / 'fixtures' /
                                   'orca-stale-screen.json').read_text())['terminal']['tail']
@@ -839,6 +840,16 @@ class RetirementTests(unittest.TestCase):
         self.events.append({'type': 'message', 'message': {'role': 'user'}})
         self.write_log()
         self.refused('final assistant stop')
+
+    def test_stale_recovery_refuses_incomplete_terminal_inventory_before_sigterm(self):
+        self.stale_recovery()
+        self.as_main()
+        for handles in (None, ['wrong-target']):
+            with self.subTest(handles=handles):
+                self.inventory['terminal_handles'] = handles
+                self.refused('complete terminal inventory with the exact stale pane')
+        self.pidfd_open.assert_not_called()
+        self.assertFalse(state.read(self.c, 'retirements', {}))
 
     def test_stale_recovery_refuses_ancestor_procfs_view_even_when_pids_match(self):
         self.stale_recovery()
