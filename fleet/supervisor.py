@@ -10,7 +10,7 @@ import shlex
 import signal
 import time
 import urllib.request
-from . import github, github_idle, health, snapshot, state, governor
+from . import critical_path, github, github_idle, health, snapshot, state, governor
 from .commands import orca, run, json_run, CommandError
 from .config import URGENT_EVENTS
 
@@ -424,12 +424,12 @@ def _stuck_progress_unknown(current, number):
         for entry in _stuck_queue_entries(current, number))
 
 
-def stuck_pr_alerts(c, ledger, current, now):
+def stuck_pr_alerts(c, ledger, current, now, *, critical_prs=()):
     """Persist observed semantic progress, ignoring comments and updated_at."""
     timers = ledger.setdefault('pr_progress', {})
     active = {}
     result = []
-    minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
+    urgent = c.get('urgent', {})
     for p in current['prs']:
         if p['state'] != 'open' or _stuck_pr_paused(c, p):
             continue
@@ -452,9 +452,15 @@ def stuck_pr_alerts(c, ledger, current, now):
                for entry in queue[:-1] for run in entry.get('runs', [])):
             timer = {'signature': signature, 'since': now}
         active[key] = timer
-        if now - timer['since'] >= minutes * 60:
-            result.append({'key': 'pr_stuck:' + key, 'subject': f'PR #{p["number"]} stuck',
-                           'body': p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.',
+        critical = p['number'] in critical_prs
+        minutes = (urgent.get('critical_path_stall_minutes', 60) if critical
+                   else urgent.get('pr_stuck_minutes', 45))
+        elapsed = (now - timer['since']) / 60
+        if elapsed >= minutes:
+            subject = (f'Critical path stalled: PR #{p["number"]}, {int(elapsed)}m since last activity'
+                       if critical else f'PR #{p["number"]} stuck')
+            body = p['url'] if critical else p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.'
+            result.append({'key': 'pr_stuck:' + key, 'subject': subject, 'body': body,
                            'branch': p['branch'], 'pr': p['number']})
     ledger['pr_progress'] = active
     return result
@@ -835,6 +841,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                         'pr': None, 'branch': None})
         ledger['github_budget_window'] = reset
     pr_alerts = []
+    previous_progress = ledger.get('pr_progress', {})
     if current_g is not None:
         if current_g.get('merge_group_unknown'):
             # Missing permission is not supersession or recovery evidence.
@@ -848,7 +855,13 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
         changes = _group_alerts(changes + initial, current_g)
         pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes], current_g))
-        pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time())
+        try:
+            critical_prs = critical_path.listed_prs(c)
+        except (ValueError, OSError):
+            s['errors'].append('critical-path.json unavailable; inspect with critical-path list, '
+                               'repair with critical-path add/remove or delete the file')
+            critical_prs = ()
+        pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time(), critical_prs=critical_prs)
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
@@ -870,13 +883,14 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         reason = s.get('error_details', {}).get(alert['key'].removeprefix('error:'))
         if reason:
             alert['body'] += ': ' + reason
-    # Unknown collection/progress is not recovery: retain occurrence dedupe.
+    # Unknown progress and designation changes are not a new inactivity episode.
     prior_alerts = ledger.get('active_alerts', {})
     active_stuck = {
         key: value for key, value in prior_alerts.items()
         if key.startswith('pr_stuck:') and (
-            current_g is None or
-            _stuck_progress_unknown(current_g, int(key.split(':')[1])))
+            current_g is None or (
+                (number := key.split(':')[1]) in ledger['pr_progress'] and
+                ledger['pr_progress'][number] == previous_progress.get(number)))
     } if isinstance(prior_alerts, dict) else {}
     if s.get('coordinator', {}).get('state') == 'unknown':
         prior_main = ledger.get('active_alerts', {})
@@ -903,6 +917,25 @@ def cycle(c, deliver=True, *, github_scheduler=None):
     next_active = dict(active_stuck)
     legacy_keys = set()
     for a in active:
+        if a['key'].startswith('pr_stuck:'):
+            # Elapsed text and designation can change within one stall; urgency can still upgrade.
+            kind = a.get('type', 'status')
+            previous = active_stuck.get(a['key'])
+            if previous not in (None, 'status', 'question'):
+                # Before critical-path support the persisted value hashed the ordinary message.
+                minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
+                ordinary = {**a, 'type': 'status', 'subject': f'PR #{a["pr"]} stuck',
+                            'body': a['body'].split('\n', 1)[0]
+                            + f'\nNo state/check/review progress for {minutes:g} minutes.'}
+                if previous == event_signature(ordinary):
+                    previous = 'status'
+                elif previous == event_signature({**ordinary, 'type': 'question',
+                                                  'subject': '[urgent] ' + ordinary['subject']}):
+                    previous = 'question'
+            if previous is None or (kind == 'question' and previous == 'status'):
+                pending.append({**a, 'key': a['key'] + ':' + str(time.time_ns())})
+            next_active[a['key']] = kind if previous in (None, 'status') else previous
+            continue
         signature = event_signature(a)
         legacy_key = a.pop('legacy_key', None)
         previous = prior.get(a['key'])

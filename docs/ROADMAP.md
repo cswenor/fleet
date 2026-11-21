@@ -146,6 +146,14 @@ Shared installation remains Main-owned,
 exact-head GO gated and held for Email Sherpa's empty queue.
 
 
+### TASK-152 — Critical-path PR stall alerts
+
+Main designates PRs through `fleet critical-path add/remove/list`, using private
+project state rather than GitHub labels that can cancel in-flight CI. Listed
+open PRs use the same persisted inactivity episode and exclusions as `pr_stuck`,
+with a separate 60-minute default and no additional GitHub reads. Shared rollout
+is Main-owned and held for Email Sherpa's empty merge queue.
+
 ### TASK-148 — Check completion survives watch re-arm
 
 The watcher previously reset its comparison baseline on every invocation and

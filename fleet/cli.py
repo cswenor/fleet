@@ -60,6 +60,11 @@ def main():
     p.add_argument('--launch', required=True, dest='launch_id')
     p.add_argument('--ref', required=True)
     p.add_argument('--evidence', required=True, help='non-secret explicit Main approval')
+    p = sub.add_parser('critical-path', help='Main manages the local list of critical-path PRs')
+    critical_commands = p.add_subparsers(dest='critical_command', required=True)
+    for name in ('add', 'remove'):
+        critical_commands.add_parser(name).add_argument('pr', type=int)
+    critical_commands.add_parser('list')
     p = sub.add_parser('watch-pr')
     p.add_argument('number', type=int)
     p.add_argument('--timeout', type=int, default=14400)
@@ -278,6 +283,10 @@ def main():
         if args.command == 'carry':
             from .dispatcher import carry
             print(json.dumps(carry(c, args.slot, args.launch_id, args.ref, args.evidence), indent=2))
+            return 0
+        if args.command == 'critical-path':
+            from .critical_path import manage
+            print(json.dumps(manage(c, args.critical_command, getattr(args, 'pr', None))))
             return 0
         if args.command == 'launch':
             from .launcher import launch

@@ -113,6 +113,94 @@ class UrgentRelayTests(unittest.TestCase):
         self.cycle(5200)
         self.assertEqual(len(self.urgent_calls()), 2)
 
+    def test_critical_path_replaces_ordinary_alert_until_progress(self):
+        from fleet import critical_path
+        pr = self.s['github']['prs'][0]
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+            self.assertEqual(critical_path.manage(self.c, 'add', 1), [1])
+            self.assertEqual(critical_path.manage(self.c, 'list', None), [1])
+            self.cycle(0)
+            for now, pause in ((3600, {'draft': True}), (7201, {'labels': ['Parked']})):
+                pr.update(**pause)
+                self.cycle(now)
+                pr.update(draft=False, labels=[])
+                self.cycle(now + 1)
+            self.assertEqual(self.urgent_calls(), [])
+            self.cycle(9902)  # The ordinary 45-minute threshold.
+            self.cycle(10801)
+            self.assertEqual(self.urgent_calls(), [])
+            self.cycle(10802)
+            self.cycle(10902)
+            self.assertEqual(critical_path.manage(self.c, 'remove', 1), [])
+            self.assertEqual(critical_path.manage(self.c, 'list', None), [])
+            self.cycle(11002)
+            self.assertEqual(
+                [(e['subject'], e['body'], r) for e, r in self.urgent_calls()],
+                [('[urgent] Critical path stalled: PR #1, 60m since last activity', pr['url'], r)
+                 for r in ('run:r', 'builder')])
+            critical_path.manage(self.c, 'add', 1)
+        pr['head'] = 'newsha'
+        self.cycle(12000)
+        self.cycle(15599)
+        self.assertEqual(len(self.urgent_calls()), 2)
+        self.cycle(15660)
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[2:]],
+                         ['[urgent] Critical path stalled: PR #1, 61m since last activity'] * 2)
+
+    def test_existing_stall_can_upgrade_to_urgent_without_progress(self):
+        self.c['urgent'] = {'events': []}
+        self.cycle(0)
+        self.cycle(2700)
+        self.assertEqual([e['subject'] for e, _ in self.calls], ['PR #1 stuck'] * 2)
+        self.c['urgent']['events'] = ['pr_stuck']
+        self.cycle(2701)
+        self.c['urgent']['events'] = []
+        self.cycle(2702)
+        self.c['urgent']['events'] = ['pr_stuck']
+        self.cycle(2703)
+        self.assertEqual([e['subject'] for e, _ in self.calls],
+                         ['PR #1 stuck'] * 2 + ['[urgent] PR #1 stuck'] * 2)
+
+    def test_legacy_ordinary_stall_preserves_urgency_across_upgrade(self):
+        from fleet import critical_path
+        for already_urgent in (False, True):
+            with self.subTest(already_urgent=already_urgent):
+                self.calls.clear()
+                self.c['urgent'] = {'events': []}
+                ledger = {'github': {}, 'pending': [], 'sent': {}, 'active_alerts': {}}
+                current = self.s['github']
+                supervisor.stuck_pr_alerts(self.c, ledger, current, 0)
+                alert, = supervisor.stuck_pr_alerts(self.c, ledger, current, 2700)
+                if already_urgent:
+                    alert = supervisor.urgent_event({}, alert)
+                ledger['active_alerts'][alert['key']] = supervisor.event_signature(alert)
+                state.write(self.c, 'supervisor', ledger)
+                with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+                    critical_path.manage(self.c, 'add', 1)
+                self.cycle(3600)
+                self.c['urgent']['events'] = ['pr_stuck']
+                self.cycle(3601)
+                expected = [] if already_urgent else [
+                    '[urgent] Critical path stalled: PR #1, 60m since last activity'] * 2
+                self.assertEqual([e['subject'] for e, _ in self.urgent_calls()], expected)
+
+    def test_invalid_critical_path_state_does_not_stop_supervision(self):
+        state.write(self.c, 'critical-path', None)
+        self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
+        self.cycle(0)
+        observed, _ = self.cycle(2700)
+        self.assertIn('critical-path.json unavailable', observed['errors'][-1])
+        self.assertEqual([e['subject'] for e, _ in self.urgent_calls()],
+                         ['[urgent] Builder wrong_model: TASK-37', '[urgent] PR #1 stuck',
+                          '[urgent] PR #1 stuck'])
+        from fleet import critical_path
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+            with self.assertRaisesRegex(ValueError, r'critical-path\.json'):
+                critical_path.manage(self.c, 'list', None)
+            self.assertEqual(critical_path.manage(self.c, 'add', 1), [1])
+        self.cycle(3600)
+        self.assertEqual(len(self.urgent_calls()), 3)
+
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},
                       {'draft': True, 'labels': ['parked']}):
@@ -925,7 +1013,8 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
                  'coordinator': {'run': 'r', 'terminal': 'main'}}
             path.write_text(yaml.safe_dump(c))
             self.assertEqual(config.load(path)['urgent'],
-                             {'events': list(config.URGENT_EVENTS), 'pr_stuck_minutes': 45})
+                             {'events': list(config.URGENT_EVENTS), 'pr_stuck_minutes': 45,
+                              'critical_path_stall_minutes': 60})
             for github in (None, [], {'parked_labels': 'parked'},
                            {'parked_labels': [None]}, {'parked_labels': [' ']}):
                 c['github'] = github
@@ -937,14 +1026,19 @@ class UrgentConfigAndDeliveryTests(unittest.TestCase):
                 path.write_text(yaml.safe_dump(c))
                 self.assertEqual(config.load(path)['github']['parked_labels'], labels)
             c.pop('github')
-            for urgent in [{'events': []}, {'events': ['wrong_model'], 'pr_stuck_minutes': 0.5}]:
+            for urgent in [{'events': []}, {'events': ['wrong_model'], 'pr_stuck_minutes': 0.5,
+                                            'critical_path_stall_minutes': 1.5}]:
                 c['urgent'] = urgent
                 path.write_text(yaml.safe_dump(c))
                 loaded = config.load(path)['urgent']
                 self.assertEqual(loaded['events'], urgent['events'])
+                for key in ('pr_stuck_minutes', 'critical_path_stall_minutes'):
+                    if key in urgent:
+                        self.assertEqual(loaded[key], urgent[key])
             for urgent in [None, [], {'events': 'all'}, {'events': ['unknown']},
                            {'events': ['idle', 'idle']}, {'events': [None]},
-                           *({'pr_stuck_minutes': x} for x in [0, -1, True, '45', None, float('inf'), float('nan')])]:
+                           *({key: x} for key in ('pr_stuck_minutes', 'critical_path_stall_minutes')
+                             for x in [0, -1, True, '45', None, float('inf'), float('nan'), 10**309])]:
                 with self.subTest(urgent=urgent):
                     c['urgent'] = urgent
                     path.write_text(yaml.safe_dump(c))
