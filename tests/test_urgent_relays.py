@@ -147,6 +147,26 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[2:]],
                          ['[urgent] Critical path stalled: PR #1, 61m since last activity'] * 2)
 
+    def test_legacy_stall_retry_is_not_promoted_into_a_new_episode(self):
+        from fleet import critical_path
+        self.cycle(0)
+        with (patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')),
+              patch.object(supervisor.time, 'time_ns', return_value=2700_000_000_000)):
+            self.cycle(2700)
+        ledger = state.read(self.c, 'supervisor')
+        retry, = ledger['pending']
+        del retry['timer'], retry['critical_path']
+        state.write(self.c, 'supervisor', ledger)
+        self.s['github']['prs'][0]['head'] = 'progress'
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(2701)
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+            critical_path.manage(self.c, 'add', 1)
+        self.cycle(6301)
+        self.assertEqual([(e['subject'], r) for e, r in self.urgent_calls()],
+                         [('[urgent] Critical path stalled: PR #1, 60m since last activity', r)
+                          for r in ('run:r', 'builder')])
+
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},
                       {'draft': True, 'labels': ['parked']}):

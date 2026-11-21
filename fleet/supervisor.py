@@ -988,7 +988,13 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                     # Closed and paused PRs invalidate undelivered occurrences.
                     continue
                 if (pr in critical_prs) != event.get('critical_path', False):
-                    if event.get('timer', previous_progress.get(str(pr))) != timer:
+                    if 'timer' in event:
+                        same_episode = event['timer'] == timer
+                    else:
+                        # Legacy retries encode enqueue time in their occurrence key.
+                        queued_at = int(event['key'].rsplit(':', 1)[-1]) / 1e9
+                        same_episode = queued_at >= timer['since']
+                    if not same_episode:
                         continue
                     due = due_stuck.get(pr)
                     if due:
