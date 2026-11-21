@@ -114,8 +114,18 @@ def _stale_retirement(retirement):
         'sigterm-attempted', 'sigterm-sent', 'omp-retired', 'pane-close-attempted', 'pane-closed'))
 
 
-def _pane_present(launch, inventory):
-    return any(b['terminal'] == launch['terminal'] for b in inventory.get('builders', []))
+def _pane_absent(launch, inventory):
+    handles = inventory.get('terminal_handles')
+    return isinstance(handles, list) and launch['terminal'] not in handles
+
+
+def stale_replacement(c, slot):
+    """Keep the original worktree pinned until the replacement is published."""
+    launch = state.read(c, 'launches', {}).get(slot, {})
+    retirement = state.read(c, 'retirements', {}).get(slot, {})
+    if _matching_retirement(launch, retirement) and _stale_retirement(retirement):
+        return launch
+    return None
 
 
 def unresolved(c, inventory):
@@ -142,7 +152,7 @@ def unresolved(c, inventory):
         acknowledged = (bool(receipt.get('id')) and reconciliation.get('slot') == path
                         and reconciliation.get('launch_id') == receipt['id'])
         # A stale pane still in inventory cannot be reused, regardless of its frame or receipts.
-        if (stale and _pane_present(receipt, inventory)) or not (exited or retired or acknowledged):
+        if (stale and not _pane_absent(receipt, inventory)) or not (exited or retired or acknowledged):
             pending[(path, receipt.get('id'))] = receipt
     return list(pending.values())
 
@@ -170,8 +180,8 @@ def reconcile(c, slot, launch_id, evidence):
             raise ValueError('reconcile requires an exact recorded launch ID and slot')
         retirement = state.read(c, 'retirements', {}).get(slot, {})
         if (_matching_retirement(launch, retirement) and _stale_retirement(retirement)
-                and _pane_present(launch, inventory)):
-            raise ValueError('reconcile withheld: the exact stale pane is still present')
+                and not _pane_absent(launch, inventory)):
+            raise ValueError('reconcile withheld: absence of the exact stale pane is unconfirmed')
         receipt = {'slot': slot, 'launch_id': launch_id, 'at': time.time(),
                    'actor': actor, 'evidence': evidence.strip()}
         reconciled = state.read(c, 'reconciliations', {})

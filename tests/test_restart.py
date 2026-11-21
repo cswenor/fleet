@@ -808,7 +808,7 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(self.term_signals, [(700, restart.signal.SIGTERM)])
         self.assertEqual(self.sent, [])
         self.assertEqual(self.closed, [('--terminal', 'target')])
-        self.assertEqual(self.launch.call_args.kwargs['_fresh_pane'], ('tree', 'target'))
+        self.assertEqual(receipt['pane_close'], self.close_result)
 
     def test_stale_recovery_refuses_without_exact_idle_and_settlement_proofs(self):
         self.stale_recovery()

@@ -194,8 +194,17 @@ class RestartTests(unittest.TestCase):
         send_index = next(i for i, args in enumerate(self.calls) if args[:2] == ('terminal', 'send'))
         self.assertEqual(self.calls[send_index - 1], ('orchestration', 'run-current', '--from', 'old-shell'))
 
+    def record_closed_pane(self):
+        launch = {'id': 'retired-launch', 'ref': 'TASK-122', 'terminal': 'closed-pane',
+                  'terminal_incarnation_id': 'closed-inc', 'worktree': {'id': 'tree', 'path': self.slot}}
+        state.write(self.c, 'launches', {self.slot: launch})
+        state.write(self.c, 'retirements', {self.slot: {'launch_id': launch['id'],
+                    'terminal': launch['terminal'], 'terminal_incarnation_id': 'closed-inc', 'stage': 'pane-closed'}})
+        self.s['inventory']['terminal_handles'] = ['old-shell']
+
     def test_stale_pane_replacement_creates_in_same_worktree_without_reusing_another_shell(self):
-        receipt = self.launch(_locked=True, _fresh_pane=('tree', 'closed-pane'))
+        self.record_closed_pane()
+        receipt = self.launch()
         self.assertEqual(receipt['terminal'], 'new-terminal')
         create, = [args for args in self.calls if args[:2] == ('terminal', 'create')]
         self.assertEqual(create[2:4], ('--worktree', 'id:tree'))
@@ -203,13 +212,20 @@ class RestartTests(unittest.TestCase):
         self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
 
     def test_stale_pane_replacement_refuses_old_pane_and_new_capacity_failure(self):
-        with self.assertRaisesRegex(ValueError, 'retired pane is still present'):
-            self.launch(_locked=True, _fresh_pane=('tree', 'old-shell'))
+        self.record_closed_pane()
+        observed = deepcopy(self.s)
+        observed['inventory']['terminal_handles'].append('closed-pane')
+        with self.assertRaisesRegex(ValueError, 'unresolved launch receipt'):
+            self.launch([self.s, observed])
+        changed = deepcopy(self.s)
+        changed['inventory']['worktrees'][0]['id'] = 'different-tree'
+        with self.assertRaisesRegex(ValueError, 'original replacement worktree missing or changed'):
+            self.launch([self.s, changed])
         full = deepcopy(self.s)
         full['inventory']['builders'].append(
             dict(terminal='new-worker', path='/other-slot', connected=True))
         with self.assertRaisesRegex(ValueError, 'builder cap reached'):
-            self.launch([self.s, full], _locked=True, _fresh_pane=('tree', 'closed-pane'))
+            self.launch([self.s, full])
         self.assertEqual((self.sent, self.created), ([], 0))
 
     def test_bound_ready_shell_creates_in_same_worktree_without_sending_or_binding(self):

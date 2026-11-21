@@ -246,22 +246,11 @@ def _prepare_branch(c, ref, item, slot, *, dry_run=False, keep_uncommitted=False
     return branch
 
 
-def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False,
-           _fresh_pane=None):
+def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep_uncommitted=False):
     if not re.fullmatch(r'[A-Z]+-\d+', ref):
         raise ValueError('expected uppercase Pad reference, e.g. TASK-123')
     if _keep_uncommitted and not _locked:
         raise ValueError('keeping uncommitted work requires guarded same-task relaunch')
-    if _fresh_pane is not None and (not _locked or not slot):
-        raise ValueError('fresh replacement pane requires the guarded restart slot lease')
-
-    def check_replacement(inventory):
-        if _fresh_pane is None:
-            return
-        tree, closed = _fresh_pane
-        ids = [w['id'] for w in inventory.get('worktrees', []) if w['path'] == slot]
-        if ids != [tree] or any(b['terminal'] == closed for b in inventory.get('builders', [])):
-            raise ValueError('replacement worktree changed or retired pane is still present; launch withheld')
     if c.get('publication', {}).get('mode') == 'auto_merge':
         protection = publication_guard.guard(c)
         if protection.get('verified') is not True:
@@ -277,12 +266,22 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
         c = resolve_model(c, ref, model=model, thinking=thinking)
         s = snapshot.collect(c)
         inventory = s.get('inventory', {})
-        check_replacement(inventory)
         occupied = {b['path'] for b in inventory.get('builders', []) if health.active(b)}
         slots = c['builder']['slots']
         chosen = str(Path(slot).expanduser().resolve()) if slot else next(
             (p for p in slots if p not in occupied and Path(p).is_dir()
              and not dispatcher.receipt_reasons(c, inventory, p)), None)
+        replacement = dispatcher.stale_replacement(c, chosen) if chosen else None
+
+        def check_replacement(observed):
+            if replacement is None:
+                return
+            tree = replacement['worktree'].get('id')
+            ids = [w['id'] for w in observed.get('worktrees', []) if w['path'] == chosen]
+            if not tree or ids != [tree] or not Path(chosen).is_dir():
+                raise ValueError('original replacement worktree missing or changed; launch withheld')
+
+        check_replacement(inventory)
         if chosen and chosen not in slots:
             raise ValueError('requested slot is not in builder.slots')
         admission = snapshot.may_start(c, s)
@@ -303,8 +302,6 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
             raise ValueError('slot has a live or unconfirmed omp session; finish it first')
         item = dispatcher.check_launch(c, ref, inventory, chosen)
         existing = chosen is not None and Path(chosen).is_dir()
-        if _fresh_pane is not None and not existing:
-            raise ValueError('configured replacement worktree no longer exists; launch withheld')
         if not _locked and chosen and not slot:
             lease.enter_context(state.slot_lock(c, chosen, wait_seconds=15, operation='launch'))
         shells = []
@@ -315,7 +312,7 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
                 raise ValueError('slot must map to exactly one Orca worktree')
             w = matches[0]
             ready_shells = [b for b in inventory['builders'] if b['path'] == chosen and b['connected'] and b.get('shell_ready')]
-            if _fresh_pane is not None:
+            if replacement is not None:
                 ready_shells = []  # Recovery always creates a new terminal, never types into another pane.
             for shell in ready_shells:
                 binding = shell.get('binding', {'state': 'unknown', 'run_id': None})
@@ -327,7 +324,8 @@ def launch(c, ref, slot=None, *, model=None, thinking=None, _locked=False, _keep
                 raise ValueError('slot has multiple ready shells; refusing ambiguous terminal reuse')
         else:
             # Creation only when an explicitly configured slot path is absent. Name must match.
-            missing = chosen or next((p for p in slots if not Path(p).exists()), None)
+            missing = chosen or next((p for p in slots if not Path(p).exists()
+                                      and dispatcher.stale_replacement(c, p) is None), None)
             if not missing:
                 raise ValueError('no free configured slot')
             if not _locked and not chosen:

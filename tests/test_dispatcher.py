@@ -202,6 +202,7 @@ class DispatcherTests(unittest.TestCase):
         state.write(self.c, 'launches', {self.path: receipt})
         retirement = {'launch_id': 'launch', 'terminal': 'old',
                       'terminal_incarnation_id': 'old-inc', 'stage': 'exit-sent'}
+        self.inventory['terminal_handles'] = []
         for stage in ('exit-sent', 'omp-retired', 'pane-close-attempted'):
             retirement['stage'] = stage
             state.write(self.c, 'retirements', {self.path: retirement})
@@ -217,6 +218,7 @@ class DispatcherTests(unittest.TestCase):
     def test_unconfirmed_stale_retirement_blocks_ready_screen_until_exact_reconcile(self):
         self.c['coordinator'] = {'terminal': 'main'}
         self.builder.update(terminal='old', incarnation_id='old-inc')
+        self.inventory['terminal_handles'] = ['old']
         launch = {'id': 'launch', 'ref': 'TASK-2', 'worktree': {'path': self.path},
                   'terminal': 'old', 'terminal_incarnation_id': 'old-inc'}
         state.write(self.c, 'launches', {self.path: launch})
@@ -226,9 +228,13 @@ class DispatcherTests(unittest.TestCase):
         with patch.dict('os.environ', ORCA_TERMINAL_HANDLE='main'), \
                 patch.object(dispatcher.health, 'collect', return_value=self.inventory):
             self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
-            with self.assertRaisesRegex(ValueError, 'stale pane is still present'):
+            with self.assertRaisesRegex(ValueError, 'absence of the exact stale pane is unconfirmed'):
                 dispatcher.reconcile(self.c, self.path, 'launch', 'shell prompt shows')
             self.inventory['builders'].clear()
+            self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
+            with self.assertRaisesRegex(ValueError, 'absence of the exact stale pane is unconfirmed'):
+                dispatcher.reconcile(self.c, self.path, 'launch', 'pane not in builder inventory')
+            self.inventory['terminal_handles'].clear()
             self.assertTrue(dispatcher.receipt_reasons(self.c, self.inventory, self.path))
             dispatcher.reconcile(self.c, self.path, 'launch', 'exact old pane absent')
             self.assertEqual(dispatcher.receipt_reasons(self.c, self.inventory, self.path), [])

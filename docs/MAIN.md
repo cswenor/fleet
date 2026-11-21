@@ -1032,6 +1032,7 @@ on a stale shell or to `relaunch` an unfinished builder.
    idle; even a shell-shaped frame does not permit reuse. Without a confirmed
    close receipt, record the independently verified absence with
    `fleet reconcile --slot PATH --launch EXACT_ID --evidence TEXT` before launch.
+   The next launch still creates a fresh terminal in the original worktree.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
    restart only with a full idle footer/empty composer and all existing gates.

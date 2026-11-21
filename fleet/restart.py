@@ -728,7 +728,6 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             retirements[slot] = receipt
             state.write(c, 'retirements', retirements)
         try:
-            fresh_pane = {}
             if stale_shell:
                 _terminate_omp(c, record, tree, handle, proof, lambda: journal('sigterm-attempted'))
                 receipt['stage'] = 'sigterm-sent'
@@ -796,7 +795,6 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             if stale_shell:
                 receipt['pane_close'] = _close_stale_pane(c, tree, record, proof, journal)
                 journal('pane-closed')
-                fresh_pane = {'_fresh_pane': (tree['id'], handle)}
             if reason is not None:
                 name = threads._name(ref)
                 with state.lock(c, name):
@@ -809,7 +807,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                         state.write(c, name, ledger)
             journal('launch-attempted')
             launched = launcher.launch(launch_config, ref, slot, model=model, thinking=thinking,
-                                       _locked=True, **fresh_pane, **(
+                                       _locked=True, **(
                 {'_keep_uncommitted': True} if keep_uncommitted else {}))
             receipt['next_launch_id'] = launched['id']
             receipt['stage'] = 'launched'
