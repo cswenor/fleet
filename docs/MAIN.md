@@ -267,11 +267,18 @@ It prints counts, blocker sender classes/types and `would_be_all_stale`, never
 bodies. Only unthreaded supervisor STATUS relays from this project that predate
 the lane launch count as proven stale. Matching text does not prove the same
 relay occurrence. Capped history cannot prove an all-stale inbox.
-There is no mutation mode and no automatic cleanup: stock Orca lacks selective
-mark-read by message ID or a consuming check conditional on expected IDs/max
-sequence. Peek then consume could silently consume a newly arrived question;
-the backlog remains until that native capability exists. Never edit Orca's DB
-or consume a mixed lane inbox to clear cosmetic duplicates.
+Fleet has no mutation mode or automatic cleanup.
+
+On stock Orca 1.4.266, a standalone terminal's `orca orchestration check
+--terminal TERMINAL --peek --full --json` is read-only. A peek is not an
+acknowledgment list or reservation. Omit `--peek` to consume only when ready to process **every**
+returned message, including questions that arrived after the peek. If explicitly
+authorized to clear another terminal's backlog, forward actionable messages
+with their original IDs so the mailbox owner can reply in-thread. Inspect-only
+scripts use `orchestration inbox`, not a consuming check. Run-bound Mains keep using `fleet wait`.
+
+For a lost terminal or Run response, use [read-only receipt recovery](../README.md#inbox-wait).
+See [TASK-151 evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).
 
 TASK-65 adds conditional REST reads and private supervisor caches. Use
 `watch-pr N --debug` / `serve --once --no-deliver --debug` for request/304 evidence.
@@ -1352,8 +1359,8 @@ For manual recovery only, `--ack-run DELIVERY_ID` overrides that receipt.
 Newer native auto-handled checks (`nativeAutoAck: true`) need no second ack.
 Fleet preserves native `deliveryAcknowledged` and `nativeRequestId` when present;
 `acknowledged` is a native echo only, not proof Fleet performed an ack.
-Stock `request-show` / exact `--retry-request` recover recorded native outcomes;
-losing the request ID during a crash can lose access to the handled batch.
+Read the recorded batch with stock `request-show`; do not retry a lost
+consuming check. Losing the request ID can lose access to the handled batch.
 No local replay store or version sniffing. Fleet discovers `--full` per verb from
 stock help (cached in memory); Linux 1.4.242 lacks the flag and keeps its output.
 See [native acknowledgment and recovery](../README.md#inbox-wait) for details.
