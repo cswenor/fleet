@@ -1453,6 +1453,11 @@ records the suspected 80×24 fallback as inference, not measured emulator geomet
 Publication receipts live on TASK-88/PR; shared deployment and a future live
 relaunch remain Main-owned.
 
+TASK-153 closed the automated pane-replacement proposal unmerged. Fleet keeps
+the same idle proof; the stale-screen refusal names the pane and gives the
+operator resize step. The underlying reattach bug is tracked in
+[Orca #46409](https://github.com/stablyai/orca/issues/46409).
+
 ### TASK-83 — Finished-lane decisions and explicit park completion
 
 `thread needs-next REF` sends one native `NEEDS-NEXT-REF` question per launch
