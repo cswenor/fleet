@@ -842,9 +842,9 @@ original caller against the original runtime. Recover the complete original
 batch directly from `result.receipt`. Do not use `--retry-request` to recover
 inbox mail: a missing receipt, including one pruned after lookup, can turn
 the retry into a fresh consuming check. If the original command is still
-running, wait for it. If the ID or complete receipt is unavailable, reconcile
-with read-only mailbox history; Fleet cannot guarantee recovery of the handled
-batch.
+running, wait for it. `fleet wait --save` can omit a request ID supplied in
+Orca's transport error. If the ID or complete receipt is unavailable, reconcile
+with read-only mailbox history; Fleet cannot guarantee recovery.
 Exit **0** / `event: "messages"` means delivery; exit **3** /
 `event: "timeout"` is an empty checkpoint, not failure or worker death.
 Exit **2** / `event: "error"` is a binding, runtime, transport or diagnostic
