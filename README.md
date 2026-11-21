@@ -394,6 +394,7 @@ next supervisor cycle without a restart. Listed open PRs use
 `urgent.pr_stuck_minutes` and report `Critical path stalled: PR #N, Xm since last activity`
 with the PR URL. Both use the `pr_stuck` urgency setting, progress timer, and
 pause rules. Changing designation does not repeat an alert for the same stall.
+Queued relays retain the message they were created with, as for ordinary stalls.
 Unknown, closed, and merged numbers stay listed but do not alert.
 The Main-terminal check follows Fleet's local caller convention; it is not a
 security boundary between processes running under the same Unix account.

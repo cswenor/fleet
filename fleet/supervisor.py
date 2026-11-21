@@ -461,8 +461,7 @@ def stuck_pr_alerts(c, ledger, current, now, *, critical_prs=()):
                        if critical else f'PR #{p["number"]} stuck')
             body = p['url'] if critical else p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.'
             result.append({'key': 'pr_stuck:' + key, 'subject': subject, 'body': body,
-                           'branch': p['branch'], 'pr': p['number'], 'timer': timer,
-                           'critical_path': critical})
+                           'branch': p['branch'], 'pr': p['number']})
     ledger['pr_progress'] = active
     return result
 
@@ -906,7 +905,6 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         if not pool.get('known') and streaks[provider] < c.get('quota', {}).get('unknown_alert_cycles', 3):
             active = [a for a in active if a['key'] != 'quota-provider:' + provider]
     active = [urgent_event(c, a) for a in active]
-    due_stuck = {a['pr']: a for a in active if a['key'].startswith('pr_stuck:')}
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.
     prior = prior if isinstance(prior, dict) else {}
@@ -958,7 +956,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
     remaining = []
     failures = []
     protected = set()
-    progress = ledger.get('pr_progress', {})
+    paused_prs = {p['number'] for p in current_g['prs'] if _stuck_pr_paused(c, p)} if current_g else set()
     if current_g is not None:
         reclassified = []
         for event in pending:
@@ -978,33 +976,9 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                 and event['body'] in inventory.get('expected_worktrees', [])):
             # A newly declared scratch path must not replay an old urgent retry.
             continue
-        defer_stuck = False
-        if event['key'].startswith('pr_stuck:'):
-            pr = event['pr']
-            defer_stuck = current_g is None or _stuck_progress_unknown(current_g, pr)
-            if current_g is not None:
-                timer = progress.get(str(pr))
-                if timer is None:
-                    # Closed and paused PRs invalidate undelivered occurrences.
-                    continue
-                was_critical = event.get('critical_path', False)
-                changed = (pr in critical_prs) != was_critical
-                if was_critical or changed:
-                    if 'timer' in event:
-                        same_episode = event['timer'] == timer
-                    else:
-                        # Legacy retries encode enqueue time in their occurrence key.
-                        queued_at = int(event['key'].rsplit(':', 1)[-1]) / 1e9
-                        same_episode = queued_at >= timer['since']
-                    if not same_episode:
-                        continue
-                if changed:
-                    due = due_stuck.get(pr)
-                    if due:
-                        # Keep the occurrence and successful recipient receipts on retry.
-                        event = {**due, 'key': event['key']}
-                    else:
-                        defer_stuck = True
+        if event['key'].startswith('pr_stuck:') and event.get('pr') in paused_prs:
+            # A newly observed pause also invalidates undelivered old occurrences.
+            continue
         if event.get('lane_free'):
             identity = event['lane_free']
             builder = next((b for b in (inventory or {}).get('builders', [])
@@ -1043,7 +1017,8 @@ def cycle(c, deliver=True, *, github_scheduler=None):
             owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
             if owning_terminal:
                 recipients.append(owning_terminal)
-        if defer_stuck:
+        if (event['key'].startswith('pr_stuck:') and current_g is not None
+                and _stuck_progress_unknown(current_g, event.get('pr'))):
             remaining.append(event)
             protected.update(digest([event['key'], r]) for r in recipients)
             continue
