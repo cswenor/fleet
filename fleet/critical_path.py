@@ -1,5 +1,6 @@
 """Project-local critical-path PR designations, independent of GitHub."""
 import os
+import stat
 from . import state
 
 
@@ -7,6 +8,13 @@ _STATE = 'critical-path'
 
 
 def listed_prs(c):
+    path = state.directory(c) / f'{_STATE}.json'
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return set()
+    if not stat.S_ISREG(mode):
+        raise OSError('critical-path.json must be a regular file')
     try:
         prs = state.read(c, _STATE, [])
     except (ValueError, RecursionError) as error:
