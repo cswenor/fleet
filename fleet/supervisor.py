@@ -917,8 +917,17 @@ def cycle(c, deliver=True, *, github_scheduler=None):
     next_active = dict(active_stuck)
     legacy_keys = set()
     for a in active:
-        if a['key'] in active_stuck:
-            # One alert per inactivity episode, even if Main changes designation.
+        if a['key'].startswith('pr_stuck:'):
+            # Elapsed text and designation can change within one stall; urgency can still upgrade.
+            kind = a.get('type', 'status')
+            previous = active_stuck.get(a['key'])
+            legacy_status = (kind == 'question' and a['subject'].startswith('[urgent] PR #')
+                             and previous == event_signature({**a, 'type': 'status',
+                                                              'subject': a['subject'].removeprefix('[urgent] ')}))
+            if previous is None or kind == 'question' and (previous == 'status' or legacy_status):
+                pending.append({**a, 'key': a['key'] + ':' + str(time.time_ns())})
+            # Do not re-page the same episode after an urgency off/on toggle.
+            next_active[a['key']] = 'question' if previous == 'question' else kind
             continue
         signature = event_signature(a)
         legacy_key = a.pop('legacy_key', None)

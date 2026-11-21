@@ -147,6 +147,20 @@ class UrgentRelayTests(unittest.TestCase):
         self.assertEqual([e['subject'] for e, _ in self.urgent_calls()[2:]],
                          ['[urgent] Critical path stalled: PR #1, 61m since last activity'] * 2)
 
+    def test_existing_stall_can_upgrade_to_urgent_without_progress(self):
+        self.c['urgent'] = {'events': []}
+        self.cycle(0)
+        self.cycle(2700)
+        self.assertEqual([e['subject'] for e, _ in self.calls], ['PR #1 stuck'] * 2)
+        self.c['urgent']['events'] = ['pr_stuck']
+        self.cycle(2701)
+        self.c['urgent']['events'] = []
+        self.cycle(2702)
+        self.c['urgent']['events'] = ['pr_stuck']
+        self.cycle(2703)
+        self.assertEqual([e['subject'] for e, _ in self.calls],
+                         ['PR #1 stuck'] * 2 + ['[urgent] PR #1 stuck'] * 2)
+
     def test_invalid_critical_path_state_does_not_stop_supervision(self):
         state.write(self.c, 'critical-path', None)
         self.s['inventory']['builders'][0]['flags'] = ['wrong_model']
