@@ -987,7 +987,9 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                 if timer is None:
                     # Closed and paused PRs invalidate undelivered occurrences.
                     continue
-                if (pr in critical_prs) != event.get('critical_path', False):
+                was_critical = event.get('critical_path', False)
+                changed = (pr in critical_prs) != was_critical
+                if was_critical or changed:
                     if 'timer' in event:
                         same_episode = event['timer'] == timer
                     else:
@@ -996,6 +998,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                         same_episode = queued_at >= timer['since']
                     if not same_episode:
                         continue
+                if changed:
                     due = due_stuck.get(pr)
                     if due:
                         # Keep the occurrence and successful recipient receipts on retry.

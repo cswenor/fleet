@@ -167,6 +167,19 @@ class UrgentRelayTests(unittest.TestCase):
                          [('[urgent] Critical path stalled: PR #1, 60m since last activity', r)
                           for r in ('run:r', 'builder')])
 
+    def test_critical_retry_expires_on_progress_without_designation_change(self):
+        from fleet import critical_path
+        with patch.dict('os.environ', {'ORCA_TERMINAL_HANDLE': 'main'}):
+            critical_path.manage(self.c, 'add', 1)
+        self.cycle(0)
+        with patch.object(supervisor, 'enqueue', side_effect=CommandError('offline')):
+            self.cycle(3600)
+        self.s['github']['prs'][0]['head'] = 'progress'
+        self.cycle(3601)
+        self.assertEqual(self.urgent_calls(), [])
+        self.cycle(7201)
+        self.assertEqual([r for _, r in self.urgent_calls()], ['run:r', 'builder'])
+
     def test_paused_prs_clear_timers_and_resume_with_full_interval(self):
         for pause in ({'draft': True}, {'labels': ['Parked']},
                       {'draft': True, 'labels': ['parked']}):
