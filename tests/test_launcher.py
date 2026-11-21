@@ -204,6 +204,14 @@ class RestartTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'recovered prompt changed'):
             self.launch([before, after], _locked=True, _restart_shell=('old-shell', 'inc', changed))
         self.assertEqual((self.sent, self.created), ([], 0))
+        def bound():
+            if state.read(self.c, 'launch-preparations', {}).get(self.slot, {}).get('stage') == 'launch-attempted':
+                self.binding = {'run': {'id': 'unexpected'}}
+        with self.assertRaisesRegex(ValueError, 'recovered shell is no longer unbound'):
+            self.launch([deepcopy(self.s), deepcopy(self.s)], _locked=True,
+                        _restart_shell=('old-shell', 'inc', bound))
+        self.assertEqual((self.sent, self.created), ([], 0))
+        self.binding = {'run': None}
         receipt = self.launch([deepcopy(self.s), deepcopy(self.s)], _locked=True,
                               _restart_shell=('old-shell', 'inc', lambda: None))
         self.assertEqual(receipt['terminal'], 'old-shell')

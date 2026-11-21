@@ -1019,10 +1019,10 @@ on a stale shell or to `relaunch` an unfinished builder.
    Recognized working, dialog, background and draft frames still refuse.
    Fleet journals one Linux pidfd SIGTERM to that OMP only. It does not send
    keystrokes to OMP; any hidden draft is discarded, never submitted. After
-   exact OMP exit and return of the same foreground shell, launch requires a
-   clean rendered prompt. If unavailable, Fleet may journal one Ctrl-C to
-   the verified unbound foreground shell and require a new clean prompt in
-   the bounded Orca stream. It rechecks shell and prompt immediately before launch.
+   exact OMP exit and return of the same foreground shell, the untrusted
+   renderer cannot authorize launch. Fleet journals at most one Ctrl-C to
+   the verified unbound foreground shell and requires a new clean prompt in
+   the bounded Orca stream. It rechecks shell, output and binding before launch.
    If proof fails after retirement, inspect `retirements.json`, redraw/verify the
    shell, and use `fleet launch`, not `restart`. Never repeat the signal or clear.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's

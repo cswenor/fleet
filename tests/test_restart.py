@@ -797,7 +797,7 @@ class RetirementTests(unittest.TestCase):
             context.start()
             self.addCleanup(context.stop)
 
-    def test_stale_recovery_cli_signals_exact_omp_then_launches_without_retirement_input(self):
+    def test_stale_recovery_cli_signals_exact_omp_then_clears_only_shell(self):
         from fleet import cli
         self.stale_recovery()
         self.as_main()
@@ -810,7 +810,7 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(receipt['stage'], 'launched')
         self.pidfd_open.assert_called_once_with(123)
         self.assertEqual(self.term_signals, [(700, restart.signal.SIGTERM)])
-        self.assertEqual(self.sent, [])
+        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
 
     def test_stale_recovery_refuses_without_exact_idle_and_settlement_proofs(self):
         self.stale_recovery()
@@ -834,7 +834,7 @@ class RetirementTests(unittest.TestCase):
         self.write_log()
         self.refused('final assistant stop')
 
-    def test_stale_recovery_revalidates_after_pidfd_open_and_never_retries(self):
+    def test_stale_recovery_revalidates_after_pidfd_open_and_allows_retry_before_signal(self):
         self.stale_recovery()
         self.as_main()
         def changed(pid):
@@ -843,7 +843,10 @@ class RetirementTests(unittest.TestCase):
         self.pidfd_open.side_effect = changed
         self.refused('running')
         self.assertEqual(self.term_signals, [])
-        self.refused('already attempted')
+        self.assertNotIn(self.slot, state.read(self.c, 'retirements', {}))
+        self.agent['state'] = 'done'
+        self.pidfd_open.side_effect = None
+        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
 
     def test_stale_recovery_clears_only_the_verified_shell_and_requires_new_prompt(self):
         self.stale_recovery()
@@ -863,7 +866,8 @@ class RetirementTests(unittest.TestCase):
     def test_stale_recovery_keeps_retirement_on_stale_prompt(self):
         self.stale_recovery()
         self.as_main()
-        self.shell_screen_stale = True
+        # The rendered view looks ready after SIGTERM, but only the stream
+        # after clearing the exact shell can authorize launch.
         self.cleanup_works = False
         self.stream_prompt = True
         with patch.object(restart.time, 'monotonic', side_effect=range(100)), \

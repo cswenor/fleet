@@ -543,7 +543,7 @@ def _exited_shell(process, handle):
     return {'pid': int(proc.name), 'start': before[19], 'tty': before[4], 'pgrp': before[2]}
 
 
-def _terminate_omp(c, record, tree, handle, proof):
+def _terminate_omp(c, record, tree, handle, proof, journal):
     """Pin the PID before the last proof; no numeric-PID signal fallback."""
     if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
         raise ValueError('pidfd unavailable; see docs/MAIN.md#post-restart-clipped-screen')
@@ -554,6 +554,10 @@ def _terminate_omp(c, record, tree, handle, proof):
             if latest['process'] != proof['process']:
                 raise ValueError('foreground changed before SIGTERM; retirement withheld')
             _session(record, tree['path'], latest)
+            if (_foreground(c, record, tree['path'], handle) != proof['process'] or
+                    not _no_children(proof['process'])):
+                raise ValueError('child-free foreground proof changed before SIGTERM; retirement withheld')
+            journal()
             signal.pidfd_send_signal(fd, signal.SIGTERM)
         finally:
             os.close(fd)
@@ -587,28 +591,19 @@ def _verify_stale_shell(c, tree, record, proof):
 def _clean_stale_shell(c, tree, record, proof, receipt, retirements):
     handle = record['terminal']
 
-    def rendered():
-        screen = orca(c, 'terminal', 'read', '--terminal', handle, '--screen')['terminal']
-        return screen.get('source') != 'screen-unavailable' and health.shell_ready(screen)
-
     def verify():
-        if not rendered() and (clean is None or _stream(c, handle)[0] != clean):
-            raise ValueError('clean shell prompt no longer proven; see docs/MAIN.md#post-restart-clipped-screen')
         _verify_stale_shell(c, tree, record, proof)
+        if _stream(c, handle)[0] != clean:
+            raise ValueError('clean shell prompt no longer proven; see docs/MAIN.md#post-restart-clipped-screen')
 
-    clean = None
-    if rendered():
-        verify()
-        return verify
-    # A pre-SIGTERM stream could contain OMP output that looks like a shell
-    # prompt. Only observe stream output after clearing the verified shell.
-    # Capture a cursor before input; a repeated old prompt proves nothing.
+    # The screen triggered this recovery because its renderer is untrustworthy.
+    # Only prompt output after clearing the exact foreground shell can authorize Enter.
     start, _ = _stream(c, handle)
     if start is not None:
+        receipt['shell_clear'] = {'stage': 'input-attempted', 'cursor': start}
+        _verify_stale_shell(c, tree, record, proof)
         if health.binding(c, handle)['state'] != 'none':
             raise ValueError('shell is not positively unbound; input withheld')
-        _verify_stale_shell(c, tree, record, proof)
-        receipt['shell_clear'] = {'stage': 'input-attempted', 'cursor': start}
         state.write(c, 'retirements', retirements)
         send = orca(c, 'terminal', 'send', '--terminal', handle, '--text', '\x03').get('send', {})
         if send.get('accepted') is not True or send.get('bytesWritten') != 1:
@@ -760,17 +755,17 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             receipt['session'] = proof = latest
         handle = target['terminal']
         stale_shell = proof.get('stale_shell')
-        if stale_shell:
-            receipt['stage'] = 'sigterm-attempted'
-        retirements[slot] = receipt
-        # Journal before input or signal. Never retry an ambiguous retirement.
-        state.write(c, 'retirements', retirements)
+        def journal(stage):
+            receipt['stage'] = stage
+            retirements[slot] = receipt
+            state.write(c, 'retirements', retirements)
         try:
             verify_shell = None
             if stale_shell:
-                _terminate_omp(c, record, tree, handle, proof)
+                _terminate_omp(c, record, tree, handle, proof, lambda: journal('sigterm-attempted'))
                 receipt['stage'] = 'sigterm-sent'
             else:
+                journal('exit-attempted')
                 receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', handle, '--text', '/exit', '--enter')
                 receipt['stage'] = 'exit-sent'
             state.write(c, 'retirements', retirements)
@@ -858,6 +853,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
             receipt['stage'] = 'launched'
             state.write(c, 'retirements', retirements)
         except Exception as exc:
+            if retirements.get(slot) is not receipt:
+                raise  # The PID/proof check failed before any signal intent was recorded.
             receipt['failure'] = type(exc).__name__
             receipt['failure_reason'] = snapshot._collection_reason(exc)
             for key in ('command', 'stderr'):

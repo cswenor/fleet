@@ -501,6 +501,8 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
             if handle != _restart_shell[0]:
                 raise ValueError('recovered shell is no longer unbound; launch withheld')
             _restart_shell[2]()
+            if health.binding(c, handle)['state'] != 'none':
+                raise ValueError('recovered shell is no longer unbound; launch withheld')
         if handle is not None:
             reason = 'ready_unbound_shell'
             result = orca(c, 'terminal', 'send', '--terminal', handle, '--text', command, '--enter')
