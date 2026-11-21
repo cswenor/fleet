@@ -19,6 +19,11 @@ POST_TURN_METADATA = frozenset({
 })
 PROC = Path('/proc')
 
+
+class _StaleScreen(ValueError):
+    """The pane must be refit before considering any terminal input."""
+
+
 def _post_turn_metadata(events):
     """Accept only known metadata and adjacent omp 18.18.1 compaction pairs."""
     index = 0
@@ -445,12 +450,13 @@ def _idle(c, record, tree, handle, previous=None, *, stopped=None):
     if ui == 'draft':
         raise ValueError('OMP composer contains a draft or is ambiguous; leave input untouched')
     if ui != 'idle':
-        raise ValueError(
-            'no positive idle OMP composer; working, dialog, background job, or stale screen'
-            + (f'; pane {handle} predates the current Orca runtime and may have a stale screen. '
-               'Open this terminal in Orca and resize/refit it once (do not type), '
-               'then rerun the same fleet command.'
-               if _terminal_predates_runtime(c, record, tree, handle) else ''))
+        refusal = 'no positive idle OMP composer; working, dialog, background job, or stale screen'
+        if _terminal_predates_runtime(c, record, tree, handle):
+            raise _StaleScreen(
+                f'{refusal}; pane {handle} predates the current Orca runtime and may have a stale screen. '
+                'Open this terminal in Orca and resize/refit it once (do not type), '
+                'then rerun the same fleet command.')
+        raise ValueError(refusal)
     ps = orca(c, 'worktree', 'ps')
     if ps.get('truncated') or ps.get('hostScope', {}).get('omittedHostIds'):
         raise ValueError('agent status inventory incomplete')
@@ -565,6 +571,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         try:
             proof = _idle(c, record, tree, target['terminal'], **(
                 {'stopped': stopped} if stopped is not None else {}))
+        except _StaleScreen:
+            raise
         except ValueError as exc:
             if reason is not None:
                 raise ValueError(f"{exc}; run `fleet thread stop {ref}` first") from exc
