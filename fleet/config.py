@@ -178,14 +178,16 @@ def load(path):
         raise ValueError('urgent must be a mapping')
     urgent.setdefault('events', list(URGENT_EVENTS))
     urgent.setdefault('pr_stuck_minutes', 45)
+    urgent.setdefault('critical_path_stall_minutes', 60)
     events = urgent['events']
     if (not isinstance(events, list) or
             any(not isinstance(event, str) or event not in URGENT_EVENTS for event in events) or
             len(set(events)) != len(events)):
         raise ValueError('urgent.events must be a list of distinct supported event names')
-    minutes = urgent['pr_stuck_minutes']
-    if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
-        raise ValueError('urgent.pr_stuck_minutes must be a positive finite number')
+    for key in ('pr_stuck_minutes', 'critical_path_stall_minutes'):
+        minutes = urgent[key]
+        if type(minutes) not in (int, float) or not math.isfinite(minutes) or minutes <= 0:
+            raise ValueError(f'urgent.{key} must be a positive finite number')
     for key in ('terminal', 'run'):
         if not c['coordinator'].get(key):
             raise ValueError(f'missing coordinator.{key}')

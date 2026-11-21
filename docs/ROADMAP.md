@@ -113,6 +113,14 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-152 — Critical-path PR stall alerts
+
+Main designates PRs through `fleet critical-path add/remove/list`, using private
+project state rather than GitHub labels that can cancel in-flight CI. Listed
+open PRs use the same persisted inactivity episode and exclusions as `pr_stuck`,
+with a separate 60-minute default and no additional GitHub reads. Shared rollout
+is Main-owned and held for Email Sherpa's empty merge queue.
+
 ### TASK-149 — Investigation-only completion and independent carries
 
 Previously approved carried threads remain usable on their exact authoritative

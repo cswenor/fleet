@@ -1306,6 +1306,13 @@ timer starts at first observation and resets on state/head/merge-state/check/
 review progress, not comments or `updated_at`. Routine relays remain `status`.
 Urgency is advisory and unauthenticated, never authority or permission to
 stop/restart, merge or deploy. Keep builders unbound to **every** Run.
+
+Use `fleet --config C critical-path add PR`, `remove PR`, or `list` from Main's
+terminal. The local list takes effect on the next supervisor cycle without
+touching GitHub or restarting CI. Listed open PRs replace the ordinary stuck
+alert with `Critical path stalled` after `urgent.critical_path_stall_minutes`
+(default 60), with the same `pr_stuck` urgency and draft/parked exclusions.
+
 Switch Main's wait only in the coordinated deployment window after proving
 deployed native wake-type support and real background wake/replay/ack behavior.
 Shared-checkout updates may deploy immediately; merge is not rollout approval.

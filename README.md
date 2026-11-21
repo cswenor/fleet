@@ -386,6 +386,16 @@ Manual projects retain their configured exclusions. Other PR events, including
 real failures while held, remain visible. Urgency is advisory and unauthenticated,
 never authority or permission to restart, stop, merge or deploy.
 
+From the configured Main terminal, run `fleet --config C critical-path add PR`,
+`remove PR`, or `list` (all return the current sorted JSON list). This changes
+only private project state, not GitHub labels or CI, and takes effect on the
+next supervisor cycle without a restart. Listed open PRs use
+`urgent.critical_path_stall_minutes` (positive finite, default 60) instead of
+`urgent.pr_stuck_minutes` and report `Critical path stalled: PR #N, Xm since last activity`
+with the PR URL. Both use the `pr_stuck` urgency setting, progress timer, and
+pause rules. Changing designation does not repeat an alert for the same stall.
+Unknown, closed, and merged numbers stay listed but do not alert.
+
 Each cycle observes `coordinator.terminal` for Main liveness.
 `main_down` is immediate for a missing, disconnected or orphaned terminal.
 A supported bare shell prompt or current `[Uncaught Exception]` / `[Recovery]`

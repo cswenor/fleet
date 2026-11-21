@@ -176,6 +176,7 @@ urgent:
   events: [provider_stalled, idle, wrong_model, stray_worktree, merge_group_failure, pr_stuck, stalled, main_down]
   # [] keeps every relay ordinary status. Comment churn does not reset this timer.
   pr_stuck_minutes: 45
+  critical_path_stall_minutes: 60
 status:
   url: ''
   token_env: FLEET_STATUS_TOKEN

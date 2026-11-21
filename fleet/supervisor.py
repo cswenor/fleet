@@ -10,7 +10,7 @@ import shlex
 import signal
 import time
 import urllib.request
-from . import github, github_idle, health, snapshot, state, governor
+from . import critical_path, github, github_idle, health, snapshot, state, governor
 from .commands import orca, run, json_run, CommandError
 from .config import URGENT_EVENTS
 
@@ -424,12 +424,12 @@ def _stuck_progress_unknown(current, number):
         for entry in _stuck_queue_entries(current, number))
 
 
-def stuck_pr_alerts(c, ledger, current, now):
+def stuck_pr_alerts(c, ledger, current, now, *, critical_prs=()):
     """Persist observed semantic progress, ignoring comments and updated_at."""
     timers = ledger.setdefault('pr_progress', {})
     active = {}
     result = []
-    minutes = c.get('urgent', {}).get('pr_stuck_minutes', 45)
+    urgent = c.get('urgent', {})
     for p in current['prs']:
         if p['state'] != 'open' or _stuck_pr_paused(c, p):
             continue
@@ -452,10 +452,17 @@ def stuck_pr_alerts(c, ledger, current, now):
                for entry in queue[:-1] for run in entry.get('runs', [])):
             timer = {'signature': signature, 'since': now}
         active[key] = timer
-        if now - timer['since'] >= minutes * 60:
-            result.append({'key': 'pr_stuck:' + key, 'subject': f'PR #{p["number"]} stuck',
-                           'body': p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.',
-                           'branch': p['branch'], 'pr': p['number']})
+        critical = p['number'] in critical_prs
+        minutes = (urgent.get('critical_path_stall_minutes', 60) if critical
+                   else urgent.get('pr_stuck_minutes', 45))
+        elapsed = (now - timer['since']) / 60
+        if elapsed >= minutes:
+            subject = (f'Critical path stalled: PR #{p["number"]}, {int(elapsed)}m since last activity'
+                       if critical else f'PR #{p["number"]} stuck')
+            body = p['url'] if critical else p['url'] + f'\nNo state/check/review progress for {minutes:g} minutes.'
+            result.append({'key': 'pr_stuck:' + key, 'subject': subject, 'body': body,
+                           'branch': p['branch'], 'pr': p['number'], 'timer': timer,
+                           'critical_path': critical})
     ledger['pr_progress'] = active
     return result
 
@@ -835,6 +842,8 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                         'pr': None, 'branch': None})
         ledger['github_budget_window'] = reset
     pr_alerts = []
+    previous_progress = ledger.get('pr_progress', {})
+    critical_prs = critical_path.listed_prs(c)
     if current_g is not None:
         if current_g.get('merge_group_unknown'):
             # Missing permission is not supersession or recovery evidence.
@@ -848,7 +857,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         changes = [e for e in changes if not (e.get('pr') in diagnosed and e['key'].startswith('pr:'))]
         changes = _group_alerts(changes + initial, current_g)
         pending.extend(github_relays(ledger, [urgent_event(c, e) for e in changes], current_g))
-        pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time())
+        pr_alerts = stuck_pr_alerts(c, ledger, current_g, time.time(), critical_prs=critical_prs)
         ledger['seen_prs'] = sorted(seen | {p['number'] for p in current_g['prs']})
         ledger['github'] = current_g
     pending.extend(governor.advance(c, s, ledger))
@@ -870,13 +879,14 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         reason = s.get('error_details', {}).get(alert['key'].removeprefix('error:'))
         if reason:
             alert['body'] += ': ' + reason
-    # Unknown collection/progress is not recovery: retain occurrence dedupe.
+    # Unknown progress and designation changes are not a new inactivity episode.
     prior_alerts = ledger.get('active_alerts', {})
     active_stuck = {
         key: value for key, value in prior_alerts.items()
         if key.startswith('pr_stuck:') and (
-            current_g is None or
-            _stuck_progress_unknown(current_g, int(key.split(':')[1])))
+            current_g is None or (
+                (number := key.split(':')[1]) in ledger['pr_progress'] and
+                ledger['pr_progress'][number] == previous_progress.get(number)))
     } if isinstance(prior_alerts, dict) else {}
     if s.get('coordinator', {}).get('state') == 'unknown':
         prior_main = ledger.get('active_alerts', {})
@@ -896,6 +906,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
         if not pool.get('known') and streaks[provider] < c.get('quota', {}).get('unknown_alert_cycles', 3):
             active = [a for a in active if a['key'] != 'quota-provider:' + provider]
     active = [urgent_event(c, a) for a in active]
+    due_stuck = {a['pr']: a for a in active if a['key'].startswith('pr_stuck:')}
     prior = ledger['active_alerts']
     # Old ledgers held only keys; migrate by reporting their current content once.
     prior = prior if isinstance(prior, dict) else {}
@@ -903,6 +914,9 @@ def cycle(c, deliver=True, *, github_scheduler=None):
     next_active = dict(active_stuck)
     legacy_keys = set()
     for a in active:
+        if a['key'] in active_stuck:
+            # One alert per inactivity episode, even if Main changes designation.
+            continue
         signature = event_signature(a)
         legacy_key = a.pop('legacy_key', None)
         previous = prior.get(a['key'])
@@ -944,7 +958,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
     remaining = []
     failures = []
     protected = set()
-    paused_prs = {p['number'] for p in current_g['prs'] if _stuck_pr_paused(c, p)} if current_g else set()
+    progress = ledger.get('pr_progress', {})
     if current_g is not None:
         reclassified = []
         for event in pending:
@@ -964,9 +978,24 @@ def cycle(c, deliver=True, *, github_scheduler=None):
                 and event['body'] in inventory.get('expected_worktrees', [])):
             # A newly declared scratch path must not replay an old urgent retry.
             continue
-        if event['key'].startswith('pr_stuck:') and event.get('pr') in paused_prs:
-            # A newly observed pause also invalidates undelivered old occurrences.
-            continue
+        defer_stuck = False
+        if event['key'].startswith('pr_stuck:'):
+            pr = event['pr']
+            defer_stuck = current_g is None or _stuck_progress_unknown(current_g, pr)
+            if current_g is not None:
+                timer = progress.get(str(pr))
+                if timer is None:
+                    # Closed and paused PRs invalidate undelivered occurrences.
+                    continue
+                if (pr in critical_prs) != event.get('critical_path', False):
+                    if event.get('timer', previous_progress.get(str(pr))) != timer:
+                        continue
+                    due = due_stuck.get(pr)
+                    if due:
+                        # Keep the occurrence and successful recipient receipts on retry.
+                        event = {**due, 'key': event['key']}
+                    else:
+                        defer_stuck = True
         if event.get('lane_free'):
             identity = event['lane_free']
             builder = next((b for b in (inventory or {}).get('builders', [])
@@ -1005,8 +1034,7 @@ def cycle(c, deliver=True, *, github_scheduler=None):
             owning_terminal = health.owner(inventory, event['branch']) if inventory and event.get('branch') else None
             if owning_terminal:
                 recipients.append(owning_terminal)
-        if (event['key'].startswith('pr_stuck:') and current_g is not None
-                and _stuck_progress_unknown(current_g, event.get('pr'))):
+        if defer_stuck:
             remaining.append(event)
             protected.update(digest([event['key'], r]) for r in recipients)
             continue
