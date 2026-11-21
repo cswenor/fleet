@@ -269,13 +269,13 @@ the lane launch count as proven stale. Matching text does not prove the same
 relay occurrence. Capped history cannot prove an all-stale inbox.
 Fleet has no mutation mode or automatic cleanup.
 
-On stock Orca 1.4.266, `orca orchestration check --terminal TERMINAL --peek
---full --json` is read-only; a peek is not a reservation or an acknowledgment
-list. Omit `--peek` to consume the batch only when ready to process **every**
+On stock Orca 1.4.266, a standalone terminal's `orca orchestration check
+--terminal TERMINAL --peek --full --json` is read-only. A peek is not an
+acknowledgment list or reservation. Omit `--peek` to consume only when ready to process **every**
 returned message, including questions that arrived after the peek. If explicitly
 authorized to clear another terminal's backlog, forward actionable messages
 with their original IDs so the mailbox owner can reply in-thread. Inspect-only
-scripts must not consume. Run-bound Mains keep using `fleet wait`.
+scripts use `orchestration inbox`, not a consuming check. Run-bound Mains keep using `fleet wait`.
 
 For a lost terminal or Run response, use [read-only receipt recovery](../README.md#inbox-wait).
 See [TASK-151 evidence](ROADMAP.md#task-151--stock-orca-consuming-check-is-batch-exact).

@@ -115,8 +115,9 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ### TASK-151 — Stock Orca consuming check is batch-exact
 
-[Orca Delivery/custody](https://github.com/stablyai/orca/pull/39256) supersedes
-the TASK-119 selective-ack gap. In TASK-150's isolated stock 1.4.266 probes, the
+[Orca Delivery/custody](https://github.com/stablyai/orca/pull/39256) removes
+TASK-119's silent-loss rationale, not the need to process a whole batch.
+In TASK-150's isolated stock 1.4.266 probes, the
 terminal check returned the question sent after the peek, Run replay returned
 the original Delivery, and mail sent after the consuming response stayed unread.
 Batch-exact describes the returned handover, not other read-state transitions
