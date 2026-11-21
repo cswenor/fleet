@@ -69,9 +69,8 @@ class RetirementTests(unittest.TestCase):
         self.sent = []
         self.exited = False
         self.runtime_pid = None
-        self.stream_cursor = None
-        self.stream_prompt = False
-        self.shell_screen_stale = False
+        self.closed = []
+        self.close_result = {'close': {'handle': 'target', 'ptyKilled': True}}
         self.term_signals = []
         self.residue = None
         self.cleanup_works = True
@@ -184,25 +183,20 @@ class RetirementTests(unittest.TestCase):
         if args[:2] == ('terminal', 'show'):
             return {'terminal': self.terminal}
         if args[:2] == ('terminal', 'read'):
-            if '--screen' not in args:
-                return {'terminal': {'source': 'stream', 'latestCursor': self.stream_cursor,
-                                    'nextCursor': self.stream_cursor, 'truncated': False, 'limited': False,
-                                    'tail': ['dev@host:~/slot$'] if self.stream_prompt else []}}
+            self.assertIn('--screen', args)
             prompt = 'dev@host:~/slot$' + (' ' + self.residue if self.residue else '')
-            return {'terminal': {'tail': [prompt] if self.exited and not self.shell_screen_stale else self.screen}}
+            return {'terminal': {'tail': [prompt] if self.exited else self.screen}}
         if args[:2] == ('worktree', 'ps'):
             return {'worktrees': [{'worktreeId': 'tree', 'agents': [self.agent]}]}
+        if args[:2] == ('terminal', 'close'):
+            receipt = state.read(c, 'retirements')[self.slot]
+            self.assertTrue(receipt['retired'])
+            self.assertEqual(receipt['stage'], 'pane-close-attempted')
+            self.assertTrue(self.exited)
+            self.closed.append(args[2:])
+            return self.close_result
         if args[:2] == ('terminal', 'send'):
             self.sent.append(args)
-            if args[-2:] == ('--text', '\x03'):
-                receipt = state.read(c, 'retirements')[self.slot]
-                self.assertTrue(receipt['retired'])
-                self.assertEqual(receipt['shell_clear']['stage'], 'input-attempted')
-                self.assertTrue(self.exited)
-                if self.cleanup_works:
-                    self.stream_cursor = '15'
-                    self.stream_prompt = True
-                return {'send': {'accepted': True, 'bytesWritten': 1}}
             if args[-2:] == ('--text', '\x15'):
                 receipt = state.read(c, 'retirements')[self.slot]
                 self.assertEqual(receipt['residue_cleanup']['stage'], 'input-attempted')
@@ -766,7 +760,9 @@ class RetirementTests(unittest.TestCase):
         self.investigation()
         self.prs = [{'number': 1, 'title': 'TASK-1 fix', 'body': '',
                      'mergedAt': '2026-01-01T00:00:00Z', 'url': 'https://example/pr/1'}]
-        self.stream_cursor = '10'
+        self.shell_task = self.proc / '321/task/321'
+        self.shell_task.mkdir(parents=True)
+        (self.shell_task / 'children').touch()
         self.stale_patch(restart, 'os', new=SimpleNamespace(pidfd_open=unittest.mock.Mock(return_value=700),
                                                            close=unittest.mock.Mock()))
         self.pidfd_open = restart.os.pidfd_open
@@ -797,7 +793,7 @@ class RetirementTests(unittest.TestCase):
             context.start()
             self.addCleanup(context.stop)
 
-    def test_stale_recovery_cli_signals_exact_omp_then_clears_only_shell(self):
+    def test_stale_recovery_cli_signals_exact_omp_closes_one_pane_and_launches_fresh(self):
         from fleet import cli
         self.stale_recovery()
         self.as_main()
@@ -810,7 +806,9 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(receipt['stage'], 'launched')
         self.pidfd_open.assert_called_once_with(123)
         self.assertEqual(self.term_signals, [(700, restart.signal.SIGTERM)])
-        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.closed, [('--terminal', 'target')])
+        self.assertEqual(self.launch.call_args.kwargs['_fresh_pane'], ('tree', 'target'))
 
     def test_stale_recovery_refuses_without_exact_idle_and_settlement_proofs(self):
         self.stale_recovery()
@@ -848,37 +846,33 @@ class RetirementTests(unittest.TestCase):
         self.pidfd_open.side_effect = None
         self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
 
-    def test_stale_recovery_clears_only_the_verified_shell_and_requires_new_prompt(self):
+    def test_stale_recovery_keeps_retirement_if_foreground_shell_has_children(self):
         self.stale_recovery()
         self.as_main()
-        self.shell_screen_stale = True
-        result = self.run_restart()
-        receipt = result['retirement']
+        (self.shell_task / 'children').write_text('700\n')
+        with self.assertRaisesRegex(ValueError, 'child-free foreground shell'):
+            self.run_restart()
+        receipt = state.read(self.c, 'retirements')[self.slot]
         self.assertTrue(receipt['retired'])
-        self.assertEqual(receipt['shell_clear']['stage'], 'clean-prompt-verified')
-        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
-        _, _, verify = self.launch.call_args.kwargs['_restart_shell']
-        verify()
-        self.stream_cursor = '16'
-        with self.assertRaisesRegex(ValueError, 'clean shell prompt no longer proven'):
-            verify()
+        self.assertEqual(receipt['stage'], 'omp-retired')
+        self.assertNotIn('recovery_command', receipt)
+        self.assertEqual((self.sent, self.closed), ([], []))
+        self.launch.assert_not_called()
+        self.refused('already attempted')
 
-    def test_stale_recovery_keeps_retirement_on_stale_prompt(self):
+    def test_stale_recovery_withholds_launch_on_unconfirmed_close(self):
         self.stale_recovery()
         self.as_main()
-        # The rendered view looks ready after SIGTERM, but only the stream
-        # after clearing the exact shell can authorize launch.
-        self.cleanup_works = False
-        self.stream_prompt = True
-        with patch.object(restart.time, 'monotonic', side_effect=range(100)), \
-                patch.object(restart.time, 'sleep'):
-            with self.assertRaisesRegex(ValueError, 'no fresh clean shell prompt'):
-                self.run_restart()
-        self.assertEqual([args[4:] for args in self.sent], [('--text', '\x03')])
-        self.assertTrue(state.read(self.c, 'retirements')[self.slot]['retired'])
+        self.close_result['close']['ptyKilled'] = False
+        with self.assertRaisesRegex(ValueError, 'exact pane close unconfirmed'):
+            self.run_restart()
+        receipt = state.read(self.c, 'retirements')[self.slot]
+        self.assertTrue(receipt['retired'])
+        self.assertEqual(receipt['stage'], 'pane-close-attempted')
+        self.assertNotIn('recovery_command', receipt)
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.closed, [('--terminal', 'target')])
         self.launch.assert_not_called()
-        self.sent.clear()
-        self.refused('already attempted')
 
     def test_stale_recovery_does_not_touch_shell_while_omp_lives(self):
         self.stale_recovery()
@@ -886,7 +880,7 @@ class RetirementTests(unittest.TestCase):
         self.keep_omp = True
         with patch.object(restart.time, 'monotonic', side_effect=range(100)), \
                 patch.object(restart.time, 'sleep'):
-            with self.assertRaisesRegex(ValueError, 'without verified shell'):
+            with self.assertRaisesRegex(ValueError, 'without verified retirement'):
                 self.run_restart()
         self.assertEqual(self.sent, [])
         self.launch.assert_not_called()

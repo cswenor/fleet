@@ -1019,12 +1019,16 @@ on a stale shell or to `relaunch` an unfinished builder.
    Recognized working, dialog, background and draft frames still refuse.
    Fleet journals one Linux pidfd SIGTERM to that OMP only. It does not send
    keystrokes to OMP; any hidden draft is discarded, never submitted. After
-   exact OMP exit and return of the same foreground shell, the untrusted
-   renderer cannot authorize launch. Fleet journals at most one Ctrl-C to
-   the verified unbound foreground shell and requires a new clean prompt in
-   the bounded Orca stream. It rechecks shell, output and binding before launch.
-   If proof fails after retirement, inspect `retirements.json`, redraw/verify the
-   shell, and use `fleet launch`, not `restart`. Never repeat the signal or clear.
+   exact OMP exit, Fleet closes only the exact stale pane after it proves the
+   same unbound foreground shell with no children. This discards its scrollback
+   and changes the lane's terminal handle, not its worktree. Ordinary launch
+   admission then gates creation of a fresh terminal in that same worktree.
+   Leave the target pane untouched while recovery runs; the Fleet slot lock
+   does not exclude Orca UI input.
+   If close or launch is withheld or unconfirmed, inspect `retirements.json`
+   and the launch receipts. Never repeat the signal, close, or `restart`.
+   Before using `fleet launch`, verify no replacement started and, if the old
+   pane remains, manually recover or close it only after proving it idle.
 4. **Recovery B — operator display resize.** Open/resize that terminal in Orca's
    normal UI without touching the composer, then recapture and retry guarded
    restart only with a full idle footer/empty composer and all existing gates.

@@ -194,28 +194,23 @@ class RestartTests(unittest.TestCase):
         send_index = next(i for i, args in enumerate(self.calls) if args[:2] == ('terminal', 'send'))
         self.assertEqual(self.calls[send_index - 1], ('orchestration', 'run-current', '--from', 'old-shell'))
 
-    def test_recovered_shell_launch_revalidates_clean_prompt_before_input(self):
-        self.prompt = 'stale OMP frame'
-        self.s['inventory']['builders'][0]['shell_ready'] = False
-        before, after = deepcopy(self.s), deepcopy(self.s)
-        def changed():
-            if state.read(self.c, 'launch-preparations', {}).get(self.slot, {}).get('stage') == 'launch-attempted':
-                raise ValueError('recovered prompt changed')
-        with self.assertRaisesRegex(ValueError, 'recovered prompt changed'):
-            self.launch([before, after], _locked=True, _restart_shell=('old-shell', 'inc', changed))
+    def test_stale_pane_replacement_creates_in_same_worktree_without_reusing_another_shell(self):
+        receipt = self.launch(_locked=True, _fresh_pane=('tree', 'closed-pane'))
+        self.assertEqual(receipt['terminal'], 'new-terminal')
+        create, = [args for args in self.calls if args[:2] == ('terminal', 'create')]
+        self.assertEqual(create[2:4], ('--worktree', 'id:tree'))
+        self.assertEqual(self.sent, [])
+        self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
+
+    def test_stale_pane_replacement_refuses_old_pane_and_new_capacity_failure(self):
+        with self.assertRaisesRegex(ValueError, 'retired pane is still present'):
+            self.launch(_locked=True, _fresh_pane=('tree', 'old-shell'))
+        full = deepcopy(self.s)
+        full['inventory']['builders'].append(
+            dict(terminal='new-worker', path='/other-slot', connected=True))
+        with self.assertRaisesRegex(ValueError, 'builder cap reached'):
+            self.launch([self.s, full], _locked=True, _fresh_pane=('tree', 'closed-pane'))
         self.assertEqual((self.sent, self.created), ([], 0))
-        def bound():
-            if state.read(self.c, 'launch-preparations', {}).get(self.slot, {}).get('stage') == 'launch-attempted':
-                self.binding = {'run': {'id': 'unexpected'}}
-        with self.assertRaisesRegex(ValueError, 'recovered shell is no longer unbound'):
-            self.launch([deepcopy(self.s), deepcopy(self.s)], _locked=True,
-                        _restart_shell=('old-shell', 'inc', bound))
-        self.assertEqual((self.sent, self.created), ([], 0))
-        self.binding = {'run': None}
-        receipt = self.launch([deepcopy(self.s), deepcopy(self.s)], _locked=True,
-                              _restart_shell=('old-shell', 'inc', lambda: None))
-        self.assertEqual(receipt['terminal'], 'old-shell')
-        self.assertEqual((self.sent, self.created), (['old-shell'], 0))
 
     def test_bound_ready_shell_creates_in_same_worktree_without_sending_or_binding(self):
         self.s['inventory']['builders'][0]['binding'] = {'state': 'bound', 'run_id': 'run_old'}

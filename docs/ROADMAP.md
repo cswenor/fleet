@@ -118,9 +118,10 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 An explicit Main `fleet restart` may recover an unrecognized frame on a
 terminal that predates Orca, only after exact settled-primary, final-stop,
 lease, idle pane and child-free foreground OMP proof and ordinary preflight.
-It journals one pidfd SIGTERM, without submitting a hidden draft. Normal launch
-requires exact OMP exit, the same foreground shell and a fresh clean prompt.
-Unfinished relaunch is unchanged. See the [runbook](MAIN.md#post-restart-clipped-screen).
+It journals one pidfd SIGTERM without submitting a hidden draft, then
+closes only the exact stale pane, after proving the same unbound foreground
+shell has no children. Ordinary admission gates a fresh terminal in the same
+worktree. Unfinished relaunch is unchanged. See the [runbook](MAIN.md#post-restart-clipped-screen).
 The isolated CLI regression replays the TASK-88 frame. Scratch OMP 19.0.1
 handled SIGTERM with terminal teardown and a complete `session_exit` record;
 existing JSONL bytes were intact and the draft was never submitted. Main owns
