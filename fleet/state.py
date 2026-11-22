@@ -44,6 +44,11 @@ def write(c, name, value):
             os.unlink(temp)
 
 
+def retirement_attempted(receipt, launch_id):
+    """An explicit pre-delivery refusal leaves the launch active."""
+    return receipt.get('launch_id') == launch_id and receipt.get('stage') != 'exit-refused'
+
+
 class LauncherBusy(ValueError):
     """Lock contention is retryable, not an ownership/admission failure."""
 

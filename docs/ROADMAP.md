@@ -113,6 +113,13 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-154 — Restart after an explicit Orca exit refusal
+
+An OMP session title starting with ✋ caused Orca to mistake an idle pane for a
+permission prompt and refuse `/exit` before delivery. Fleet records that exact
+native error as `exit-refused`; a later restart must pass all normal guards.
+It never bypasses the Orca prompt guard or retries an uncertain send.
+
 ### TASK-151 — Stock Orca consuming check is batch-exact
 
 [Orca Delivery/custody](https://github.com/stablyai/orca/pull/39256) removes

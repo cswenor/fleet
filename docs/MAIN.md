@@ -972,6 +972,7 @@ cleanliness, rules availability and branch checkout feasibility before journalin
 old session untouched. It verifies the same-incarnation shell, then rechecks normal
 launch gates under one lock. Hooks and concurrent changes can still cause a later
 refusal. Inspect `retirements.json` and launch receipts on any partial error.
+If Orca explicitly refuses `/exit` with `agent_prompt_blocked` (`exit-refused`), including when a leading ✋ in the OMP session title is mistaken for a permission prompt, retry only through a full guarded `fleet restart` once idle; never split the input or retry an ambiguous send.
 After verified retirement and no replacement launch, fix admission and run
 `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**. No recreated
 terminal is needed; never retry retirement blindly.

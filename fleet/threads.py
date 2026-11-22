@@ -102,7 +102,7 @@ def authorized(c, launch, slot, ref):
     reconciled = state.read(c, 'reconciliations', {}).get(launch['id'], {})
     retirement = state.read(c, 'retirements', {}).get(slot, {})
     return not (reconciled.get('launch_id') == launch['id'] or
-                retirement.get('launch_id') == launch['id'])
+                state.retirement_attempted(retirement, launch['id']))
 
 
 def _ownership(c, launch, slot, caller):
@@ -342,8 +342,9 @@ def pending_questions(c, slot, launch):
             continue
         if not authorized(c, launch, slot, ref):
             continue
+        retirement = state.read(c, 'retirements', {}).get(slot, {})
         if (state.read(c, 'reconciliations', {}).get(launch['id'], {}).get('launch_id') == launch['id']
-                or state.read(c, 'retirements', {}).get(slot, {}).get('launch_id') == launch['id']):
+                or state.retirement_attempted(retirement, launch['id'])):
             continue
         task = state.read(c, _name(ref), {}).get(ref, {})
         attempt = task.get('attempts', {}).get(launch['id'], {})
