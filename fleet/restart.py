@@ -738,8 +738,8 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 'never retry cleanup or restart'
                 if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
-            if (receipt['stage'] == 'exit-attempted' and isinstance(exc, CommandError)
-                    and exc.code == 'agent_prompt_blocked'):
+            if (operation == 'restart' and receipt['stage'] == 'exit-attempted'
+                    and isinstance(exc, CommandError) and exc.code == 'agent_prompt_blocked'):
                 receipt['retry_guidance'] += (
                     '; see docs/MAIN.md: Manual recovery after agent_prompt_blocked')
             if receipt.get('retired'):

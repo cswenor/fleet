@@ -1061,6 +1061,8 @@ remains uncertain, stop.
    now has a clean foreground shell. Record the positive proof with
    `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence TEXT`,
    then run `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**.
+   If the original restart supplied `--model` and `--thinking`, pass the same
+   override pair to `launch`.
 
 ## Waiting and inboxes
 ### Busy builder steering (TASK-84, source-only)
