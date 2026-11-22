@@ -113,12 +113,12 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
-### TASK-154 — Restart after an explicit Orca exit refusal
+### TASK-154 — Manual recovery after Orca blocks retirement
 
-An OMP session title starting with ✋ caused Orca to mistake an idle pane for a
-permission prompt and refuse `/exit` before delivery. Fleet records that exact
-native error as `exit-refused`; a later restart must pass all normal guards.
-It never bypasses the Orca prompt guard or retries an uncertain send.
+A leading ✋ in an OMP title can look like a permission prompt to Orca.
+`agent_prompt_blocked` can also occur after bytes reach the PTY, so Fleet keeps
+the existing no-retry rule and points Main to the verified manual recovery in
+[MAIN.md](MAIN.md#manual-recovery-after-agent_prompt_blocked).
 
 ### TASK-151 — Stock Orca consuming check is batch-exact
 

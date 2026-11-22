@@ -972,7 +972,6 @@ cleanliness, rules availability and branch checkout feasibility before journalin
 old session untouched. It verifies the same-incarnation shell, then rechecks normal
 launch gates under one lock. Hooks and concurrent changes can still cause a later
 refusal. Inspect `retirements.json` and launch receipts on any partial error.
-If Orca explicitly refuses `/exit` with `agent_prompt_blocked` (`exit-refused`), including when a leading ✋ in the OMP session title is mistaken for a permission prompt, retry only through a full guarded `fleet restart` once idle; Fleet never splits input or retries an ambiguous send.
 After verified retirement and no replacement launch, fix admission and run
 `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**. No recreated
 terminal is needed; never retry retirement blindly.
@@ -1020,10 +1019,8 @@ assistant message or a thread result does not prove an empty omitted composer.
    canonical final assistant stop, live session lease, exact foreground OMP
    PID/starttime/pts and terminal incarnation. The exact pane must be done/idle,
    not interrupted; any present program status must also be done/idle.
-   Main may then send fixed `/exit` plus Enter **once** despite the unproven screen.
-   If typing `/exit` without Enter, confirm that OMP's slash-command menu
-   highlights `exit` before sending Enter alone.
-   This is an explicit manual exception, never normal empty-composer
+   Main may then send fixed `/exit` plus Enter **once** despite the unproven
+   screen. This is an explicit manual exception, never normal empty-composer
    proof or an automated Fleet fallback. Preserve any ambiguous send receipt;
    never repeat it. Positively verify that exact OMP PID/starttime has exited
    and the same-incarnation pts belongs solely to the foreground shell. Inspect
@@ -1040,6 +1037,30 @@ escalate to Main/owner. Never send Ctrl-L/Escape to an unproven composer.
 No stock CLI terminal resize/refresh command was found; no exit override was added.
 Upstream geometry/resize API changes require an owner decision. See
 [the feature map](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10).
+
+### Manual recovery after agent_prompt_blocked
+
+Orca can misread a leading ✋ in OMP's automatic session title as a permission
+menu. The combined `/exit` send can also return `agent_prompt_blocked` after a
+PTY write; the error does not establish that no input arrived. Fleet keeps
+`exit-attempted` and refuses another `restart` for that launch.
+
+This is Main-only recovery for a finished builder, not an automated fallback.
+Inspect the retirement receipt first. If the exact OMP process has already
+exited, do not send input; verify the clean shell and reconcile. If the outcome
+remains uncertain, stop.
+
+1. Verify the exact launch, terminal incarnation, foreground OMP PID/starttime,
+   session lease and settled completion. Require the current idle footer, an
+   empty composer and no menu or dialog.
+2. Send `/exit` as text only. Re-read the pane and confirm that the composer
+   contains exactly `/exit` and the OMP slash-command menu highlights `exit`.
+   If any proof is missing or changed, withhold Enter. Otherwise send Enter
+   alone, once; never repeat ambiguous input.
+3. Verify that exact OMP PID/starttime exited and the same-incarnation terminal
+   now has a clean foreground shell. Record the positive proof with
+   `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence TEXT`,
+   then run `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**.
 
 ## Waiting and inboxes
 ### Busy builder steering (TASK-84, source-only)

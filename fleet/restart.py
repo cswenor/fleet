@@ -555,7 +555,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                              'manual retirement + fleet reconcile + fleet launch')
         retirements = state.read(c, 'retirements', {})
         previous = retirements.get(slot, {})
-        if state.retirement_attempted(previous, record['id']):
+        if previous.get('launch_id') == record['id']:
             raise ValueError('retirement already attempted for this launch; inspect retirement and launch receipts, never retry blindly')
         stopped = None
         if reason is not None:
@@ -649,13 +649,7 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
         state.write(c, 'retirements', retirements)
         # Journal BEFORE input: transport failure or crash can never authorize a second /exit.
         try:
-            try:
-                receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '/exit', '--enter')
-            except CommandError as exc:
-                # Only this native refusal proves Orca did not deliver the input.
-                if exc.code == 'agent_prompt_blocked':
-                    receipt['stage'] = 'exit-refused'
-                raise
+            receipt['exit_receipt'] = orca(c, 'terminal', 'send', '--terminal', target['terminal'], '--text', '/exit', '--enter')
             receipt['stage'] = 'exit-sent'
             state.write(c, 'retirements', retirements)
             deadline = time.monotonic() + 15
@@ -740,12 +734,14 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 'after confirming no replacement session started and admission recovers, retry fleet launch '
                 'for next_ref and this slot, not fleet restart'
                 if receipt['stage'] in ('launch-attempted', 'launched') else
-                f'Orca refused /exit before delivery; rerun fleet {operation} once the builder is idle'
-                if receipt['stage'] == 'exit-refused' else
                 'launch withheld; manually verify and clear the shell line before fleet launch; '
                 'never retry cleanup or restart'
                 if receipt['stage'] == 'shell-verified-with-residue' else
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
+            if (receipt['stage'] == 'exit-attempted' and isinstance(exc, CommandError)
+                    and exc.code == 'agent_prompt_blocked'):
+                receipt['retry_guidance'] += (
+                    '; see docs/MAIN.md: Manual recovery after agent_prompt_blocked')
             if receipt.get('retired'):
                 recovery_argv = [
                     'fleet', '--config',

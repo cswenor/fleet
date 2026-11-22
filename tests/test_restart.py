@@ -75,7 +75,7 @@ class RetirementTests(unittest.TestCase):
         self.next_status = 'in-progress'
         self.next_parent_status = 'active'
         self.next_edges = []
-        self.send_error = None
+        self.send_error = False
         self.patches = [patch.object(restart.health, 'collect', side_effect=lambda c: copy.deepcopy(self.inventory)),
                         patch.object(restart, 'orca', side_effect=self.orca),
                         patch.object(restart, 'json_run', side_effect=self.pad),
@@ -188,8 +188,8 @@ class RetirementTests(unittest.TestCase):
                 return {'accepted': True}
             # Intent must already be durable even if the transport fails.
             self.assertEqual(state.read(c, 'retirements')[self.slot]['stage'], 'exit-attempted')
-            if self.send_error is not None:
-                raise self.send_error
+            if self.send_error:
+                raise RuntimeError('lost transport')
             self.exited = True
             if self.residue:
                 if not self.keep_omp:
@@ -984,40 +984,8 @@ class RetirementTests(unittest.TestCase):
                 state.write(self.c, 'launches', {self.slot: record})
                 self.refused('record|identity|session directory')
 
-    def test_explicit_exit_refusal_can_retry_only_after_idle_proof(self):
-        self.send_error = CommandError('agent_prompt_blocked', code='agent_prompt_blocked')
-        with self.assertRaisesRegex(CommandError, 'agent_prompt_blocked.*rerun fleet restart'):
-            self.run_restart()
-        receipt = state.read(self.c, 'retirements')[self.slot]
-        self.assertEqual(receipt['stage'], 'exit-refused')
-        self.assertIn('agent_prompt_blocked', receipt['failure_reason'])
-        self.assertEqual(len(self.sent), 1)
-        self.launch.assert_not_called()
-
-        self.sent.clear()
-        self.send_error = None
-        self.agent['state'] = 'working'
-        self.refused('exact-pane agent is running')
-        self.assertEqual(state.read(self.c, 'retirements')[self.slot], receipt)
-
-        self.agent['state'] = 'done'
-        self.assertEqual(self.run_restart()['retirement']['stage'], 'launched')
-        self.assertEqual(len(self.sent), 1)
-        self.sent.clear()
-        self.launch.reset_mock()
-        self.refused('already attempted')
-
-    def test_unrelated_send_rejection_never_sends_exit_twice(self):
-        self.send_error = CommandError('agent_prompt_blocked')  # Text is not a native error code.
-        with self.assertRaisesRegex(CommandError, 'never resend /exit'):
-            self.run_restart()
-        self.assertEqual(len(self.sent), 1)
-        self.assertEqual(state.read(self.c, 'retirements')[self.slot]['stage'], 'exit-attempted')
-        self.sent.clear()
-        self.refused('already attempted')
-
     def test_lost_send_receipt_never_sends_exit_twice(self):
-        self.send_error = RuntimeError('lost transport')
+        self.send_error = True
         with self.assertRaisesRegex(RuntimeError, 'lost transport'):
             self.run_restart()
         self.assertEqual(len(self.sent), 1)
