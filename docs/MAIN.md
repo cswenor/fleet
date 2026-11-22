@@ -972,7 +972,7 @@ cleanliness, rules availability and branch checkout feasibility before journalin
 old session untouched. It verifies the same-incarnation shell, then rechecks normal
 launch gates under one lock. Hooks and concurrent changes can still cause a later
 refusal. Inspect `retirements.json` and launch receipts on any partial error.
-If Orca explicitly refuses `/exit` with `agent_prompt_blocked` (`exit-refused`), including when a leading ✋ in the OMP session title is mistaken for a permission prompt, retry only through a full guarded `fleet restart` once idle; never split the input or retry an ambiguous send.
+If Orca explicitly refuses `/exit` with `agent_prompt_blocked` (`exit-refused`), including when a leading ✋ in the OMP session title is mistaken for a permission prompt, retry only through a full guarded `fleet restart` once idle; Fleet never splits input or retries an ambiguous send.
 After verified retirement and no replacement launch, fix admission and run
 `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**. No recreated
 terminal is needed; never retry retirement blindly.
@@ -1020,8 +1020,10 @@ assistant message or a thread result does not prove an empty omitted composer.
    canonical final assistant stop, live session lease, exact foreground OMP
    PID/starttime/pts and terminal incarnation. The exact pane must be done/idle,
    not interrupted; any present program status must also be done/idle.
-   Main may then send fixed `/exit` plus Enter **once** despite the unproven
-   screen. This is an explicit manual exception, never normal empty-composer
+   Main may then send fixed `/exit` plus Enter **once** despite the unproven screen.
+   If typing `/exit` without Enter, confirm that OMP's slash-command menu
+   highlights `exit` before sending Enter alone.
+   This is an explicit manual exception, never normal empty-composer
    proof or an automated Fleet fallback. Preserve any ambiguous send receipt;
    never repeat it. Positively verify that exact OMP PID/starttime has exited
    and the same-incarnation pts belongs solely to the foreground shell. Inspect
