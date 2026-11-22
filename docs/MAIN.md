@@ -1051,12 +1051,14 @@ exited, do not send input; verify the clean shell and reconcile. If the outcome
 remains uncertain, stop.
 
 1. Verify the exact launch, terminal incarnation, foreground OMP PID/starttime,
-   session lease and settled completion. Require the current idle footer, an
-   empty composer and no menu or dialog.
+   session lease and settled completion. Require the exact Orca pane to be
+   `done` or `idle`, not interrupted, with any reported program status also
+   `done` or `idle`. The current OMP screen must show the idle footer and an
+   empty composer, with no background-job indicator, menu or dialog.
 2. Send `/exit` as text only. Re-read the pane and confirm that the composer
    contains exactly `/exit` and the OMP slash-command menu highlights `exit`.
-   If any proof is missing or changed, withhold Enter. Otherwise send Enter
-   alone, once; never repeat ambiguous input.
+   Withhold Enter if any proof is missing or the pane identity or idle status
+   changed. Otherwise send Enter alone, once; never repeat ambiguous input.
 3. Verify that exact OMP PID/starttime exited and the same-incarnation terminal
    now has a clean foreground shell. Record the positive proof with
    `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence TEXT`,
