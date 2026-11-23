@@ -740,8 +740,9 @@ def _replace(c, ref, slot, finished_ref, *, reason=None, keep_uncommitted=False,
                 'retirement unconfirmed; inspect terminal and retirement receipt; never resend /exit or retry fleet restart')
             if (operation == 'restart' and receipt['stage'] == 'exit-attempted'
                     and isinstance(exc, CommandError) and exc.code == 'agent_prompt_blocked'):
-                receipt['retry_guidance'] += (
-                    '; see docs/MAIN.md: Manual recovery after agent_prompt_blocked')
+                receipt['retry_guidance'] = (
+                    'retirement unconfirmed; do not retry fleet restart; '
+                    'see docs/MAIN.md: Manual recovery after agent_prompt_blocked (Main only)')
             if receipt.get('retired'):
                 recovery_argv = [
                     'fleet', '--config',
