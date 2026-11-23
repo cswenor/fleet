@@ -1038,6 +1038,34 @@ No stock CLI terminal resize/refresh command was found; no exit override was add
 Upstream geometry/resize API changes require an owner decision. See
 [the feature map](orca-feature-map.md#task-88-post-restart-screen-investigation-2026-11-10).
 
+### Manual recovery after agent_prompt_blocked
+
+Orca can misread a leading ✋ in OMP's automatic session title as a permission
+menu. The combined `/exit` send can also return `agent_prompt_blocked` after a
+PTY write; the error does not establish that no input arrived. Fleet keeps
+`exit-attempted` and refuses another `restart` for that launch.
+
+This is Main-only recovery for a finished builder, not an automated fallback.
+Inspect the retirement receipt first. If the exact OMP process has already
+exited, do not send input; verify the clean shell and reconcile. If the outcome
+remains uncertain, stop.
+
+1. Verify the exact launch, terminal incarnation, foreground OMP PID/starttime,
+   session lease and settled completion. Require the exact Orca pane to be
+   `done` or `idle`, not interrupted, with any reported program status also
+   `done` or `idle`. The current OMP screen must show the idle footer and an
+   empty composer, with no background-job indicator, menu or dialog.
+2. Send `/exit` as text only. Re-read the pane and confirm that the composer
+   contains exactly `/exit` and the OMP slash-command menu highlights `exit`.
+   Withhold Enter if any proof is missing or the pane identity or idle status
+   changed. Otherwise send Enter alone, once; never repeat ambiguous input.
+3. Verify that exact OMP PID/starttime exited and the same-incarnation terminal
+   now has a clean foreground shell. Record the positive proof with
+   `fleet --config CONFIG reconcile --slot PATH --launch EXACT_ID --evidence TEXT`,
+   then run `fleet --config CONFIG launch NEXT --slot PATH`, **not restart**.
+   If the original restart supplied `--model` and `--thinking`, pass the same
+   override pair to `launch`.
+
 ## Waiting and inboxes
 ### Busy builder steering (TASK-84, source-only)
 
