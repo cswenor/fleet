@@ -41,19 +41,24 @@ def _binding(bound, run, caller):
 
 class _Recovery:
     """One monotonic outage budget, shared by all read-only recovery operations."""
-    def __init__(self, c, run, caller):
+    def __init__(self, c, run, caller, *, limit=None):
         self.c, self.run, self.caller = c, run, caller
         self.deadline = None
+        self.limit = limit
         self.recovered = False
+
+    def remaining(self):
+        deadline = self.deadline if self.limit is None else min(self.deadline, self.limit)
+        return deadline - time.monotonic()
 
     def pause(self):
         if self.deadline is None:
             self.deadline = time.monotonic() + 30
-        remaining = self.deadline - time.monotonic()
+        remaining = self.remaining()
         if remaining <= 0:
             raise MailboxError('runtime_unavailable')
         time.sleep(min(1, remaining))
-        if time.monotonic() >= self.deadline:
+        if self.remaining() <= 0:
             raise MailboxError('runtime_unavailable')
 
     def read(self, verb, *args):
@@ -62,13 +67,13 @@ class _Recovery:
         retry = False
         while True:
             try:
-                remaining = self.deadline - time.monotonic()
+                remaining = self.remaining()
                 if remaining <= 0:
                     raise MailboxError('runtime_unavailable')
                 if retry and verb != 'run-current':
                     bound = self.read('run-current', '--from', self.caller).get('run')
                     _binding(bound, self.run, self.caller)
-                    remaining = self.deadline - time.monotonic()
+                    remaining = self.remaining()
                     if remaining <= 0:
                         raise MailboxError('runtime_unavailable')
                 value = request(self.c, verb, *args, timeout=min(30, remaining))
@@ -231,6 +236,11 @@ def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
             return True
         if len(rows) >= 100:
             raise MailboxError('builder_peek_incomplete')
+        if recovery.limit is not None:
+            # A healthy, unselected retry can re-arm an ordinary idle wait
+            # after diagnostics instead of spending its recovery budget peeking.
+            recovery.deadline = None
+            return False
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             recovery.deadline = None
@@ -239,12 +249,13 @@ def _builder_pending(c, recovery, run, caller, timeout, selected, interval):
 
 
 def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
-         *, before_check=None):
+         *, before_check=None, retry_deadline=None):
     run = c['coordinator']['run']
     caller = os.environ.get('ORCA_TERMINAL_HANDLE')
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
               'batches': [], 'counts': dict.fromkeys(CLASSES, 0),
               'legacyTerminalInbox': {'readOnly': True}}
+    check_started = False
     try:
         if not math.isfinite(timeout) or not 1 <= timeout <= 1800:
             raise MailboxError('timeout_must_be_1_to_1800_seconds')
@@ -258,7 +269,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         caller = caller or terminal
         if not caller:
             raise MailboxError('caller_identity_required')
-        recovery = _Recovery(c, run, caller)
+        recovery = _Recovery(c, run, caller, limit=retry_deadline)
         bound = recovery.read('run-current', '--from', caller).get('run')
         wait_deadline = time.monotonic() + timeout
         _binding(bound, run, caller)
@@ -280,8 +291,14 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
             args.extend(['--types', types])
         if ack_run:
             args.extend(['--ack', ack_run])
+        if retry_deadline is not None and time.monotonic() >= retry_deadline:
+            raise MailboxError('runtime_unavailable')
+        if pending:
+            # The loop budget fences pre-check recovery, not an issued check.
+            recovery.limit = None
         if pending and ack_run and before_check:
             before_check()
+        check_started = pending
         try:
             received = (request(c, *args, timeout=(30 if builder else timeout + 30))
                         if pending else {'runId': run, 'messages': [], 'count': 0,
@@ -342,6 +359,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         result['error'] = str(e)
         if str(e) == 'runtime_unavailable':
             result['event'] = 'runtime_unavailable'
+            result['preCheckFailure'] = not check_started
             return result
     # Never consume legacy terminal mail: its native check has no replay/ack.
     # Even failures carry diagnostics, without discarding an already fetched Run batch.
@@ -363,6 +381,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         except MailboxError as e:
             result['legacyTerminalInbox']['error'] = str(e)
             if str(e) == 'runtime_unavailable':
+                result['preCheckFailure'] = not check_started and result['event'] == 'timeout'
                 result.update(event='runtime_unavailable', error=str(e))
             else:
                 result.update(event='error', error=result.get('error', 'terminal_inbox_unavailable'))
@@ -451,9 +470,11 @@ def run_wait(c, args):
     with consumer(c, args.terminal) as receipt:
         ack_run = receipt.pending(args.ack_run, args.auto_ack)
         recoveries = []
+        retry_deadline = None
+        backoff = 5
         while True:
             result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on, args.interval,
-                          before_check=receipt.consume)
+                          before_check=receipt.consume, retry_deadline=retry_deadline)
             if recoveries:
                 result['rearmEvents'] = list(recoveries)
             if args.save:
@@ -463,10 +484,29 @@ def run_wait(c, args):
                     result['saveError'] = str(error)
                     print(json.dumps(result), flush=True)
                     return 2
-            if result.get('batches') or not args.loop or result['event'] not in ('timeout', 'rearm'):
+            if result.get('batches') or not args.loop:
                 break
+            event = result['event']
+            if event == 'runtime_unavailable' and result.get('preCheckFailure') is True:
+                now = time.monotonic()
+                if retry_deadline is None:
+                    retry_deadline = now + 600
+                remaining = retry_deadline - now
+                if remaining <= 0:
+                    break
+                time.sleep(min(backoff, remaining))
+                if time.monotonic() >= retry_deadline:
+                    break
+                recoveries.append({key: value for key, value in result.items()
+                                   if key != 'rearmEvents'})
+                # No consuming check was attempted; the original ack is still unsent.
+                backoff = min(30, backoff * 2)
+                continue
+            if event not in ('timeout', 'rearm'):
+                break
+            retry_deadline, backoff = None, 5
             ack_run = None
-            if result['event'] == 'rearm':
+            if event == 'rearm':
                 recoveries.append({key: value for key, value in result.items()
                                    if key != 'rearmEvents'})
         print(summary(result, bodies=bodies, legacy_history=args.legacy_history)

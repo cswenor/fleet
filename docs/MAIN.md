@@ -1245,6 +1245,7 @@ The save directory must already exist. No `main-inbox.sh` wrapper is needed.
 `--loop` continues internally across timeout checkpoints and recovered transport
 interruptions, returning only messages or a real error. Give the async job an
 explicit deadline. The default without `--loop` remains single-shot.
+`--loop` also retries batch-free `runtime_unavailable` before a consuming check, with 5–30s backoff and a ten-minute consecutive-failure budget.
 An initial `--ack-run` is submitted only once, never replayed after an ambiguous
 check; inspect saved `rearmEvents` for native recovery/request IDs and reconcile
 unknown outcomes separately. Looping does not recover a potentially auto-handled

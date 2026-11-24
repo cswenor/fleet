@@ -755,6 +755,7 @@ never used as the caller.
 
 The save parent must exist. `--loop` continues across timeout/rearm checkpoints
 until messages or a real error; omit it for existing single-shot exit behavior.
+With `--loop`, a batch-free `runtime_unavailable` before any consuming check retries with 5–30s backoff for up to ten minutes of consecutive failures; retries are recorded in `rearmEvents`.
 Use a bounded async-job deadline. `--save PATH` atomically replaces the complete
 JSON result (0600) after each result, including errors. `--summary` defaults to
 `--bodies`: delimited blocks show every ID, sender, type/classification, subject,
@@ -897,8 +898,8 @@ after owner approval and cross-project notice. No timer or external transient
 service is needed. Builders never execute a live shared restart.
 Keep all Main inbox waits running across the restart; do not ask them to go
 quiet. Run the conductor asynchronously, with a bounded deadline including its
-result-consumption window. `fleet wait` recovers transport outages for up to
-30 seconds. An ambiguous consuming request is never automatically replayed:
+result-consumption window. Each `fleet wait` transport recovery attempt is
+bounded to 30 seconds. An ambiguous consuming request is never automatically replayed:
 `rearm` (exit 4) tells Main to inspect retained native receipts and re-arm;
 `runtime_unavailable` (exit 2) reports persistent outage.
 
