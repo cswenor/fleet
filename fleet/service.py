@@ -51,7 +51,9 @@ def _install(unit_name, arguments, directory, description, environment_file=None
     config_home = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
     units = config_home / 'systemd/user'
     units.mkdir(parents=True, exist_ok=True)
-    executable = shutil.which('fleet')
+    # Inherit only executable search paths, never the caller environment or provider tokens.
+    paths = service_path()
+    executable = shutil.which('fleet', path=paths)
     if executable is None:
         # Source checkout install: keep code at this stable path. No system Python mutation.
         executable = str(Path.home() / '.local/bin/fleet')
@@ -64,8 +66,6 @@ def _install(unit_name, arguments, directory, description, environment_file=None
             raise ValueError('service values must not contain control characters')
         result = s.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
         return '"' + (result.replace('$', '$$') if expand_dollars else result) + '"'
-    # Inherit only executable search paths, never the caller environment or provider tokens.
-    paths = service_path()
     args = [executable] + arguments
     working_directory = directory.replace('%', '%%')
     if any(ch in working_directory for ch in ('\n', '\r', '\0')):

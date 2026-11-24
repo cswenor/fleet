@@ -228,14 +228,20 @@ class PortabilityTests(unittest.TestCase):
             second.mkdir()
             mounted_bin = Path(mount) / 'usr/sbin'
             mounted_bin.mkdir(parents=True)
-            paths = f'{first}:{mounted_bin}:{root / "missing"}:.:{second}'
+            alias = root / 'mount-alias'
+            alias.symlink_to(mounted_bin, target_is_directory=True)
+            for path in (mounted_bin, first):
+                executable = path / 'fleet'
+                executable.touch()
+                executable.chmod(0o755)
+            paths = f'{mount}/.././{Path(mount).name}/usr/sbin:{alias}:{first}:{root / "missing"}:.:{second}'
             with patch.object(service.sys, 'platform', 'linux'), \
                     patch.dict(os.environ, {'XDG_CONFIG_HOME': tmp, 'PATH': paths}), \
-                    patch.object(service.shutil, 'which', return_value='/fleet'), patch.object(service, 'run') as command:
+                    patch.object(service, 'run') as command:
                 service._install('fleet-test.service', ['serve'], '/project', 'Supervisor')
             text = (root / 'systemd/user/fleet-test.service').read_text()
             self.assertIn(f'Environment="PATH={first}:{second}"\n', text)
-            self.assertIn('ExecStart="/fleet" "serve"\n', text)
+            self.assertIn(f'ExecStart="{first / "fleet"}" "serve"\n', text)
             self.assertEqual([c.args[0] for c in command.call_args_list], [
                 ['systemctl', '--user', 'daemon-reload'], ['systemctl', '--user', 'enable', 'fleet-test.service'],
                 ['systemctl', '--user', 'restart', 'fleet-test.service'], ['systemctl', '--user', 'is-active', '--quiet', 'fleet-test.service']])

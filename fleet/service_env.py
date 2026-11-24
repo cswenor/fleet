@@ -8,9 +8,11 @@ import sys
 
 def service_path():
     """Keep existing absolute PATH directories outside ephemeral AppImage mounts."""
+    mount_prefix = os.path.realpath('/tmp') + '/.mount_'
     return ':'.join(
         path for path in os.environ.get('PATH', '').split(':')
-        if os.path.isabs(path) and not path.startswith('/tmp/.mount_') and os.path.isdir(path)
+        if os.path.isabs(path) and not os.path.normpath(path).startswith('/tmp/.mount_')
+        and not os.path.realpath(path).startswith(mount_prefix) and os.path.isdir(path)
     ) or '/usr/local/bin:/usr/bin:/bin'
 
 
