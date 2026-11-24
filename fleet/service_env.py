@@ -1,9 +1,17 @@
-"""Internal launchd entry point: private literal environment, never a shell."""
+"""Service environment helpers and private literal launchd entry point."""
 import os
 from pathlib import Path
 import re
 import stat
 import sys
+
+
+def service_path():
+    """Keep usable PATH directories without retaining ephemeral AppImage mounts."""
+    return ':'.join(
+        path for path in os.environ.get('PATH', '').split(':')
+        if path and not path.startswith('/tmp/.mount_') and os.path.isdir(path)
+    ) or '/usr/local/bin:/usr/bin:/bin'
 
 
 def read_environment(path):

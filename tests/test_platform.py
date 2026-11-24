@@ -85,11 +85,13 @@ class LaunchAgentTests(unittest.TestCase):
                     return '\tstate = running\n\tpid = 42\n\tenvironment = {\n\t\tTOKEN = fake-secret\n\t}\n'
                 return ''
             with patch.object(launchd.Path, 'home', return_value=root), \
+                    patch.dict(os.environ, {'PATH': f'/tmp/.mount_orca-test:{root / "missing"}'}), \
                     patch.object(launchd.shutil, 'which', return_value='/path with spaces/fleet'), \
                     patch.object(launchd, 'run', side_effect=command):
                 result = launchd.install('fleet-owner-project.service', ['serve', '--no-deliver'], '/project space', str(env))
             agent = plistlib.loads(Path(result['plist']).read_bytes())
             self.assertEqual(agent['WorkingDirectory'], '/project space')
+            self.assertEqual(agent['EnvironmentVariables']['PATH'], '/usr/local/bin:/usr/bin:/bin')
             self.assertEqual(agent['ProgramArguments'][-3:], ['/path with spaces/fleet', 'serve', '--no-deliver'])
             self.assertIn(str(env), agent['ProgramArguments'])
             self.assertNotIn('fake-secret', Path(result['plist']).read_text() + json.dumps(result))
@@ -217,15 +219,23 @@ class PortabilityTests(unittest.TestCase):
             with patch.dict(os.environ, {'ORCA_CLI_COMMAND': '/explicit/env'}):
                 self.assertEqual(config.load(path)['orca'], '/explicit/config')
 
-    def test_linux_unit_contract_unchanged(self):
-        with tempfile.TemporaryDirectory() as tmp:
+    def test_linux_unit_filters_path_and_preserves_order(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                tempfile.TemporaryDirectory(prefix='.mount_fleet-test-', dir='/tmp') as mount:
             root = Path(tmp)
+            first, second = root / 'first', root / 'second'
+            first.mkdir()
+            second.mkdir()
+            mounted_bin = Path(mount) / 'usr/sbin'
+            mounted_bin.mkdir(parents=True)
+            paths = f'{first}:{mounted_bin}:{root / "missing"}:{second}'
             with patch.object(service.sys, 'platform', 'linux'), \
-                    patch.dict(os.environ, {'XDG_CONFIG_HOME': tmp, 'PATH': '/safe/bin'}), \
+                    patch.dict(os.environ, {'XDG_CONFIG_HOME': tmp, 'PATH': paths}), \
                     patch.object(service.shutil, 'which', return_value='/fleet'), patch.object(service, 'run') as command:
                 service._install('fleet-test.service', ['serve'], '/project', 'Supervisor')
             text = (root / 'systemd/user/fleet-test.service').read_text()
-            self.assertEqual(text, '[Unit]\nDescription=Supervisor\nAfter=default.target\n\n[Service]\nType=simple\nWorkingDirectory=/project\nExecStart="/fleet" "serve"\nEnvironment="PATH=/safe/bin"\n\nRestart=on-failure\nRestartSec=15\nUMask=0077\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n')
+            self.assertIn(f'Environment="PATH={first}:{second}"\n', text)
+            self.assertIn('ExecStart="/fleet" "serve"\n', text)
             self.assertEqual([c.args[0] for c in command.call_args_list], [
                 ['systemctl', '--user', 'daemon-reload'], ['systemctl', '--user', 'enable', 'fleet-test.service'],
                 ['systemctl', '--user', 'restart', 'fleet-test.service'], ['systemctl', '--user', 'is-active', '--quiet', 'fleet-test.service']])

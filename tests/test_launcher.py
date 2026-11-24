@@ -1,6 +1,8 @@
 from copy import deepcopy
 from pathlib import Path
 import json
+import os
+import shlex
 import tempfile
 import unittest
 import subprocess
@@ -77,6 +79,17 @@ class RestartTests(unittest.TestCase):
             'omp', '--model', 'provider/model', '--thinking', 'medium',
             '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
             '@' + receipt['prompt']])
+
+    def test_injected_command_overrides_lane_path_without_changing_omp_argv(self):
+        with tempfile.TemporaryDirectory(prefix='.mount_fleet-test-', dir='/tmp') as mount:
+            root = Path(self.directory.name)
+            stable = root / 'stable tools'
+            stable.mkdir()
+            with patch.dict(os.environ, {'PATH': f'{mount}:{root / "missing"}:{stable}:/usr/bin'}):
+                receipt = self.launch()
+        send = next(args for args in self.calls if args[:2] == ('terminal', 'send'))
+        self.assertEqual(shlex.split(send[send.index('--text') + 1]), [
+            'cd', '--', self.slot, '&&', '/usr/bin/env', f'PATH={stable}:/usr/bin', *receipt['argv']])
 
     def test_manual_launch_does_not_require_review_bot_credentials(self):
         self.c['publication'] = {'mode': 'manual', 'release': 'none'}

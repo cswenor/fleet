@@ -8,6 +8,7 @@ import sys
 import time
 from .commands import run
 from . import launchd
+from .service_env import service_path
 
 
 def install(c, deliver=False, environment_file=None):
@@ -64,7 +65,7 @@ def _install(unit_name, arguments, directory, description, environment_file=None
         result = s.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
         return '"' + (result.replace('$', '$$') if expand_dollars else result) + '"'
     # Inherit only executable search paths, never the caller environment or provider tokens.
-    paths = os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')
+    paths = service_path()
     args = [executable] + arguments
     working_directory = directory.replace('%', '%%')
     if any(ch in working_directory for ch in ('\n', '\r', '\0')):

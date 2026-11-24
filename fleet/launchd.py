@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 from .commands import CommandError, run
-from .service_env import read_environment
+from .service_env import read_environment, service_path
 
 
 def target(unit):
@@ -46,7 +46,7 @@ def install(unit, arguments, directory, environment_file=None):
     if environment_file:
         argv = [sys.executable, str(Path(__file__).with_name('service_env.py').resolve()), environment_file, *argv]
     agent = {'Label': label, 'ProgramArguments': argv, 'WorkingDirectory': directory,
-             'EnvironmentVariables': {'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')},
+             'EnvironmentVariables': {'PATH': service_path()},
              'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False},
              'ThrottleInterval': 15, 'Umask': 0o077}
     agents = Path.home() / 'Library/LaunchAgents'
