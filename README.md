@@ -289,6 +289,8 @@ Keep that checkout at a stable path and install system PyYAML first. Service nam
 arguments by restarting only this supervisor, never its builders.
 Installation fails unless the user service is active; a successful unit-file
 write or `enable --now` alone is not startup proof.
+The installer keeps existing absolute PATH directories in order, except `/tmp/.mount_*` AppImage paths; if none remain, it uses `/usr/local/bin:/usr/bin:/bin`.
+An explicit `PATH` in `--environment-file` overrides the filtered service PATH; omit it to use the installer default.
 The service survives terminal exit; host reboot requires a user manager at boot
 (ask the host administrator to enable lingering if necessary).
 

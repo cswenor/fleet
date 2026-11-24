@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import sys
 import time
 import yaml
 from . import dispatcher, health, publication as publication_guard, snapshot, state
@@ -453,7 +454,9 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         session_dir.mkdir(mode=0o700)
         argv = ['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay),
                 '--session-dir', str(session_dir), '@' + str(prompt_path)]
-        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(argv)
+        command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(
+            [sys.executable, '-I', str(Path(__file__).with_name('service_env.py').resolve()),
+             '--exec-with-clean-path', *argv])
         handle = None
         terminal = None
         reason = 'no_ready_shell'

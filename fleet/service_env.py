@@ -1,9 +1,19 @@
-"""Internal launchd entry point: private literal environment, never a shell."""
+"""Service environment helpers and private literal launchd entry point."""
 import os
 from pathlib import Path
 import re
 import stat
 import sys
+
+
+def service_path():
+    """Keep existing absolute PATH directories outside ephemeral AppImage mounts."""
+    mount_prefix = os.path.realpath('/tmp') + '/.mount_'
+    return ':'.join(
+        path for path in os.environ.get('PATH', '').split(':')
+        if os.path.isabs(path) and not os.path.normpath(path).startswith('/tmp/.mount_')
+        and not os.path.realpath(path).startswith(mount_prefix) and os.path.isdir(path)
+    ) or '/usr/local/bin:/usr/bin:/bin'
 
 
 def read_environment(path):
@@ -38,6 +48,13 @@ def read_environment(path):
 
 
 def main():
+    if sys.argv[1:2] == ['--exec-with-clean-path'] and len(sys.argv) >= 3:
+        argv = sys.argv[2:]
+        try:
+            os.execvpe(argv[0], argv, {**os.environ, 'PATH': service_path()})
+        except OSError:
+            print('builder executable unavailable on filtered PATH', file=sys.stderr)
+            return 2
     # argv contains only a file path and executable/CLI arguments, never values.
     try:
         if len(sys.argv) < 4:

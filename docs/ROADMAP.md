@@ -113,6 +113,15 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-156 — Stable supervisor PATH at install
+
+Systemd and launchd installers keep existing absolute PATH directories in order,
+excluding `/tmp/.mount_*` AppImage paths, with `/usr/local/bin:/usr/bin:/bin` as
+the fallback. A transient systemd user service ran real Orca with the generated
+unit's PATH. Existing units require a Main-owned reinstall.
+Fresh builder launches apply the same filter to the lane shell's PATH only for
+OMP, keeping lane-only tools and preserving the lane shell and recorded OMP argv.
+
 ### TASK-155 — Read-only outages at inbox wait renewal
 
 `fleet wait --loop` retries batch-free `runtime_unavailable` only when no

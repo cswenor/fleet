@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 from .commands import CommandError, run
-from .service_env import read_environment
+from .service_env import read_environment, service_path
 
 
 def target(unit):
@@ -35,7 +35,8 @@ def install(unit, arguments, directory, environment_file=None):
     if environment_file:
         environment_file = str(Path(environment_file).expanduser().absolute())
         read_environment(environment_file)  # validate now AND at every process start
-    executable = shutil.which('fleet')
+    paths = service_path()
+    executable = shutil.which('fleet', path=paths)
     if executable is None:
         executable = str(Path.home() / '.local/bin/fleet')
         Path(executable).parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +47,7 @@ def install(unit, arguments, directory, environment_file=None):
     if environment_file:
         argv = [sys.executable, str(Path(__file__).with_name('service_env.py').resolve()), environment_file, *argv]
     agent = {'Label': label, 'ProgramArguments': argv, 'WorkingDirectory': directory,
-             'EnvironmentVariables': {'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')},
+             'EnvironmentVariables': {'PATH': paths},
              'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False},
              'ThrottleInterval': 15, 'Umask': 0o077}
     agents = Path.home() / 'Library/LaunchAgents'
