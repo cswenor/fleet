@@ -244,8 +244,37 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result['event'], 'runtime_unavailable')
         self.assertTrue(result['preCheckFailure'])
         self.assertEqual(len(result['rearmEvents']), request.call_count - 1)
-        self.assertGreaterEqual(self.now - 30, 600)
-        self.assertLessEqual(self.now - 30, 630)
+        self.assertEqual(self.now - 30, 600)
+        self.assertLess(request.call_args.kwargs['timeout'], 30)
+
+    def test_builder_retry_resumes_normal_filter_without_consuming_relays(self):
+        relay = {'id': 'relay', 'type': 'status', 'from_handle': CALLER,
+                 'body': '[fleet report] quiet'}
+        peeks = 0
+
+        def native(c, verb, *args, timeout):
+            nonlocal peeks
+            if verb == 'run-current':
+                if self.now == 0:
+                    self.advance(timeout)
+                    raise mailbox.MailboxError('orca_unavailable')
+                return self.bound()
+            if verb == 'inbox':
+                return {'messages': [], 'count': 0}
+            if '--peek' in args:
+                peeks += 1
+                if peeks == 1:
+                    return response(messages=[relay], count=1)
+            else:
+                self.assertEqual(peeks, 2)
+            return response()
+
+        with patch.dict(CONFIG, coordinator={'run': RUN, 'terminal': CALLER}), \
+                patch.object(mailbox, 'request', side_effect=native):
+            code, result = self.loop(wake_on='builder,question', ack_run=None)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(result['rearmEvents']), 1)
+        self.assertEqual(result['batches'][0]['deliveryId'], 'delivery_one')
 
     def test_loop_retries_diagnostic_outage_only_if_no_check_started(self):
         for mode, expected in [('builder', True), ('all', False)]:
