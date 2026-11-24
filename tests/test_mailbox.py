@@ -1,6 +1,10 @@
+from argparse import Namespace
+from contextlib import redirect_stdout
+from io import StringIO
 import os
 import json
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 from fleet import commands, mailbox
@@ -186,6 +190,87 @@ class RecoveryTests(unittest.TestCase):
     def bound(self):
         return {'run': {'id': RUN, 'coordinator_handle': CALLER}}
 
+    def loop(self, **options):
+        args = Namespace(save=None, bodies=None, summary=False, auto_ack=False,
+                         terminal=None, ack_run='prior', timeout=1, wake_on='all',
+                         interval=1, loop=True)
+        vars(args).update(options)
+        output = StringIO()
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.dict(os.environ, XDG_STATE_HOME=temp), redirect_stdout(output):
+            code = mailbox.run_wait(CONFIG, args)
+        return code, json.loads(output.getvalue())
+
+    def test_loop_retries_read_outage_without_repeating_ack(self):
+        verbs = []
+        bindings = 0
+
+        def native(c, verb, *args, timeout):
+            nonlocal bindings
+            verbs.append((verb, args))
+            if verb == 'run-current':
+                bindings += 1
+                if bindings in (1, 3):
+                    self.advance(timeout)
+                    raise mailbox.MailboxError('orca_unavailable')
+                return self.bound()
+            if verb == 'inbox':
+                return {'messages': [], 'count': 0}
+            if '--ack' in args:
+                return response(messages=[], count=0, deliveryId=None, timedOut=True)
+            return response()
+
+        with patch.object(mailbox, 'request', side_effect=native):
+            code, result = self.loop()
+        self.assertEqual(code, 0)
+        self.assertEqual(result['batches'][0]['deliveryId'], 'delivery_one')
+        checks = [args for verb, args in verbs if verb == 'check']
+        self.assertEqual(len(checks), 2)
+        self.assertEqual(checks[0][-2:], ('--ack', 'prior'))
+        self.assertNotIn('--ack', checks[1])
+        self.assertEqual([(e['event'], e['preCheckFailure']) for e in result['rearmEvents']],
+                         [('runtime_unavailable', True)] * 2)
+        self.assertEqual(self.now, 70)  # Healthy timeout resets the backoff.
+
+    def test_loop_exits_after_sustained_read_outage(self):
+        def native(c, verb, *args, timeout):
+            self.assertEqual(verb, 'run-current')
+            self.advance(timeout)
+            raise mailbox.MailboxError('orca_unavailable')
+
+        with patch.object(mailbox, 'request', side_effect=native) as request:
+            code, result = self.loop()
+        self.assertEqual(code, 2)
+        self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertTrue(result['preCheckFailure'])
+        self.assertEqual(len(result['rearmEvents']), request.call_count - 1)
+        self.assertGreaterEqual(self.now - 30, 600)
+        self.assertLessEqual(self.now - 30, 630)
+
+    def test_loop_retries_diagnostic_outage_only_if_no_check_started(self):
+        for mode, expected in [('builder', True), ('all', False)]:
+            with self.subTest(mode=mode):
+                self.now = 0
+
+                def native(c, verb, *args, timeout):
+                    if verb == 'run-current':
+                        return self.bound()
+                    if verb == 'inbox':
+                        self.advance(timeout)
+                        raise mailbox.MailboxError('orca_unavailable')
+                    if self.now:
+                        return response()
+                    if '--peek' in args:
+                        self.advance(1)
+                    return response(messages=[], count=0, deliveryId=None, timedOut=True)
+
+                with patch.object(mailbox, 'request', side_effect=native):
+                    code, result = self.loop(wake_on=mode, ack_run=None)
+                self.assertEqual(code, 2)
+                self.assertFalse(result['preCheckFailure'])
+                self.assertEqual(len(result.get('rearmEvents', [])), int(expected))
+                self.assertEqual(bool(result['batches']), expected)
+
     def test_read_outage_recovers_before_single_consuming_check(self):
         with patch.object(mailbox, 'request', side_effect=[
                 mailbox.MailboxError('orca_unavailable'), self.bound(), response(),
@@ -237,8 +322,10 @@ class RecoveryTests(unittest.TestCase):
                 return self.bound()
             raise mailbox.MailboxError('orca_unavailable')
         with patch.object(mailbox, 'request', side_effect=native) as request:
-            result = mailbox.wait(CONFIG, ack_run='prior')
+            code, result = self.loop()
+        self.assertEqual(code, 2)
         self.assertEqual(result['event'], 'runtime_unavailable')
+        self.assertFalse(result['preCheckFailure'])
         self.assertEqual(self.now, 30)
         self.assertEqual([call.args[1] for call in request.call_args_list].count('check'), 1)
 

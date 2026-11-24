@@ -113,6 +113,14 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-155 — Read-only outages at inbox wait renewal
+
+`fleet wait --loop` retries batch-free `runtime_unavailable` only when no
+consuming check was attempted in that iteration. It backs off from 5s to 30s,
+records retries in `rearmEvents`, and exits 2 after ten minutes of consecutive
+failures. An unsent ack may still be sent once; an ambiguous check or ack is
+never replayed. Shared deployment remains Main-owned.
+
 ### TASK-154 — Manual recovery after Orca blocks retirement
 
 A leading ✋ in an OMP title can look like a permission prompt to Orca.

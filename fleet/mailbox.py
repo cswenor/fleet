@@ -245,6 +245,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
     result = {'event': 'error', 'runId': run, 'terminal': caller or terminal,
               'batches': [], 'counts': dict.fromkeys(CLASSES, 0),
               'legacyTerminalInbox': {'readOnly': True}}
+    check_started = False
     try:
         if not math.isfinite(timeout) or not 1 <= timeout <= 1800:
             raise MailboxError('timeout_must_be_1_to_1800_seconds')
@@ -282,6 +283,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
             args.extend(['--ack', ack_run])
         if pending and ack_run and before_check:
             before_check()
+        check_started = pending
         try:
             received = (request(c, *args, timeout=(30 if builder else timeout + 30))
                         if pending else {'runId': run, 'messages': [], 'count': 0,
@@ -342,6 +344,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         result['error'] = str(e)
         if str(e) == 'runtime_unavailable':
             result['event'] = 'runtime_unavailable'
+            result['preCheckFailure'] = not check_started
             return result
     # Never consume legacy terminal mail: its native check has no replay/ack.
     # Even failures carry diagnostics, without discarding an already fetched Run batch.
@@ -363,6 +366,7 @@ def wait(c, timeout=900, ack_run=None, terminal=None, wake_on='all', interval=3,
         except MailboxError as e:
             result['legacyTerminalInbox']['error'] = str(e)
             if str(e) == 'runtime_unavailable':
+                result['preCheckFailure'] = not check_started and result['event'] == 'timeout'
                 result.update(event='runtime_unavailable', error=str(e))
             else:
                 result.update(event='error', error=result.get('error', 'terminal_inbox_unavailable'))
@@ -451,6 +455,8 @@ def run_wait(c, args):
     with consumer(c, args.terminal) as receipt:
         ack_run = receipt.pending(args.ack_run, args.auto_ack)
         recoveries = []
+        outage_since = None
+        backoff = 5
         while True:
             result = wait(c, args.timeout, ack_run, args.terminal, args.wake_on, args.interval,
                           before_check=receipt.consume)
@@ -463,10 +469,27 @@ def run_wait(c, args):
                     result['saveError'] = str(error)
                     print(json.dumps(result), flush=True)
                     return 2
-            if result.get('batches') or not args.loop or result['event'] not in ('timeout', 'rearm'):
+            if result.get('batches') or not args.loop:
                 break
+            event = result['event']
+            if event == 'runtime_unavailable' and result.get('preCheckFailure') is True:
+                now = time.monotonic()
+                if outage_since is None:
+                    outage_since = now
+                remaining = 600 - (now - outage_since)
+                if remaining <= 0:
+                    break
+                recoveries.append({key: value for key, value in result.items()
+                                   if key != 'rearmEvents'})
+                # No consuming check was attempted; the original ack is still unsent.
+                time.sleep(min(backoff, remaining))
+                backoff = min(30, backoff * 2)
+                continue
+            if event not in ('timeout', 'rearm'):
+                break
+            outage_since, backoff = None, 5
             ack_run = None
-            if result['event'] == 'rearm':
+            if event == 'rearm':
                 recoveries.append({key: value for key, value in result.items()
                                    if key != 'rearmEvents'})
         print(summary(result, bodies=bodies, legacy_history=args.legacy_history)
