@@ -6,12 +6,12 @@ import json
 import os
 import re
 import shlex
+import sys
 import time
 import yaml
 from . import dispatcher, health, publication as publication_guard, snapshot, state
 from .commands import CommandError, gh, orca, run
 from .config import model_allowed
-from .service_env import service_path
 
 
 def resolve_model(c, ref, *, model=None, thinking=None, item=None):
@@ -455,7 +455,8 @@ Auto-merge armed or queued is not completion. Keep watch-pr armed and process ev
         argv = ['omp', '--model', b['model'], '--thinking', b['thinking'], '--config', str(overlay),
                 '--session-dir', str(session_dir), '@' + str(prompt_path)]
         command = 'cd -- ' + shlex.quote(w['path']) + ' && ' + shlex.join(
-            ['/usr/bin/env', 'PATH=' + service_path(), *argv])
+            [sys.executable, '-I', str(Path(__file__).with_name('service_env.py').resolve()),
+             '--exec-with-clean-path', *argv])
         handle = None
         terminal = None
         reason = 'no_ready_shell'

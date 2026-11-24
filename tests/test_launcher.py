@@ -1,8 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
 import json
-import os
-import shlex
 import tempfile
 import unittest
 import subprocess
@@ -80,16 +78,21 @@ class RestartTests(unittest.TestCase):
             '--config', receipt['overlay'], '--session-dir', receipt['session_dir'],
             '@' + receipt['prompt']])
 
-    def test_injected_command_overrides_lane_path_without_changing_omp_argv(self):
+    def test_injected_command_uses_filtered_lane_path(self):
         with tempfile.TemporaryDirectory(prefix='.mount_fleet-test-', dir='/tmp') as mount:
             root = Path(self.directory.name)
-            stable = root / 'stable tools'
+            stable = root / 'lane tools'
             stable.mkdir()
-            with patch.dict(os.environ, {'PATH': f'{mount}:{root / "missing"}:{stable}:/usr/bin'}):
-                receipt = self.launch()
-        send = next(args for args in self.calls if args[:2] == ('terminal', 'send'))
-        self.assertEqual(shlex.split(send[send.index('--text') + 1]), [
-            'cd', '--', self.slot, '&&', '/usr/bin/env', f'PATH={stable}:/usr/bin', *receipt['argv']])
+            omp = stable / 'omp'
+            omp.write_text('#!/usr/bin/env sh\nprintf "%s\\n" "$PATH" "$1"\n')
+            omp.chmod(0o755)
+            self.launch()
+            send = next(args for args in self.calls if args[:2] == ('terminal', 'send'))
+            command = send[send.index('--text') + 1]
+            paths = f'{mount}:{root / "missing"}:.:{stable}:/usr/bin'
+            result = subprocess.run(['/bin/sh', '-c', command], env={'PATH': paths},
+                                    check=True, capture_output=True, text=True)
+            self.assertEqual(result.stdout.splitlines(), [f'{stable}:/usr/bin', '--model'])
 
     def test_manual_launch_does_not_require_review_bot_credentials(self):
         self.c['publication'] = {'mode': 'manual', 'release': 'none'}

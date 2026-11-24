@@ -7,10 +7,10 @@ import sys
 
 
 def service_path():
-    """Keep usable PATH directories without retaining ephemeral AppImage mounts."""
+    """Keep existing absolute PATH directories outside ephemeral AppImage mounts."""
     return ':'.join(
         path for path in os.environ.get('PATH', '').split(':')
-        if path and not path.startswith('/tmp/.mount_') and os.path.isdir(path)
+        if os.path.isabs(path) and not path.startswith('/tmp/.mount_') and os.path.isdir(path)
     ) or '/usr/local/bin:/usr/bin:/bin'
 
 
@@ -46,6 +46,13 @@ def read_environment(path):
 
 
 def main():
+    if sys.argv[1:2] == ['--exec-with-clean-path'] and len(sys.argv) >= 3:
+        argv = sys.argv[2:]
+        try:
+            os.execvpe(argv[0], argv, {**os.environ, 'PATH': service_path()})
+        except OSError:
+            print('builder executable unavailable on filtered PATH', file=sys.stderr)
+            return 2
     # argv contains only a file path and executable/CLI arguments, never values.
     try:
         if len(sys.argv) < 4:

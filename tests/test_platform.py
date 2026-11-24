@@ -228,7 +228,7 @@ class PortabilityTests(unittest.TestCase):
             second.mkdir()
             mounted_bin = Path(mount) / 'usr/sbin'
             mounted_bin.mkdir(parents=True)
-            paths = f'{first}:{mounted_bin}:{root / "missing"}:{second}'
+            paths = f'{first}:{mounted_bin}:{root / "missing"}:.:{second}'
             with patch.object(service.sys, 'platform', 'linux'), \
                     patch.dict(os.environ, {'XDG_CONFIG_HOME': tmp, 'PATH': paths}), \
                     patch.object(service.shutil, 'which', return_value='/fleet'), patch.object(service, 'run') as command:
