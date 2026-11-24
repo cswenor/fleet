@@ -89,10 +89,11 @@ class RestartTests(unittest.TestCase):
             self.launch()
             send = next(args for args in self.calls if args[:2] == ('terminal', 'send'))
             command = send[send.index('--text') + 1]
-            paths = f'{mount}:{root / "missing"}:.:{stable}:/usr/bin'
+            paths = f'{mount}:{root / "missing"}:.:{stable}:/usr/bin:/bin'
             result = subprocess.run(['/bin/sh', '-c', command], env={'PATH': paths},
-                                    check=True, capture_output=True, text=True)
-            self.assertEqual(result.stdout.splitlines(), [f'{stable}:/usr/bin', '--model'])
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), [f'{stable}:/usr/bin:/bin', '--model'])
 
     def test_manual_launch_does_not_require_review_bot_credentials(self):
         self.c['publication'] = {'mode': 'manual', 'release': 'none'}
