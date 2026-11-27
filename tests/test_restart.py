@@ -524,6 +524,8 @@ class RetirementTests(unittest.TestCase):
                 ('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
                 ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
                 ('TASK-1 brief:\n\nStatus: waiting for Main to decide.', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief: pending', '2026-01-01T00:00:01Z'),
+                ('Previous brief:\n```\nTASK-1 brief: implement next piece\n```', '2026-01-01T00:00:01Z'),
                 ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
                 ('TASK-1 brief pending', '2026-01-01T00:00:01Z'),
                 ('Reminder: use `TASK-1 brief:` once the next piece is decided', '2026-01-01T00:00:01Z'),
@@ -534,8 +536,8 @@ class RetirementTests(unittest.TestCase):
                 self.refused(
                     r'same-task restart needs a concrete next-piece note on TASK-1 posted after '
                     r'PR #1 merged at 2026-01-01T00:00:00Z \(https://example/pr/1\); '
-                    r'post a Pad comment containing "TASK-1 handoff:" or "TASK-1 brief:" '
-                    r'followed by the next piece, then rerun the same command')
+                    r'post a Pad comment whose first line is "TASK-1 handoff: <next piece>" or '
+                    r'"TASK-1 brief: <next piece>", then rerun the same command')
 
     def test_same_ref_launch_timestamp_must_be_valid(self):
         for launched in (None, '2026-01-01', True, float('nan'), float('inf')):
