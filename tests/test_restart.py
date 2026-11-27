@@ -493,6 +493,7 @@ class RetirementTests(unittest.TestCase):
     def test_same_ref_new_publication_and_concrete_handoff_allow_restart(self):
         self.same_ref()
         self.item = {'fields': {'status': 'in-progress'}}
+        self.comments[0]['body'] = 'TASK-1 handoff: publish the TASK-1 brief.'
         result = self.run_restart()
         self.assertEqual(result['retirement']['completion']['handoff'], 'next-piece')
         self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
@@ -523,6 +524,7 @@ class RetirementTests(unittest.TestCase):
                 ('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
                 ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
                 ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief pending', '2026-01-01T00:00:01Z'),
                 ('TASK-10 brief: implement next piece', '2026-01-01T00:00:01Z')):
             with self.subTest(body=body, created=created):
                 self.same_ref()
