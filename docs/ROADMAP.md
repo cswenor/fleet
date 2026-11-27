@@ -113,6 +113,14 @@ PLAN-2685. No product code or shared-runtime restart was performed.
 
 ## Remaining work and concrete acceptance
 
+### TASK-158 — Same-task restart accepts the next brief
+
+After a PR carrying the task ref merges during the retiring launch, Main can
+post `TASK-N brief:` or `TASK-N handoff:` followed by the next piece on that
+Pad item. A missing or stale note now reports the PR URL, merge time, and the
+comment to post before retrying. Builder FRESH-READY and retirement guards are
+unchanged; shared CLI deployment is Main-owned.
+
 ### TASK-156 — Stable supervisor PATH at install
 
 Systemd and launchd installers keep existing absolute PATH directories in order,

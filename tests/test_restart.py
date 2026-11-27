@@ -493,6 +493,15 @@ class RetirementTests(unittest.TestCase):
     def test_same_ref_new_publication_and_concrete_handoff_allow_restart(self):
         self.same_ref()
         self.item = {'fields': {'status': 'in-progress'}}
+        self.comments[0]['body'] = 'TASK-1 handoff: publish the TASK-1 brief.'
+        result = self.run_restart()
+        self.assertEqual(result['retirement']['completion']['handoff'], 'next-piece')
+        self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
+
+    def test_same_ref_new_publication_and_concrete_brief_allow_restart(self):
+        self.same_ref()
+        self.item = {'fields': {'status': 'in-progress'}}
+        self.comments[0]['body'] = 'Pad-Ref: TASK-1 Main bRiEf: implement the next CLI piece'
         result = self.run_restart()
         self.assertEqual(result['retirement']['completion']['handoff'], 'next-piece')
         self.assertEqual(self.sent[0][-3:], ('--text', '/exit', '--enter'))
@@ -508,15 +517,29 @@ class RetirementTests(unittest.TestCase):
                 self.same_ref(launched)
                 self.refused('merged after this launch')
 
-    def test_same_ref_old_or_marker_only_handoff_refuses(self):
+    def test_same_ref_old_or_marker_only_note_refuses(self):
         for body, created in (
-                ('TASK-1 handoff: implement next piece', '2025-12-31T23:59:59Z'),
+                ('TASK-1 brief: implement next piece', '2025-12-31T23:59:59Z'),
                 ('TASK-1 handoff: implement next piece', '2026-01-01T00:00:00Z'),
-                ('TASK-1 handoff:', '2026-01-01T00:00:01Z')):
+                ('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
+                ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief:\n\nStatus: waiting for Main to decide.', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief:\nWaiting on handoff.', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief:\u2028implement next piece', '2026-01-01T00:00:01Z'),
+                ('TASK-10 brief: update docs\nTASK-1 handoff: update CLI', '2026-01-01T00:00:01Z'),
+                ('Previous brief:\n```\nTASK-1 brief: implement next piece\n```', '2026-01-01T00:00:01Z'),
+                ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief pending', '2026-01-01T00:00:01Z'),
+                ('Reminder: use `TASK-1 brief:` once the next piece is decided', '2026-01-01T00:00:01Z'),
+                ('TASK-10 brief: implement next piece', '2026-01-01T00:00:01Z')):
             with self.subTest(body=body, created=created):
                 self.same_ref()
                 self.comments[0].update(body=body, created_at=created)
-                self.refused('neither Pad done nor handed off')
+                self.refused(
+                    r'same-task restart needs a concrete next-piece note on TASK-1 posted after '
+                    r'PR #1 merged at 2026-01-01T00:00:00Z \(https://example/pr/1\); '
+                    r'post a Pad comment whose first line is "TASK-1 handoff: <next piece>" or '
+                    r'"TASK-1 brief: <next piece>", then rerun the same command')
 
     def test_same_ref_launch_timestamp_must_be_valid(self):
         for launched in (None, '2026-01-01', True, float('nan'), float('inf')):
