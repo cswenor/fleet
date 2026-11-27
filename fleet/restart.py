@@ -271,17 +271,21 @@ def _investigation_completion(c, finished, record, evidence=None):
 
 def _handoff_after(c, ref, finished, boundaries, *, concrete, allow_brief=False):
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
-    marker = re.compile(r'\b(?:handoff|(?:Main[ \t]+)?brief)\b' if allow_brief else r'\bhandoff\b', re.I)
+    handoff = re.compile(r'\bhandoff\b', re.I)
+    brief = re.compile(pattern.pattern + r'[ \t\r\n:]+(?i:(?:Main[ \t]+)?brief)\b') if allow_brief else None
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments',
                          ref, '--format', 'json'], c['root'])
     for comment in comments:
         body = comment.get('body', '')
-        if not (pattern.search(body) and marker.search(body)):
-            continue
-        if concrete:
-            tail = pattern.split(body, maxsplit=1)[1]
-            tail = marker.sub('', tail)
-            if not (any(ch.isalnum() for ch in tail) if allow_brief else tail.strip(' \t\r\n:;,.!-')):
+        heading = brief.search(body) if brief else None
+        if heading:
+            if not any(ch.isalnum() for ch in body[heading.end():]):
+                continue
+        else:
+            task_ref = pattern.search(body)
+            if not (task_ref and handoff.search(body)):
+                continue
+            if concrete and not handoff.sub('', body[task_ref.end():]).strip(' \t\r\n:;,.!-'):
                 continue
         for boundary, proof in boundaries:
             if _timestamp(comment.get('created_at')) > boundary:

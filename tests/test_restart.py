@@ -521,7 +521,9 @@ class RetirementTests(unittest.TestCase):
                 ('TASK-1 brief: implement next piece', '2025-12-31T23:59:59Z'),
                 ('TASK-1 handoff: implement next piece', '2026-01-01T00:00:00Z'),
                 ('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
-                ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z')):
+                ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
+                ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
+                ('TASK-10 brief: implement next piece', '2026-01-01T00:00:01Z')):
             with self.subTest(body=body, created=created):
                 self.same_ref()
                 self.comments[0].update(body=body, created_at=created)
