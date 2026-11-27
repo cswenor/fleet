@@ -523,6 +523,7 @@ class RetirementTests(unittest.TestCase):
                 ('TASK-1 handoff: implement next piece', '2026-01-01T00:00:00Z'),
                 ('TASK-1 handoff:', '2026-01-01T00:00:01Z'),
                 ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
+                ('TASK-1 brief:\n\nStatus: waiting for Main to decide.', '2026-01-01T00:00:01Z'),
                 ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
                 ('TASK-1 brief pending', '2026-01-01T00:00:01Z'),
                 ('Reminder: use `TASK-1 brief:` once the next piece is decided', '2026-01-01T00:00:01Z'),
