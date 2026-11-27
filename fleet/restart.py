@@ -272,7 +272,8 @@ def _investigation_completion(c, finished, record, evidence=None):
 def _handoff_after(c, ref, finished, boundaries, *, concrete, allow_brief=False):
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
     handoff = re.compile(r'\bhandoff\b', re.I)
-    brief = (re.compile(pattern.pattern + r'[ \t\r\n:]+(?i:(?:Main[ \t]+)?brief)[ \t]*:')
+    brief = (re.compile(r'^[ \t]*(?i:Pad-Ref:[ \t]*)?' + pattern.pattern
+                        + r'[ \t]+(?i:(?:Main[ \t]+)?brief)[ \t]*:', re.M)
              if allow_brief else None)
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments',
                          ref, '--format', 'json'], c['root'])

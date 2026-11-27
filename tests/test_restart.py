@@ -525,6 +525,7 @@ class RetirementTests(unittest.TestCase):
                 ('Pad-Ref: TASK-1 Main brief:', '2026-01-01T00:00:01Z'),
                 ('TASK-1: PR merged; brief pending.', '2026-01-01T00:00:01Z'),
                 ('TASK-1 brief pending', '2026-01-01T00:00:01Z'),
+                ('Reminder: use `TASK-1 brief:` once the next piece is decided', '2026-01-01T00:00:01Z'),
                 ('TASK-10 brief: implement next piece', '2026-01-01T00:00:01Z')):
             with self.subTest(body=body, created=created):
                 self.same_ref()
