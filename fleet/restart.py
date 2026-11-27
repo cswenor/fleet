@@ -272,16 +272,16 @@ def _investigation_completion(c, finished, record, evidence=None):
 def _handoff_after(c, ref, finished, boundaries, *, concrete, allow_brief=False):
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
     handoff = re.compile(r'\bhandoff\b', re.I)
-    brief = (re.compile(r'\A[ \t]*(?i:Pad-Ref:[ \t]*)?' + re.escape(finished)
-                        + r'[ \t]+(?i:(?:Main[ \t]+)?brief):([^\r\n]*)')
+    brief = (re.compile(r'[ \t]*(?:Pad-Ref:[ \t]*)?([A-Z]+-\d+)'
+                        r'[ \t]+(?:Main[ \t]+)?brief:(.*)', re.I)
              if allow_brief else None)
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments',
                          ref, '--format', 'json'], c['root'])
     for comment in comments:
         body = comment.get('body', '')
-        declaration = brief.match(body) if brief else None
+        declaration = brief.fullmatch(next(iter(body.splitlines()), '')) if brief else None
         if declaration:
-            if not declaration[1].strip():
+            if declaration[1] != finished or not declaration[2].strip():
                 continue
         else:
             task_ref = pattern.search(body)
