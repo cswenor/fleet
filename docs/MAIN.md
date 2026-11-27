@@ -932,9 +932,10 @@ For OLD != NEXT, `restart` requires an explicit park completion receipt, or a
 merged PR carrying OLD and Pad OLD done or a post-publication handoff on NEXT.
 For OLD == NEXT, a fully recorded valid park for the current launch also qualifies.
 Otherwise require a PR carrying that ref merged strictly after the retiring
-launch timestamp, then a Pad comment on that ref strictly after the merge: start
-with `TASK-N handoff:` or `TASK-N brief:` and the concrete next piece on the same line. Pad done alone never suffices.
-Fleet checks the brief's format and timing; Main owns the content of the next-piece declaration.
+launch timestamp, then a concrete handoff on that ref strictly after the merge.
+Alternatively, start the comment with `TASK-N brief:` followed by the next piece
+on that same line. Fleet checks the brief's format and timing; Main owns the
+content of the declaration. Pad done alone never suffices.
 
 For an investigation finished without a PR, Main may instead run:
 
