@@ -934,6 +934,7 @@ For OLD == NEXT, a fully recorded valid park for the current launch also qualifi
 Otherwise require a PR carrying that ref merged strictly after the retiring
 launch timestamp, then a Pad comment on that ref strictly after the merge: start
 with `TASK-N handoff:` or `TASK-N brief:` and the concrete next piece on the same line. Pad done alone never suffices.
+Fleet checks the brief's format and timing; Main owns the content of the next-piece declaration.
 
 For an investigation finished without a PR, Main may instead run:
 
