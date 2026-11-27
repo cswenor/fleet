@@ -932,8 +932,8 @@ For OLD != NEXT, `restart` requires an explicit park completion receipt, or a
 merged PR carrying OLD and Pad OLD done or a post-publication handoff on NEXT.
 For OLD == NEXT, a fully recorded valid park for the current launch also qualifies.
 Otherwise require a PR carrying that ref merged strictly after the retiring
-launch timestamp, then a handoff on the same ref strictly after the merge with a
-non-empty next-piece description after the ref; Pad done alone never suffices.
+launch timestamp, then a Pad comment on that ref strictly after the merge: use
+`TASK-N handoff:` or `TASK-N brief:` followed by the concrete next piece. Pad done alone never suffices.
 
 For an investigation finished without a PR, Main may instead run:
 

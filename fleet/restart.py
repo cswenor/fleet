@@ -269,18 +269,19 @@ def _investigation_completion(c, finished, record, evidence=None):
             'result': result}
 
 
-def _handoff_after(c, ref, finished, boundaries, *, concrete):
+def _handoff_after(c, ref, finished, boundaries, *, concrete, allow_brief=False):
     pattern = re.compile(r'(?<![\w-])' + re.escape(finished) + r'(?![\w-])')
+    marker = re.compile(r'\b(?:handoff|(?:Main[ \t]+)?brief)\b' if allow_brief else r'\bhandoff\b', re.I)
     comments = json_run(['pad', '--workspace', c['pad_workspace'], 'item', 'comments',
                          ref, '--format', 'json'], c['root'])
     for comment in comments:
         body = comment.get('body', '')
-        if not (pattern.search(body) and re.search(r'\bhandoff\b', body, re.I)):
+        if not (pattern.search(body) and marker.search(body)):
             continue
         if concrete:
             tail = pattern.split(body, maxsplit=1)[1]
-            tail = re.sub(r'\bhandoff\b', '', tail, flags=re.I).strip(' \t\r\n:;,.!-')
-            if not tail:
+            tail = marker.sub('', tail)
+            if not (any(ch.isalnum() for ch in tail) if allow_brief else tail.strip(' \t\r\n:;,.!-')):
                 continue
         for boundary, proof in boundaries:
             if _timestamp(comment.get('created_at')) > boundary:
@@ -335,11 +336,17 @@ def _completion(c, ref, finished, record, *, require_handoff=False):
         return {'finished_ref': finished, 'pr': prs[0]['url'], 'pad_status': 'done'}
     handoff = _handoff_after(c, ref, finished, [
         (_timestamp(pr['mergedAt']), {'finished_ref': finished, 'pr': pr['url']})
-        for pr in prs], concrete=same_ref or require_handoff)
+        for pr in prs], concrete=same_ref or require_handoff, allow_brief=same_ref and not require_handoff)
     if handoff:
         return handoff
     if require_handoff:
         raise ValueError(f'ready report requires a concrete handoff on {ref} after the new merge')
+    if same_ref:
+        pr = max(prs, key=lambda pr: _timestamp(pr['mergedAt']))
+        raise ValueError(f"same-task restart needs a concrete next-piece note on {ref} posted after "
+                         f"PR #{pr['number']} merged at {pr['mergedAt']} ({pr['url']}); post a Pad comment "
+                         f'containing "{ref} handoff:" or "{ref} brief:" followed by the next piece, '
+                         'then rerun the same command.')
     raise ValueError('finished task is neither Pad done nor handed off after publication on next task')
 
 
